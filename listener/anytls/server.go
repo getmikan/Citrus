@@ -266,10 +266,14 @@ func (l *Listener) HandleConn(conn net.Conn, h *sing.ListenerHandler) {
 	session := session.NewServerSession(conn, func(stream *session.Stream) {
 		defer stream.Close()
 
+		// a stream that never sends its destination must not hold its
+		// goroutine forever
+		setHandshakeDeadline(stream)
 		destination, err := M.SocksaddrSerializer.ReadAddrPort(stream)
 		if err != nil {
 			return
 		}
+		clearHandshakeDeadline(stream)
 
 		// It seems that mihomo does not implement a connection error reporting mechanism, so we report success directly.
 		err = stream.HandshakeSuccess()

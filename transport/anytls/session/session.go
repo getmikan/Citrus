@@ -19,6 +19,15 @@ import (
 	"github.com/metacubex/mihomo/transport/anytls/util"
 )
 
+// MaxServerStreams caps the streams one client session may have open on a
+// server. Every stream costs a goroutine, which first waits for the stream's
+// destination, so without a cap one authenticated client could open streams
+// until the process runs out of memory. A SYN beyond it is answered with a
+// FIN. Clients open one stream per proxied connection, and reference clients
+// keep one stream per session, so 1024 is far above real use. A variable only
+// so that tests can lower it.
+var MaxServerStreams = 1024
+
 type Session struct {
 	conn     net.Conn
 	connLock sync.Mutex
@@ -218,7 +227,9 @@ func (s *Session) recvLoop() error {
 					return nil
 				}
 				s.streamLock.Lock()
-				if _, ok := s.streams[sid]; !ok {
+				_, exists := s.streams[sid]
+				refuse := !exists && len(s.streams) >= MaxServerStreams
+				if !exists && !refuse {
 					stream := newStream(sid, s)
 					s.streams[sid] = stream
 					go func() {
@@ -230,6 +241,21 @@ func (s *Session) recvLoop() error {
 					}()
 				}
 				s.streamLock.Unlock()
+				if refuse {
+					// too many open streams: refuse this one without
+					// allocating anything for it, as a failed handshake (v2
+					// clients wait for a SYNACK) followed by a FIN
+					if s.peerVersion.Load() >= 2 {
+						f := newFrame(cmdSYNACK, sid)
+						f.data = []byte("too many streams")
+						if _, err := s.writeControlFrame(f); err != nil {
+							return err
+						}
+					}
+					if _, err := s.writeControlFrame(newFrame(cmdFIN, sid)); err != nil {
+						return err
+					}
+				}
 			case cmdSYNACK: // should be client only
 				s.synDoneLock.Lock()
 				if s.synDone != nil {

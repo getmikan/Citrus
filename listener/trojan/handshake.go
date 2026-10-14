@@ -18,6 +18,14 @@ import (
 // is never affected. A variable only so that tests can shorten it.
 var handshakeTimeout = 15 * time.Second
 
+// maxMuxStreams caps the streams one Trojan mux (smux) session may have open
+// at once; a stream beyond it is closed as soon as it is accepted. Every
+// stream costs a goroutine, so without a cap one authenticated client could
+// open streams until the process runs out of memory. 1024 is far above what
+// one client multiplexes (a phone with a few hundred connections). A variable
+// only so that tests can lower it.
+var maxMuxStreams = 1024
+
 // setHandshakeDeadline arms the pre-authentication read deadline. Every conn
 // that reaches the Trojan layer supports it: TCP, TLS, REALITY, ShadowTLS,
 // ResTLS, JLS, ws (wrapped in N.NewDeadlineConn) and gun (whose deadline
