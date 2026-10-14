@@ -52,7 +52,37 @@ func safeWrite(path string, buf []byte) error {
 		}
 	}
 
-	return os.WriteFile(path, buf, fileMode)
+	// Write a new file next to the target and rename it into place. Rename
+	// replaces a symlink at path instead of writing through it, and readers
+	// never see a half-written file.
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		if tmpName != "" {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	// os.CreateTemp creates the file with mode 0600 (fileMode).
+	if _, err = tmp.Write(buf); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tmpName, path); err != nil {
+		// Windows refuses to replace a file that another handle holds open.
+		// Fall back to writing in place, but only into a regular file.
+		if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode().IsRegular() {
+			return os.WriteFile(path, buf, fileMode)
+		}
+		return err
+	}
+	tmpName = ""
+	return nil
 }
 
 type FileVehicle struct {

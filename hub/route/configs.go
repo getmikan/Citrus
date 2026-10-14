@@ -3,6 +3,7 @@ package route
 import (
 	"net/netip"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/component/dialer"
@@ -134,6 +135,7 @@ type tuicServerSchema struct {
 
 func getConfigs(w http.ResponseWriter, r *http.Request) {
 	general := executor.GetGeneral()
+	redactGeneral(general)
 	render.JSON(w, r, general)
 }
 
@@ -462,8 +464,46 @@ func updateConfigs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var applyController func()
+	if reload := loadControllerReloader(); reload != nil {
+		// Checked before anything is applied: a controller the new
+		// configuration would refuse to start fails the whole request.
+		if applyController, err = reload(cfg); err != nil {
+			eventbus.PublishConfigReload(err)
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, newError(err.Error()))
+			return
+		}
+	}
+
 	executor.ApplyConfig(cfg, force)
 	render.NoContent(w, r)
+	if applyController != nil {
+		// The response goes out first: a changed controller restarts its
+		// listeners, and the connection of this request with them.
+		_ = http.NewResponseController(w).Flush()
+		applyController()
+	}
+}
+
+// ControllerReloader checks the controller part of a parsed configuration and
+// returns the function that applies it.
+type ControllerReloader func(cfg *config.Config) (apply func(), err error)
+
+var controllerReloader atomic.Pointer[ControllerReloader]
+
+// SetControllerReloader sets how PUT /configs applies the controller settings
+// (secret, addresses, TLS, CORS); without it, as before, PUT /configs leaves
+// the controller as it is.
+func SetControllerReloader(f ControllerReloader) {
+	controllerReloader.Store(&f)
+}
+
+func loadControllerReloader() ControllerReloader {
+	if f := controllerReloader.Load(); f != nil {
+		return *f
+	}
+	return nil
 }
 
 func updateGeoDatabases(w http.ResponseWriter, r *http.Request) {

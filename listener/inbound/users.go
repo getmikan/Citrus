@@ -145,12 +145,20 @@ type authStoreUsers struct {
 	store *inbounduser.AuthStore // nil without users
 }
 
-func newAuthStoreUsers(name string, users AuthUsers) authStoreUsers {
+// newAuthStoreUsers rejects a user with an empty username: the empty name
+// means "no user" to IN-USER, the user limits and the session binding, so
+// such an account could not be limited or revoked.
+func newAuthStoreUsers(name string, users AuthUsers) (authStoreUsers, error) {
+	for i, user := range users {
+		if user.Username == "" {
+			return authStoreUsers{}, fmt.Errorf("%w: users[%d]: empty username", C.ErrInvalidInboundUser, i)
+		}
+	}
 	a := authStoreUsers{name: name, users: users}
 	if len(users) > 0 {
 		a.store = inbounduser.NewAuthStore(authUsers(users))
 	}
-	return a
+	return a, nil
 }
 
 func (a *authStoreUsers) authStore() auth.AuthStore {

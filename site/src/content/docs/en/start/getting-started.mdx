@@ -75,6 +75,8 @@ citrus -d ~/.config/citrus
 | `-f <file>` | A specific config file. |
 | `-t` | Test the config and exit. |
 | `-v` | Print the version. |
+| `-secret-file <file>` | Read the controller `secret` override from a file (`CLASH_OVERRIDE_SECRET_FILE`); unlike `-secret`, it does not show in the process list. |
+| `-age-secret-key-file <file>` | Read the age key that decrypts the config from a file (`CLASH_AGE_SECRET_KEY_FILE`). `citrus age decrypt` and `citrus age convert` take the key as `@file` too. |
 
 Test a config before a restart:
 
@@ -96,7 +98,7 @@ For several instances there is `citrus@.service`: `citrus@work` reads `/etc/citr
 
 ## Dashboard
 
-Turn on the controller API in the config (`external-controller: 127.0.0.1:9090`) and connect a compatible dashboard such as [MetaCubeXD](https://github.com/MetaCubeX/metacubexd).
+Turn on the controller API in the config (`external-controller: 127.0.0.1:9090` and a `secret`) and connect a compatible dashboard such as [MetaCubeXD](https://github.com/MetaCubeX/metacubexd). A controller without a secret refuses browser requests from other sites and does not start on a network address, see [Controller security](/Citrus/en/start/controller/).
 
 ## Build from source
 

@@ -9,6 +9,11 @@ mixed-port: 10801 # HTTP(S) 和 SOCKS 代理混合端口
 allow-lan: true # 允许局域网连接
 bind-address: "*" # 绑定 IP 地址，仅作用于 allow-lan 为 true，'*'表示所有地址
 authentication: # http,socks 入口的验证用户名，密码
+  # HTTP (and mixed) check the credentials of every request on a keep-alive
+  # connection: a request without them gets 407, a wrong password gets 403 and
+  # the connection is closed. Without authentication a Proxy-Authorization
+  # header does not set the user (IN-USER). A request header over 64 KiB gets
+  # 431 and the connection is closed.
   - "username:password"
 skip-auth-prefixes: # 设置跳过验证的 IP 段
   - 127.0.0.1/8
@@ -18,6 +23,12 @@ lan-allowed-ips: # 允许连接的 IP 地址段，仅作用于 allow-lan 为 tru
   - ::/0
 lan-disallowed-ips: # 禁止连接的 IP 地址段，黑名单优先级高于白名单，默认值为空
   - 192.168.0.3/32
+# Every config reload (PUT /configs with or without force=true, SIGHUP) applies
+# allow-lan, bind-address, skip-auth-prefixes, lan-allowed-ips,
+# lan-disallowed-ips, ss-config and tuic-server of the new config. Without
+# force=true the built-in port/socks-port/redir-port/tproxy-port/mixed-port
+# listeners keep the ports they run on (they are still rebound when allow-lan
+# or bind-address changed).
 
 #  find-process-mode has 3 values:always, strict, off
 #  - always, 开启，强制匹配所有进程
@@ -75,7 +86,22 @@ tls:
 
 external-controller: 0.0.0.0:9093 # RESTful API 监听地址
 external-controller-tls: 0.0.0.0:9443 # RESTful API HTTPS 监听地址，需要配置 tls 部分配置文件
-# secret: "123456" # `Authorization:Bearer ${secret}`
+secret: "123456" # `Authorization:Bearer ${secret}`
+# The controller refuses to start external-controller or external-controller-tls
+# on a non-loopback address (0.0.0.0, :9090, a LAN address) while secret is empty:
+# anyone who reaches it would get the whole API. Loopback addresses
+# (127.0.0.1, [::1], localhost), external-controller-unix and
+# external-controller-pipe work without a secret. external-controller-tls also
+# starts without a secret when tls.client-auth-type is require-and-verify (or
+# client-auth-cert is set): the client certificate is the credential.
+# A tcp/tls controller without a secret only answers requests whose Host is an
+# IP address or localhost, and refuses browser requests from other origins
+# (Origin header) unless they are listed literally in
+# external-controller-cors.allow-origins ("*" does not count).
+# PUT /configs applies a changed secret, address, TLS or CORS setting: the
+# controller listeners restart and open websocket streams are closed.
+# 内核拒绝在非回环地址上无 secret 启动 external-controller / external-controller-tls。
+# external-controller-allow-insecure: false # true: accept a non-loopback controller without a secret (not recommended); env CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true or -ext-ctl-allow-insecure
 
 # RESTful API CORS标头配置
 external-controller-cors:
@@ -155,6 +181,10 @@ external-controller-routing-mark: 0
 
 # 配置 WEB UI 目录，使用 http://{{external-controller}}/ui 访问
 external-ui: /path/to/ui/folder/
+# external-ui (with external-ui-name) must not be the home directory, the config
+# directory, a SAFE_PATHS root or a parent of one of them: the UI update empties
+# the folder before installing, and /ui serves it without the secret. Such a
+# config (or -ext-ui) is refused; use a subfolder such as ./ui.
 external-ui-name: xd
 # 目前支持下载zip,tgz格式的压缩包
 external-ui-url: "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip"
@@ -1431,6 +1461,11 @@ proxies: # socks5
     # tran-window: 3600 # 旧 data key 在 rekey 后保留的秒数；默认 3600，显式设为 0 表示立即过期，应与服务端 --tran-window 对齐
     # handshake-timeout: 30 # 单位为秒；配置后握手时不受外层连接超时影响；默认值为 0，表示仅使用外层连接超时
     # tls-version-min: "1.3" # lowest TLS version of the control channel, "1.2" or "1.3"; unset = 1.2 (as --tls-version-min)
+    # Server identity. Without these only the CA chain and the server EKU are checked (any server
+    # certificate from the same CA is accepted) and a warning is logged.
+    # verify-x509-name: server_abc123 # as --verify-x509-name in the .ovpn file
+    # verify-x509-type: name # subject (default, e.g. "C=US, O=VPN, CN=server"), name (common name) or name-prefix
+    # verify-server-name: true # require the certificate to be valid for `server` (DNS name or IP SAN)
     # mtu: 1500
     udp: true
     # ip-stack:
@@ -1567,6 +1602,11 @@ proxies: # socks5
     username: root
     password: password
     private-key: path
+    # Server key(s) in authorized_keys format (e.g. from `ssh-keyscan -t ed25519 host`).
+    # Without host-key the server is not authenticated and a warning is logged.
+    # host-key:
+    #   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+    # skip-host-key-check: true # accept any server key without the warning (not recommended)
 
   # mieru
   - name: mieru
@@ -1799,6 +1839,9 @@ proxy-providers:
     # #   您可以通过 "citrus age keygen-pq" 生成符合要求的 mlkem768-x25519 key
     # #   您可以通过 "citrus age convert <secret_key>" 从 age-secret-key 导出 age-public-key
     # #   您可以通过 "citrus age decrypt <secret_key> <source_file> <target_file>" 将已加密文件解密，<source_file> 为 - 时会从标准输入读取，<target_file> 为 - 时会往标准输出写入
+    # #   <secret_key> may be @/path/to/key.txt (read from a file) and, for convert, - (stdin): a key on the
+    # #   command line is visible to other users of the host. The core takes -age-secret-key-file
+    # #   (CLASH_AGE_SECRET_KEY_FILE) besides -age-secret-key (CLASH_AGE_SECRET_KEY).
     # #   您可以通过 "citrus age encrypt <public_key> <source_file> <target_file>" 将未加密文件加密，<source_file> 为 - 时会从标准输入读取，<target_file> 为 - 时会往标准输出写入
     # # 参考实现：
     # #   https://github.com/FiloSottile/awesome-age#implementations
@@ -2693,8 +2736,8 @@ listeners:
     max-realms-per-ip: 4 # maximum realms per client IP (0 = unlimited)
     trusted-proxy-header: "" # header to read real client IP from (e.g. X-Forwarded-For)
     # # TCP peers whose trusted-proxy-header is believed, read from the right like the vless listener.
-    # # Unlike vless/trojan, empty keeps the old behaviour: the leftmost value is believed from any
-    # # client, which lets a client dodge max-realms-per-ip; set this when trusted-proxy-header is used.
+    # # Empty (the default) = never: as with vless/trojan, the header is ignored and the TCP peer is
+    # # the client (a forged header could dodge max-realms-per-ip). Set it when trusted-proxy-header is used.
     # trusted-proxies: [loopback]
     realm-name-pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" # regex realm names must match
     # # 下面内容如果配置， realm 将通过 TLS 提供 HTTPS 服务；否则提供明文 HTTP
@@ -2794,6 +2837,8 @@ listeners:
 # 入口配置与 Listener 等价，传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理
 # shadowsocks 入口配置（传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理）
 # ss-config: ss://2022-blake3-aes-256-gcm:vlmpIPSyHH6f4S8WVPdRIHIlzmB+GIRfoH3aNJ/t9Gg=@:23456
+# GET /configs shows ss-config and tuic-server with the passwords, tokens and
+# keys replaced by "******".
 
 # tuic 服务器入口（传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理）
 # tuic-server:

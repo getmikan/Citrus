@@ -68,16 +68,17 @@ func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.T
 		store = authStore.Nil
 	}
 	// The same source checks as the TCP listener: the LAN allow/deny lists on the
-	// default listeners, and authentication through an open UDP ASSOCIATE.
-	accept := func(remoteAddr net.Addr) bool {
+	// default listeners, and authentication through an open UDP ASSOCIATE,
+	// whose user the datagram is relayed as.
+	accept := func(remoteAddr net.Addr) (user string, ok bool) {
 		applyDefault := isDefault || store == authStore.Default
 		if applyDefault && !inbound.IsRemoteAddrDisAllowed(remoteAddr) {
-			return false
+			return "", false
 		}
 		if store.Authenticator() == nil || (applyDefault && inbound.SkipAuthRemoteAddr(remoteAddr)) {
-			return true
+			return "", true
 		}
-		return hasAssociation(l.LocalAddr(), remoteAddr)
+		return lookupAssociation(l.LocalAddr(), remoteAddr)
 	}
 
 	conn := N.NewEnhancePacketConn(l)
@@ -93,13 +94,18 @@ func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.T
 				}
 				continue
 			}
-			if !accept(remoteAddr) {
+			user, ok := accept(remoteAddr)
+			if !ok {
 				if put != nil {
 					put()
 				}
 				continue
 			}
-			handleSocksUDP(l, tunnel, data, put, remoteAddr, additions...)
+			packetAdditions := additions
+			if user != "" {
+				packetAdditions = append(additions[:len(additions):len(additions)], inbound.WithInUser(user))
+			}
+			handleSocksUDP(l, tunnel, data, put, remoteAddr, packetAdditions...)
 		}
 	}()
 

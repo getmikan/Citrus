@@ -13,6 +13,10 @@ import (
 	"github.com/metacubex/sing/common/rw"
 )
 
+// maxUDPPayloadLen bounds the payload of a UDP frame, whose 32-bit length is
+// declared by the peer: a UDP datagram carries at most 65535 bytes.
+const maxUDPPayloadLen = 65535
+
 type packetConn struct {
 	httpConn
 	readWaitOptions N.ReadWaitOptions
@@ -92,7 +96,7 @@ func (u *clientPacketConn) readPacketFromServer(buffer *buf.Buffer) (destination
 	common.Must(binary.Read(header, binary.BigEndian, &destination.Port))
 	common.Must(rw.SkipN(header, 16+2)) // To local address:port
 	payloadLen := int(length) - (16 + 2 + 16 + 2)
-	if payloadLen < 0 {
+	if payloadLen < 0 || payloadLen > maxUDPPayloadLen {
 		return M.Socksaddr{}, E.New("invalid udp length: ", length)
 	}
 	_, err = buffer.ReadFullFrom(u.body, payloadLen)
@@ -228,7 +232,7 @@ func (u *serverPacketConn) readPacketFromClient(buffer *buf.Buffer) (destination
 		}
 	}
 	payloadLen := int(length) - (16 + 2 + 16 + 2 + 1 + int(appNameLen))
-	if payloadLen < 0 {
+	if payloadLen < 0 || payloadLen > maxUDPPayloadLen {
 		return M.Socksaddr{}, E.New("invalid udp length: ", length)
 	}
 	_, err = buffer.ReadFullFrom(u.body, payloadLen)

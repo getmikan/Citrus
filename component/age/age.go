@@ -188,6 +188,26 @@ func writePrivateFile(path string, data []byte) (err error) {
 	return os.Rename(tmp.Name(), path)
 }
 
+// secretKeyArg reads the secret key argument of the age subcommands: "@path"
+// reads it from a file and "-" from the standard input, which keeps it out of
+// the process arguments; anything else is the key itself.
+func secretKeyArg(arg string) (string, error) {
+	var data []byte
+	var err error
+	switch {
+	case arg == "-":
+		data, err = io.ReadAll(os.Stdin)
+	case strings.HasPrefix(arg, "@"):
+		data, err = os.ReadFile(arg[1:])
+	default:
+		return arg, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
 func Main(args []string) {
 	if len(args) < 1 {
 		panic("Using: age keygen/keygen-pq/convert/decrypt/encrypt")
@@ -211,9 +231,13 @@ func Main(args []string) {
 		fmt.Printf("%s\n", secretKey)
 	case "convert":
 		if len(args) < 2 {
-			panic("Using: age convert <secret_key>")
+			panic("Using: age convert <secret_key|@file|->")
 		}
-		publicKeys, err := ToPublicKeys(args[1])
+		secretKey, err := secretKeyArg(args[1])
+		if err != nil {
+			panic(err)
+		}
+		publicKeys, err := ToPublicKeys(secretKey)
 		if err != nil {
 			panic(err)
 		}
@@ -225,10 +249,13 @@ func Main(args []string) {
 		}
 	case "decrypt":
 		if len(args) < 4 {
-			panic("Using: age decrypt <secret_key> <source_file> <target_file>")
+			panic("Using: age decrypt <secret_key|@file> <source_file> <target_file>")
+		}
+		secretKey, err := secretKeyArg(args[1])
+		if err != nil {
+			panic(err)
 		}
 		var data []byte
-		var err error
 		if args[2] == "-" {
 			data, err = io.ReadAll(os.Stdin)
 		} else {
@@ -237,7 +264,7 @@ func Main(args []string) {
 		if err != nil {
 			panic(err)
 		}
-		result, err := DecryptBytes(data, args[1])
+		result, err := DecryptBytes(data, secretKey)
 		if err != nil {
 			panic(err)
 		}

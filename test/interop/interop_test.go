@@ -271,3 +271,76 @@ func TestCitrusClientXrayServerECH(t *testing.T) {
 		checkBlocked(t, mp)
 	})
 }
+
+// --- 5. gRPC (gun) over REALITY, both directions ---
+
+func TestCitrusClientXrayServerGRPC(t *testing.T) {
+	needXray(t)
+	keys, id := genX25519(t), genUUID(t)
+
+	sport := freePort(t)
+	startXray(t, "xray-server", obj{
+		"log": xrayLog(),
+		"inbounds": []obj{{
+			"listen": "127.0.0.1", "port": sport, "protocol": "vless",
+			"settings": obj{"clients": []obj{{"id": id}}, "decryption": "none"},
+			"streamSettings": obj{
+				"network":      "grpc",
+				"grpcSettings": obj{"serviceName": "gs"},
+				"security":     "reality",
+				"realitySettings": obj{
+					"target": targetAddr, "serverNames": []string{realitySNI},
+					"privateKey": keys.priv, "shortIds": []string{shortID},
+				},
+			},
+		}},
+		"outbounds": []obj{xrayFreedom()},
+	}, sport)
+
+	mp := freePort(t)
+	startCitrus(t, "citrus-client", citrusClient(mp, obj{
+		"type": "vless", "server": "127.0.0.1", "port": sport, "uuid": id, "udp": false,
+		"network": "grpc", "tls": true,
+		"servername": realitySNI, "client-fingerprint": "chrome",
+		"reality-opts": obj{"public-key": keys.pub, "short-id": shortID},
+		"grpc-opts":    obj{"grpc-service-name": "gs"},
+	}), mp)
+	checkTraffic(t, mp)
+}
+
+func TestXrayClientCitrusServerGRPC(t *testing.T) {
+	needXray(t)
+	keys, id := genX25519(t), genUUID(t)
+
+	sport := freePort(t)
+	startCitrus(t, "citrus-server", citrusServer(obj{
+		"name": "vless-grpc", "type": "vless", "listen": "127.0.0.1", "port": sport,
+		"users": []obj{{"username": "u", "uuid": id}},
+		"reality-config": obj{
+			"dest": targetAddr, "private-key": keys.priv, "short-id": []string{shortID},
+			"server-names": []string{realitySNI},
+		},
+		"grpc-service-name": "gs",
+	}), sport)
+
+	cp := freePort(t)
+	startXray(t, "xray-client", obj{
+		"log":      xrayLog(),
+		"inbounds": []obj{xraySocksIn(cp)},
+		"outbounds": []obj{{
+			"protocol": "vless",
+			"settings": obj{"vnext": []obj{{"address": "127.0.0.1", "port": sport,
+				"users": []obj{{"id": id, "encryption": "none"}}}}},
+			"streamSettings": obj{
+				"network":      "grpc",
+				"grpcSettings": obj{"serviceName": "gs"},
+				"security":     "reality",
+				"realitySettings": obj{
+					"fingerprint": "chrome", "serverName": realitySNI,
+					"password": keys.pub, "shortId": shortID,
+				},
+			},
+		}},
+	}, cp)
+	checkTraffic(t, cp)
+}

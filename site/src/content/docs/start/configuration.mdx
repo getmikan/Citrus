@@ -15,7 +15,7 @@ description: Где искать полный справочник config.yaml �
 | `allow-lan`, `bind-address`, `authentication`, `lan-allowed-ips` | Доступ из локальной сети и авторизация. |
 | `mode`, `log-level`, `ipv6`, `find-process-mode` | Общий режим работы. |
 | `tcp-concurrent`, `tcp-connect-timeout` | Исходящие TCP-соединения: параллельный набор всех IP; общий срок установки соединения в миллисекундах (по умолчанию 5000, диапазон 100–600000). |
-| `external-controller`, `external-ui`, `secret` | API контроллера и веб-интерфейс. |
+| `external-controller`, `external-ui`, `secret` | API контроллера и веб-интерфейс; сетевому адресу нужен `secret`, см. [Безопасность контроллера](/Citrus/start/controller/). |
 | `user-stats` | Учёт трафика по пользователям входящих (по умолчанию включён), см. [Трафик пользователей](/Citrus/start/user-stats/). |
 | `user-limits` | Лимиты пользователей входящих: скорость, соединения, адреса, квота, срок, см. [Лимиты пользователей](/Citrus/start/user-limits/). |
 | `metrics`, `health-without-auth` | Метрики Prometheus (`GET /metrics`) и проверки `/healthz`, `/readyz`, см. [Метрики и здоровье](/Citrus/start/metrics/). |
@@ -41,3 +41,7 @@ citrus -t -f ~/.config/citrus/config.yaml
 ```
 
 Команда разбирает конфиг и выходит, ничего не запуская. Пакетная служба перечитывает конфиг по `systemctl reload citrus`.
+
+## Перезагрузка
+
+`PUT /configs` (с `force=true` или без) и `systemctl reload citrus` сразу применяют политику доступа из нового конфига: `allow-lan`, `bind-address`, `skip-auth-prefixes`, `lan-allowed-ips`, `lan-disallowed-ips`, `authentication`, встроенные `ss-config` и `tuic-server`. Без `force=true` встроенные листенеры `port`, `socks-port`, `redir-port`, `tproxy-port` и `mixed-port` остаются на своих текущих портах (клиент мог поменять их через `PATCH /configs`); при смене `allow-lan` или `bind-address` они перепривязываются.

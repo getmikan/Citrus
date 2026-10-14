@@ -28,7 +28,17 @@ const (
 	keepaliveInterval       = 15 * time.Second
 )
 
-var errMuxReceiveQueueFull = errors.New("mux receive queue full")
+// maxStreamsPerSession bounds the logical streams one server session holds at
+// once: registered streams and OPENs still waiting for AcceptStream. A peer
+// OPEN beyond it gets RESET + CLOSE, the same answer as for any other refused
+// OPEN, so clients see an ordinary failed dial. 1024 leaves ample room for a
+// single device multiplexing a few hundred connections.
+var maxStreamsPerSession = 1024
+
+var (
+	errMuxReceiveQueueFull = errors.New("mux receive queue full")
+	errMuxAcceptQueueFull  = errors.New("mux accept queue full")
+)
 
 type acceptEvent struct {
 	stream  *stream
@@ -44,7 +54,11 @@ type Session struct {
 	streams   map[uint32]*stream
 	nextID    uint32
 
-	acceptCh chan acceptEvent
+	// Server sessions only. acceptQueue is bounded by maxStreamsPerSession;
+	// acceptNotify (capacity 1) wakes AcceptStream after an append.
+	acceptMu     sync.Mutex
+	acceptQueue  []acceptEvent
+	acceptNotify chan struct{}
 
 	closed    chan struct{}
 	closeOnce sync.Once
@@ -74,10 +88,10 @@ func NewServerSession(conn net.Conn) (*Session, error) {
 		return nil, fmt.Errorf("nil conn")
 	}
 	s := &Session{
-		conn:     conn,
-		streams:  make(map[uint32]*stream),
-		acceptCh: make(chan acceptEvent, 256),
-		closed:   make(chan struct{}),
+		conn:         conn,
+		streams:      make(map[uint32]*stream),
+		acceptNotify: make(chan struct{}, 1),
+		closed:       make(chan struct{}),
 	}
 	s.lastWrite.Store(time.Now().UnixNano())
 	go s.readLoop()
@@ -264,15 +278,69 @@ func (s *Session) AcceptStream() (net.Conn, []byte, error) {
 	if s == nil {
 		return nil, nil, fmt.Errorf("nil session")
 	}
-	if s.acceptCh == nil {
+	if s.acceptNotify == nil {
 		return nil, nil, fmt.Errorf("accept is not supported on client sessions")
 	}
-	select {
-	case ev := <-s.acceptCh:
-		return ev.stream, ev.payload, nil
-	case <-s.closed:
-		return nil, nil, s.closedErr()
+	for {
+		if ev, ok := s.dequeueAccept(); ok {
+			return ev.stream, ev.payload, nil
+		}
+		select {
+		case <-s.acceptNotify:
+		case <-s.closed:
+			return nil, nil, s.closedErr()
+		}
 	}
+}
+
+func (s *Session) dequeueAccept() (acceptEvent, bool) {
+	s.acceptMu.Lock()
+	defer s.acceptMu.Unlock()
+	if len(s.acceptQueue) == 0 {
+		return acceptEvent{}, false
+	}
+	ev := s.acceptQueue[0]
+	s.acceptQueue[0] = acceptEvent{}
+	s.acceptQueue = s.acceptQueue[1:]
+	if len(s.acceptQueue) == 0 {
+		s.acceptQueue = nil
+	}
+	return ev, true
+}
+
+// enqueueAccept hands an opened stream to AcceptStream without blocking the
+// read loop. It fails when the queue is full, which only happens when the peer
+// resets streams faster than they are accepted.
+func (s *Session) enqueueAccept(ev acceptEvent) bool {
+	s.acceptMu.Lock()
+	if len(s.acceptQueue) >= maxStreamsPerSession {
+		s.acceptMu.Unlock()
+		return false
+	}
+	s.acceptQueue = append(s.acceptQueue, ev)
+	s.acceptMu.Unlock()
+	select {
+	case s.acceptNotify <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+// registerPeerStream registers a stream opened by the peer, unless the id is
+// taken or the session is at maxStreamsPerSession. It returns a reason for the
+// RESET when it refuses.
+func (s *Session) registerPeerStream(id uint32) (*stream, string) {
+	s.streamsMu.Lock()
+	defer s.streamsMu.Unlock()
+	if _, exists := s.streams[id]; exists {
+		return nil, "stream already exists"
+	}
+	if len(s.streams) >= maxStreamsPerSession {
+		return nil, "too many streams"
+	}
+	st := newStream(s, id)
+	s.streams[id] = st
+	return st, ""
 }
 
 func (s *Session) readLoop() {
@@ -300,7 +368,7 @@ func (s *Session) readLoop() {
 		}
 		switch frameType {
 		case frameOpen:
-			if s.acceptCh == nil {
+			if s.acceptNotify == nil {
 				s.sendReset(streamID, "unexpected open")
 				continue
 			}
@@ -308,20 +376,18 @@ func (s *Session) readLoop() {
 				s.sendReset(streamID, "invalid stream id")
 				continue
 			}
-			if existing := s.getStream(streamID); existing != nil {
-				s.sendReset(streamID, "stream already exists")
+			// Admission happens here, before any goroutine exists for the
+			// stream: a refused OPEN costs one RESET and nothing else.
+			st, refused := s.registerPeerStream(streamID)
+			if st == nil {
+				s.sendReset(streamID, refused)
 				continue
 			}
-			st := newStream(s, streamID)
-			s.registerStream(st)
-			go func() {
-				select {
-				case s.acceptCh <- acceptEvent{stream: st, payload: payload}:
-				case <-s.closed:
-					st.closeNoSend(io.ErrClosedPipe)
-					s.removeStream(streamID)
-				}
-			}()
+			if !s.enqueueAccept(acceptEvent{stream: st, payload: payload}) {
+				st.closeNoSend(errMuxAcceptQueueFull)
+				s.removeStream(streamID)
+				s.sendReset(streamID, errMuxAcceptQueueFull.Error())
+			}
 
 		case frameData:
 			st := s.getStream(streamID)

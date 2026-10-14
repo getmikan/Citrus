@@ -75,6 +75,8 @@ citrus -d ~/.config/citrus
 | `-f <файл>` | Конкретный файл конфига. |
 | `-t` | Проверить конфиг и выйти. |
 | `-v` | Показать версию. |
+| `-secret-file <file>` | Прочитать `secret` контроллера из файла (`CLASH_OVERRIDE_SECRET_FILE`); в отличие от `-secret`, не виден в списке процессов. |
+| `-age-secret-key-file <file>` | Прочитать age-ключ для расшифровки конфига из файла (`CLASH_AGE_SECRET_KEY_FILE`). `citrus age decrypt` и `citrus age convert` тоже принимают ключ как `@file`. |
 
 Проверить конфиг перед перезапуском:
 
@@ -96,7 +98,7 @@ journalctl -u citrus -f
 
 ## Дашборд
 
-Включите API контроллера в конфиге (`external-controller: 127.0.0.1:9090`) и подключите совместимый дашборд, например [MetaCubeXD](https://github.com/MetaCubeX/metacubexd).
+Включите API контроллера в конфиге (`external-controller: 127.0.0.1:9090` и `secret`) и подключите совместимый дашборд, например [MetaCubeXD](https://github.com/MetaCubeX/metacubexd). Контроллер без secret отклоняет запросы браузера с других сайтов и не запускается на сетевом адресе, см. [Безопасность контроллера](/Citrus/start/controller/).
 
 ## Собрать из исходников
 

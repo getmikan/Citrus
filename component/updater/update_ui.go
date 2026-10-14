@@ -112,6 +112,11 @@ func NewUiUpdater(externalUI, externalUIURL, externalUIName string) *UIUpdater {
 
 	if externalUIURL != "" {
 		updater.externalUIURL = externalUIURL
+		// The dashboard runs with the controller's origin and sees its
+		// secret; over plain HTTP anyone on the path can replace it.
+		if strings.HasPrefix(strings.ToLower(externalUIURL), "http://") {
+			log.Warnln("external-ui-url %s uses plain HTTP: the downloaded dashboard can be replaced in transit", externalUIURL)
+		}
 	}
 	return updater
 }
@@ -158,6 +163,12 @@ func detectFileType(data []byte) compressionType {
 }
 
 func (u *UIUpdater) downloadUI() error {
+	// Checked here, with symlinks resolved, because the directory is about
+	// to be emptied and refilled: a link planted under the UI path must not
+	// redirect that outside the safe paths.
+	if !C.Path.IsSafePath(u.externalUIPath) {
+		return C.Path.ErrNotSafePath(u.externalUIPath)
+	}
 	data, err := downloadForBytes(u.externalUIURL, maxUIArchiveSize)
 	if err != nil {
 		return fmt.Errorf("can't download file: %w", err)
@@ -173,6 +184,9 @@ func (u *UIUpdater) downloadUI() error {
 		return fmt.Errorf("can't extract compressed file: %w", err)
 	}
 
+	if C.Path.HoldsCoreState(u.externalUIPath) { // never empty the home or config directory
+		return fmt.Errorf("refusing to replace %s: it holds the files of the core", u.externalUIPath)
+	}
 	log.Debugln("cleanupFolder: %s", u.externalUIPath)
 	err = cleanup(u.externalUIPath) // cleanup files in dir don't remove dir itself
 	if err != nil {

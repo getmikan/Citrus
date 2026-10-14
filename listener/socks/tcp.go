@@ -177,7 +177,7 @@ func HandleSocks4(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, addition
 		return
 	}
 	authStore.ClearHandshakeDeadline(conn)
-	release, ok := auth.BindSession(authenticator, user, conn)
+	release, ok := authStore.BindSession(store, authenticator, user, conn)
 	if !ok {
 		conn.Close()
 		return
@@ -197,7 +197,7 @@ func HandleSocks5(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, addition
 	}
 	authStore.ClearHandshakeDeadline(conn)
 	// the session dies with the user when its users can change at runtime
-	release, ok := auth.BindSession(authenticator, user, conn)
+	release, ok := authStore.BindSession(store, authenticator, user, conn)
 	if !ok {
 		conn.Close()
 		return
@@ -206,7 +206,7 @@ func HandleSocks5(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, addition
 	if command == socks5.CmdUDPAssociate {
 		// The association lives as long as this control connection (RFC 1928 §7);
 		// the UDP listener only relays for clients that hold one when auth is on.
-		release := addAssociation(conn.LocalAddr(), conn.RemoteAddr())
+		release := addAssociation(conn.LocalAddr(), conn.RemoteAddr(), user, target.UDPAddr())
 		defer release()
 		defer conn.Close()
 		io.Copy(io.Discard, conn)

@@ -8,11 +8,13 @@ import (
 	"net"
 
 	C "github.com/metacubex/mihomo/constant"
+	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/sing"
 	"github.com/metacubex/mihomo/ntp"
 
+	shadowsocks "github.com/metacubex/sing-shadowsocks"
 	"github.com/metacubex/sing-shadowsocks/shadowaead_2022"
 	"github.com/metacubex/sing/common/auth"
 	E "github.com/metacubex/sing/common/exceptions"
@@ -97,11 +99,11 @@ func userKey(user C.InboundUser) (string, error) {
 // session).
 func (l *Listener) swapMultiService() error {
 	users := l.users.Users()
-	service, err := shadowaead_2022.NewMultiServiceWithPassword[string](l.config.Cipher, l.config.Password, l.udpTimeout, &userGate{
+	service, err := shadowaead_2022.NewMultiServiceWithPassword[string](l.config.Cipher, l.config.Password, l.udpTimeout, handshakeDone{&userGate{
 		ListenerHandler: l.handler,
 		users:           l.users,
 		entries:         l.users.Entries(),
-	}, ntp.Now)
+	}}, ntp.Now)
 	if err != nil {
 		return err
 	}
@@ -182,6 +184,20 @@ type rawConnKey struct{}
 // with its writes.
 func withRawConn(ctx context.Context, conn net.Conn) context.Context {
 	return context.WithValue(ctx, rawConnKey{}, conn)
+}
+
+// handshakeDone lifts the handshake deadline of the client connection (set
+// in HandleConn) once the service has authenticated it and read its target,
+// so a long-lived connection is never cut by it.
+type handshakeDone struct {
+	shadowsocks.Handler
+}
+
+func (h handshakeDone) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
+	if raw, ok := ctx.Value(rawConnKey{}).(net.Conn); ok {
+		authStore.ClearHandshakeDeadline(raw)
+	}
+	return h.Handler.NewConnection(ctx, conn, metadata)
 }
 
 func (g *userGate) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {

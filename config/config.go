@@ -116,6 +116,7 @@ type Controller struct {
 	ExternalDohServer             string
 	Secret                        string
 	Cors                          Cors
+	AllowInsecure                 bool
 }
 
 type Cors struct {
@@ -469,6 +470,7 @@ type RawConfig struct {
 	ExternalControllerUnix        string                  `yaml:"external-controller-unix" json:"external-controller-unix"`
 	ExternalControllerTLS         string                  `yaml:"external-controller-tls" json:"external-controller-tls"`
 	ExternalControllerCors        RawCors                 `yaml:"external-controller-cors" json:"external-controller-cors"`
+	ExternalControllerInsecure    bool                    `yaml:"external-controller-allow-insecure" json:"external-controller-allow-insecure"`
 	ExternalUI                    string                  `yaml:"external-ui" json:"external-ui"`
 	ExternalUIURL                 string                  `yaml:"external-ui-url" json:"external-ui-url"`
 	ExternalUIName                string                  `yaml:"external-ui-name" json:"external-ui-name"`
@@ -797,7 +799,10 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 
-	config.Users = parseAuthentication(rawCfg.Authentication)
+	config.Users, err = parseAuthentication(rawCfg.Authentication)
+	if err != nil {
+		return nil, err
+	}
 
 	config.Tunnels = rawCfg.Tunnels
 	// verify tunnels
@@ -885,12 +890,32 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
 	}, nil
 }
 
+// CheckExternalUI refuses an external-ui directory (with external-ui-name)
+// that is the home directory, the config directory, a SAFE_PATHS root or an
+// ancestor of one of them: the UI update empties the directory before it
+// installs the new files, and /ui serves it without the secret.
+func CheckExternalUI(externalUI, externalUIName string) error {
+	dir := externalUI
+	if dir == "" {
+		dir = "ui" // the updater's default, below the home directory
+	}
+	for _, d := range []string{externalUI, filepath.Join(C.Path.Resolve(dir), externalUIName)} {
+		if d != "" && C.Path.HoldsCoreState(d) {
+			return fmt.Errorf("external-ui %s would hold the files of the core (home directory, config directory, a SAFE_PATHS root or their parent): use a subdirectory such as ui", C.Path.Resolve(d))
+		}
+	}
+	return nil
+}
+
 func parseController(cfg *RawConfig) (*Controller, error) {
 	if path := cfg.ExternalUI; path != "" && !C.Path.IsSafePath(path) {
 		return nil, C.Path.ErrNotSafePath(path)
 	}
 	if uiName := cfg.ExternalUIName; uiName != "" && !filepath.IsLocal(uiName) {
 		return nil, fmt.Errorf("external UI name is not local: %s", uiName)
+	}
+	if err := CheckExternalUI(cfg.ExternalUI, cfg.ExternalUIName); err != nil {
+		return nil, err
 	}
 	return &Controller{
 		ExternalController:            cfg.ExternalController,
@@ -907,6 +932,7 @@ func parseController(cfg *RawConfig) (*Controller, error) {
 			AllowOrigins:        cfg.ExternalControllerCors.AllowOrigins,
 			AllowPrivateNetwork: cfg.ExternalControllerCors.AllowPrivateNetwork,
 		},
+		AllowInsecure: cfg.ExternalControllerInsecure,
 	}, nil
 }
 
@@ -1827,14 +1853,20 @@ func isDomainRule(rt C.RuleType) bool {
 	}
 }
 
-func parseAuthentication(rawRecords []string) []auth.AuthUser {
+// parseAuthentication parses the "user:pass" records of `authentication`. An
+// empty user name is refused: it means "no user" to IN-USER, the user limits
+// and the session binding.
+func parseAuthentication(rawRecords []string) ([]auth.AuthUser, error) {
 	var users []auth.AuthUser
-	for _, line := range rawRecords {
+	for i, line := range rawRecords {
 		if user, pass, found := strings.Cut(line, ":"); found {
+			if user == "" {
+				return nil, fmt.Errorf("authentication[%d]: empty user name", i)
+			}
 			users = append(users, auth.AuthUser{User: user, Pass: pass})
 		}
 	}
-	return users
+	return users, nil
 }
 
 func parseIPV6(rawCfg *RawConfig) {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/url"
 	"strings"
@@ -102,33 +103,39 @@ func (g *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (g *Conn) read(b []byte) (n int, err error) {
-	if g.remain > 0 {
-		size := g.remain
-		if len(b) < size {
-			size = len(b)
+	// A loop, not a recursive call per frame header: a peer sending empty
+	// frames must not grow the stack (before authentication, as the inner
+	// VLESS/Trojan handshake has not been read yet), it only costs reads.
+	for g.remain <= 0 {
+		// 0x00 grpclength(uint32) 0x0A uleb128 payload
+		var header [6]byte
+		_, err = io.ReadFull(g.reader, header[:])
+		if err != nil {
+			if err == io.ErrUnexpectedEOF {
+				err = io.EOF
+			}
+			return 0, err
 		}
 
-		n, err = g.reader.Read(b[:size])
-		g.remain -= n
-		return
-	}
-
-	// 0x00 grpclength(uint32) 0x0A uleb128 payload
-	var discard [6]byte
-	_, err = io.ReadFull(g.reader, discard[:])
-	if err != nil {
-		if err == io.ErrUnexpectedEOF {
-			err = io.EOF
+		protobufPayloadLen, err := ReadUVariant(g.reader)
+		if err != nil {
+			return 0, ErrInvalidLength
 		}
-		return 0, err
+		// the payload is a part of the gRPC message, whose length is a uint32
+		if grpcLen := binary.BigEndian.Uint32(header[1:5]); protobufPayloadLen > uint64(grpcLen) || protobufPayloadLen > math.MaxInt32 {
+			return 0, ErrInvalidLength
+		}
+		g.remain = int(protobufPayloadLen)
 	}
 
-	protobufPayloadLen, err := ReadUVariant(g.reader)
-	if err != nil {
-		return 0, ErrInvalidLength
+	size := g.remain
+	if len(b) < size {
+		size = len(b)
 	}
-	g.remain = int(protobufPayloadLen)
-	return g.read(b)
+
+	n, err = g.reader.Read(b[:size])
+	g.remain -= n
+	return
 }
 
 func (g *Conn) Write(b []byte) (n int, err error) {

@@ -26,7 +26,24 @@ import (
 	"github.com/metacubex/jls-tls"
 )
 
-const ServerMaxIncomingStreams = (1 << 32) - 1
+// Per-connection QUIC stream limits. Streams over the limit are not refused:
+// QUIC flow control (MAX_STREAMS) makes the client wait for a stream to close
+// (the mihomo client opens them with OpenStreamSync).
+//
+//   - Bidirectional streams carry one TCP relay or one UDP association each,
+//     and the mihomo client multiplexes everything over a single connection,
+//     so the limit is the client's concurrent connections: 4096 is plenty
+//     for a home router.
+//   - Unidirectional streams carry UDP in the stream mode, one long-lived
+//     stream per (association, destination), so a UDP-heavy client (P2P, DNS
+//     to many resolvers) needs as many as it has peers.
+//
+// The mihomo client itself advertises max-open-streams (1024 by default) for
+// the reverse direction.
+const (
+	ServerMaxIncomingStreams    = 4096
+	ServerMaxIncomingUniStreams = 4096
+)
 
 type Listener struct {
 	closed       bool
@@ -120,7 +137,7 @@ func New(config LC.ShadowQuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, 
 		},
 		MaxIdleTimeout:                 time.Duration(config.MaxIdleTime) * time.Millisecond,
 		MaxIncomingStreams:             ServerMaxIncomingStreams,
-		MaxIncomingUniStreams:          ServerMaxIncomingStreams,
+		MaxIncomingUniStreams:          ServerMaxIncomingUniStreams,
 		InitialStreamReceiveWindow:     uint64(config.ReceiveWindowConn),
 		MaxStreamReceiveWindow:         uint64(config.ReceiveWindowConn),
 		InitialConnectionReceiveWindow: uint64(config.ReceiveWindow),

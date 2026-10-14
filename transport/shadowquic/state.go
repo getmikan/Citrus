@@ -2,16 +2,39 @@ package shadowquic
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/metacubex/mihomo/transport/socks5"
 
 	"github.com/metacubex/jls-quic-go"
 )
 
-const maxPendingPacketsPerID = 32
+// Packets (datagrams) and UDP streams may reach the peer before the control
+// message that binds their ID to an association. Such IDs are kept as
+// pending, within a connection-wide budget:
+//
+//   - maxPendingPacketsPerID packets are kept per pending ID;
+//   - at most maxPendingRecvIDs IDs are pending at once, and they hold at
+//     most maxPendingRecvBytes of copied packets together; past either limit
+//     packets for further unknown IDs are dropped (UDP may be lost) and
+//     streams for them are closed;
+//   - a pending ID that has not been bound within pendingRecvTTL is dropped,
+//     and a stream waiting for its binding gives up.
+//
+// A legitimate peer sends the control message right before the data, so an
+// ID stays pending for about one RTT and only a few are pending at once.
+const (
+	maxPendingPacketsPerID = 32
+	maxPendingRecvIDs      = 256
+	maxPendingRecvBytes    = 1 << 20
+	pendingRecvTTL         = 10 * time.Second
+)
+
+var errPendingRecvRejected = errors.New("shadowquic: association id not bound")
 
 type udpMode uint8
 
@@ -35,12 +58,18 @@ type connState struct {
 	nextID     uint16
 	activeSend map[uint16]struct{}
 	recv       map[uint16]*recvSlot
+
+	// pending (not yet bound) receive IDs, see maxPendingRecvIDs
+	pendingIDs   int
+	pendingBytes int
 }
 
 type recvSlot struct {
-	ready   chan struct{}
+	ready   chan struct{} // closed once bound, or once dropped while pending
 	target  *recvTarget
 	pending [][]byte
+	expires time.Time // for a pending slot
+	dropped bool      // a pending slot that was dropped from recv
 }
 
 type recvTarget struct {
@@ -79,6 +108,51 @@ func (s *connState) closed() bool {
 func (s *connState) closeWithError(code quic.ApplicationErrorCode, message string) error {
 	s.cancel()
 	return s.quicConn.CloseWithError(code, message)
+}
+
+// pendingSlotLocked returns the slot of id, adding a pending one if there is
+// none and the budget allows. It returns nil when the budget is exhausted.
+func (s *connState) pendingSlotLocked(id uint16) *recvSlot {
+	if slot := s.recv[id]; slot != nil {
+		return slot
+	}
+	now := time.Now()
+	if s.pendingIDs >= maxPendingRecvIDs || s.pendingBytes >= maxPendingRecvBytes {
+		s.expirePendingLocked(now)
+		if s.pendingIDs >= maxPendingRecvIDs || s.pendingBytes >= maxPendingRecvBytes {
+			return nil
+		}
+	}
+	slot := &recvSlot{ready: make(chan struct{}), expires: now.Add(pendingRecvTTL)}
+	s.recv[id] = slot
+	s.pendingIDs++
+	return slot
+}
+
+// expirePendingLocked drops the pending slots past their TTL.
+func (s *connState) expirePendingLocked(now time.Time) {
+	for id, slot := range s.recv {
+		if slot.target == nil && !now.Before(slot.expires) {
+			s.dropPendingLocked(id, slot)
+		}
+	}
+}
+
+// dropPendingLocked removes a pending slot and wakes its waiters.
+func (s *connState) dropPendingLocked(id uint16, slot *recvSlot) {
+	if slot.target != nil || slot.dropped {
+		return
+	}
+	if s.recv[id] == slot {
+		delete(s.recv, id)
+	}
+	slot.dropped = true
+	s.pendingIDs--
+	for _, packet := range slot.pending {
+		s.pendingBytes -= len(packet)
+	}
+	slot.pending = nil
+	close(slot.ready)
 }
 
 func (s *connState) handleDatagrams() {
@@ -150,39 +224,53 @@ func (s *connState) feedDatagram(id uint16, payload []byte) {
 		return
 	}
 	if slot == nil {
-		slot = &recvSlot{ready: make(chan struct{})}
-		s.recv[id] = slot
+		slot = s.pendingSlotLocked(id)
+		if slot == nil {
+			s.mu.Unlock()
+			return
+		}
 	}
-	if len(slot.pending) < maxPendingPacketsPerID {
+	if len(slot.pending) < maxPendingPacketsPerID && s.pendingBytes+len(payload) <= maxPendingRecvBytes {
 		packet := make([]byte, len(payload))
 		copy(packet, payload)
 		slot.pending = append(slot.pending, packet)
+		s.pendingBytes += len(packet)
 	}
 	s.mu.Unlock()
 }
 
 func (s *connState) waitRecvTarget(id uint16) (*recvTarget, error) {
-	for {
-		s.mu.Lock()
-		slot := s.recv[id]
-		if slot == nil {
-			slot = &recvSlot{ready: make(chan struct{})}
-			s.recv[id] = slot
-		}
-		if slot.target != nil {
-			target := slot.target
-			s.mu.Unlock()
-			return target, nil
-		}
-		ready := slot.ready
+	s.mu.Lock()
+	slot := s.pendingSlotLocked(id)
+	if slot == nil {
 		s.mu.Unlock()
-
-		select {
-		case <-ready:
-		case <-s.ctx.Done():
-			return nil, net.ErrClosed
-		}
+		return nil, errPendingRecvRejected
 	}
+	if slot.target != nil {
+		target := slot.target
+		s.mu.Unlock()
+		return target, nil
+	}
+	ready := slot.ready
+	wait := time.Until(slot.expires)
+	s.mu.Unlock()
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ready:
+	case <-timer.C:
+	case <-s.ctx.Done():
+		return nil, net.ErrClosed
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if slot.target != nil {
+		return slot.target, nil
+	}
+	s.dropPendingLocked(id, slot)
+	return nil, errPendingRecvRejected
 }
 
 func (s *connState) storeRecv(id uint16, assoc *association, addr socks5.Addr) {
@@ -191,16 +279,20 @@ func (s *connState) storeRecv(id uint16, assoc *association, addr socks5.Addr) {
 	s.mu.Lock()
 	slot := s.recv[id]
 	if slot == nil {
+		// bound IDs are not part of the pending budget
 		slot = &recvSlot{ready: make(chan struct{})}
+		close(slot.ready)
 		s.recv[id] = slot
+	} else if slot.target == nil {
+		s.pendingIDs--
+		for _, packet := range slot.pending {
+			s.pendingBytes -= len(packet)
+		}
+		close(slot.ready)
 	}
-	wasPending := slot.target == nil
 	slot.target = &recvTarget{assoc: assoc, addr: addr, net: netAddr}
 	pending := slot.pending
 	slot.pending = nil
-	if wasPending {
-		close(slot.ready)
-	}
 	s.mu.Unlock()
 
 	for _, packet := range pending {
