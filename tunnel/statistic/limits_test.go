@@ -234,18 +234,22 @@ func TestLimitExpire(t *testing.T) {
 	st, _ := um.GetLimit(keyA)
 	assert.True(t, st.Expired)
 
-	// the expiry closes the open connections on time (real clock)
+	// the expiry closes the open connections on time (real clock). ExpireAt has a one-second
+	// resolution: two seconds ahead keeps it at least a second away from now, so the Admit
+	// below cannot land on the far side of a second boundary.
 	real := NewUserManager()
 	closed := make(chan UserKey, 1)
 	real.SetCloser(func(k UserKey) { closed <- k })
-	start := time.Now()
-	require.NoError(t, real.SetLimit(UserLimit{Inbound: "in", User: "alice", ExpireAt: start.Unix() + 1}))
+	expireAt := time.Unix(time.Now().Unix()+2, 0)
+	require.NoError(t, real.SetLimit(UserLimit{Inbound: "in", User: "alice", ExpireAt: expireAt.Unix()}))
 	_, err = real.Admit(keyA, ip1)
 	require.NoError(t, err)
 	select {
 	case <-closed:
-		assert.WithinDuration(t, time.Unix(start.Unix()+1, 0), time.Now(), 500*time.Millisecond)
-	case <-time.After(3 * time.Second):
+		now := time.Now()
+		assert.False(t, now.Before(expireAt), "closed %s before expire-at", expireAt.Sub(now))
+		assert.WithinDuration(t, expireAt, now, time.Second)
+	case <-time.After(5 * time.Second):
 		t.Fatal("the user was not closed at expire-at")
 	}
 	_, err = real.Admit(keyA, ip1)
