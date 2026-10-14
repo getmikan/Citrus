@@ -28,6 +28,14 @@ import (
 
 const (
 	ReservedName = "default"
+
+	// maxProviderEntries caps the proxy entries a provider document may hold
+	// before any of them is parsed, and maxProviderProxies caps the adapters
+	// built from one provider. Real subscriptions hold hundreds to a few
+	// thousand proxies; the caps stop a hostile or broken source from making
+	// the core build an unbounded number of adapters within the size limit.
+	maxProviderEntries = 50000
+	maxProviderProxies = 10000
 )
 
 type ProxySchema struct {
@@ -400,6 +408,9 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 		if schema.Proxies == nil {
 			return nil, errors.New("file must have a `proxies` field")
 		}
+		if len(schema.Proxies) > maxProviderEntries {
+			return nil, fmt.Errorf("file has %d proxies, more than the limit of %d", len(schema.Proxies), maxProviderEntries)
+		}
 
 		proxies := []C.Proxy{}
 		proxiesSet := map[string]struct{}{}
@@ -443,6 +454,9 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 				}
 				if _, ok := proxiesSet[name]; ok {
 					continue
+				}
+				if len(proxies) >= maxProviderProxies {
+					return nil, fmt.Errorf("provider yields more than %d proxies; narrow it with filter or exclude-filter", maxProviderProxies)
 				}
 
 				if len(dialerProxy) > 0 {

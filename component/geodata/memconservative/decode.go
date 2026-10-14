@@ -26,6 +26,9 @@ var (
 // from turning into a huge allocation.
 const maxGeodataRecordSize = 128 << 20
 
+// maxVarintLen is the longest protobuf varint (binary.MaxVarintLen64).
+const maxVarintLen = 10
+
 func emitBytes(f io.ReadSeeker, code string) ([]byte, error) {
 	// The file size bounds every length below: no record can be longer than
 	// the file that holds it.
@@ -61,6 +64,10 @@ func emitBytes(f io.ReadSeeker, code string) ([]byte, error) {
 				return 0, readError(err)
 			}
 			lengthBytes = append(lengthBytes, b)
+			if b >= 128 && len(lengthBytes) >= maxVarintLen {
+				// a protobuf varint never needs more than ten bytes
+				return 0, errInvalidGeodataVarintLength
+			}
 			if b < 128 {
 				n, size := protowire.ConsumeVarint(lengthBytes)
 				if size < 0 {
