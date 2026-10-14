@@ -306,7 +306,10 @@ func (l *Listener) metadata(network C.NetWork, host string, port uint16, conn ne
 	}
 	inbound.ApplyAdditions(metadata, inbound.WithSrcAddr(conn.RemoteAddr()), inbound.WithInAddr(conn.LocalAddr()))
 	inbound.ApplyAdditions(metadata, additions...)
-	if clientID != "" {
+	// The client ID is whatever the client says: it names the user only when
+	// no outer layer (ShadowTLS, JLS) authenticated one, and never replaces
+	// the user that layer verified.
+	if clientID != "" && metadata.InUser == "" {
 		inbound.ApplyAdditions(metadata, inbound.WithInUser(clientID))
 	}
 	return metadata
