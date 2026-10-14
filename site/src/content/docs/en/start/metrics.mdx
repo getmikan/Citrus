@@ -92,6 +92,14 @@ The bytes are the payload on the outbound side of the tunnel, as in `/traffic` a
 
 Only proxies and groups that have been tested at least once are listed, including the proxies of providers.
 
+### Event stream
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `citrus_event_subscribers` | gauge | Open [`GET /events`](/Citrus/en/start/events/) streams. |
+| `citrus_events_published_total{type}` | counter | Events delivered to at least one stream, by type. Events nobody subscribed to are not counted. |
+| `citrus_events_dropped_total` | counter | Events dropped for streams that read too slowly (an event dropped for two streams counts twice). |
+
 ## Health probes
 
 | Path | 200 `ok` | 503 |

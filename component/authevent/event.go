@@ -10,7 +10,8 @@
 // The handler is process-global. Emit never blocks the handshake goroutine
 // that calls it: events go through a bounded queue to a single dispatcher
 // goroutine, and are dropped (and counted, see Dropped) when the queue is
-// full. With no handler set, Emit is a single atomic load.
+// full. With no handler set, Emit is a single atomic load (two with the
+// tap of the event stream installed, see SetTap).
 //
 // Ported from Kinkan (GetsuNoKaze/kinkan), patches/mihomo/0002-auth-events.patch.
 package authevent
@@ -55,7 +56,32 @@ type sink struct {
 var (
 	current atomic.Pointer[sink]
 	dropped atomic.Uint64
+	tap     atomic.Pointer[tapFuncs]
 )
+
+type tapFuncs struct {
+	enabled func() bool
+	fn      func(Event)
+}
+
+// SetTap installs an observer next to the handler, for the core's own event
+// stream: fn is called by Emit, on the caller's goroutine, while enabled
+// reports true, so it must not block. nil fn removes it. Unlike the handler,
+// the tap does not replace or get replaced by SetHandler.
+func SetTap(enabled func() bool, fn func(Event)) {
+	if fn == nil || enabled == nil {
+		tap.Store(nil)
+		return
+	}
+	tap.Store(&tapFuncs{enabled: enabled, fn: fn})
+}
+
+func tapOn() *tapFuncs {
+	if t := tap.Load(); t != nil && t.enabled() {
+		return t
+	}
+	return nil
+}
 
 // SetHandler installs fn as the handler, replacing the previous one; nil
 // removes it. fn runs on a dedicated goroutine, one event at a time. Events
@@ -72,15 +98,18 @@ func SetHandler(fn func(Event)) {
 	}
 }
 
-// Enabled reports whether a handler is set, so a caller can skip building an
-// event that nobody would receive.
+// Enabled reports whether a handler is set or the tap wants events, so a
+// caller can skip building an event that nobody would receive.
 func Enabled() bool {
-	return current.Load() != nil
+	return current.Load() != nil || tapOn() != nil
 }
 
 // Emit queues e for the handler. It never blocks; with no handler set it
 // returns at once.
 func Emit(e Event) {
+	if t := tapOn(); t != nil {
+		t.fn(e)
+	}
 	s := current.Load()
 	if s == nil {
 		return

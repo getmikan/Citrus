@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/eventbus"
 	"github.com/metacubex/mihomo/component/slowdown"
 	P "github.com/metacubex/mihomo/constant/provider"
 	"github.com/metacubex/mihomo/log"
@@ -117,9 +118,28 @@ func (f *Fetcher[V]) Update() (V, bool, error) {
 	buf, hash, err := f.vehicle.Read(f.ctx, f.hash)
 	if err != nil {
 		f.backoff.AddAttempt() // add a failed attempt to backoff
+		f.publishUpdate(false, err)
 		return lo.Empty[V](), false, err
 	}
-	return f.loadBuf(buf, hash, f.vehicle.Type() != P.File)
+	contents, same, err := f.loadBuf(buf, hash, f.vehicle.Type() != P.File)
+	f.publishUpdate(same, err)
+	return contents, same, err
+}
+
+// SetResourceType sets the kind of the resource ("proxy", "rule") that the
+// provider.update events report.
+func (f *Fetcher[V]) SetResourceType(t string) { f.resourceType = t }
+
+// publishUpdate reports the result of an update on the event stream.
+func (f *Fetcher[V]) publishUpdate(same bool, err error) {
+	if !eventbus.Enabled(eventbus.TypeProviderUpdate) {
+		return
+	}
+	d := eventbus.ProviderUpdate{Name: f.name, Kind: f.resourceType, Vehicle: f.vehicle.Type().String(), Status: eventbus.StatusOK, Changed: !same}
+	if err != nil {
+		d.Status, d.Error, d.Changed = eventbus.StatusError, err.Error(), false
+	}
+	eventbus.Publish(eventbus.TypeProviderUpdate, d)
 }
 
 func (f *Fetcher[V]) SideUpdate(buf []byte) (V, bool, error) {

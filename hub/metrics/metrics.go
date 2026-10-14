@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/metacubex/mihomo/component/eventbus"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/listener"
 	"github.com/metacubex/mihomo/tunnel"
@@ -78,7 +79,21 @@ func Write(out io.Writer, o Options) error {
 		writeUsers(w)
 	}
 	writeProxies(w)
+	writeEvents(w)
 	return bw.Flush()
+}
+
+// writeEvents reports the event stream (GET /events).
+func writeEvents(w writer) {
+	b := eventbus.Default
+	w.family("citrus_event_subscribers", "gauge", "Open GET /events streams.")
+	w.int("citrus_event_subscribers", int64(b.Subscribers()))
+	w.family("citrus_events_published_total", "counter", "Events delivered to at least one GET /events stream, by type.")
+	for i, n := range b.Published() {
+		w.int("citrus_events_published_total", int64(n), "type", eventbus.Types[i])
+	}
+	w.family("citrus_events_dropped_total", "counter", "Events dropped for GET /events streams that read too slowly.")
+	w.int("citrus_events_dropped_total", int64(b.Dropped()))
 }
 
 // runtime/metrics samples; the GC pause histogram was renamed in Go 1.22.
