@@ -64,27 +64,20 @@ func startSilentListener(t *testing.T) string {
 	return listener.Addr().String()
 }
 
-func setDialTimeout(t *testing.T, timeout time.Duration) {
-	t.Helper()
-	old := sessionDialTimeout
-	sessionDialTimeout = timeout
-	t.Cleanup(func() { sessionDialTimeout = old })
-}
-
 // With one connection per client, every stream of a cold client waits for
 // the one dial. A server that accepts TCP and never finishes TLS must fail
 // that dial within the timeout and leave the slot free for a fresh one.
 func TestClientDialTimesOutOnSilentServer(t *testing.T) {
-	setDialTimeout(t, 300*time.Millisecond)
 	server := startConnectServer(t)
 	dialer := &silentFirstDialer{silent: startSilentListener(t)}
 	client, err := NewPoolClient(context.Background(), ClientOptions{
-		Dialer:         dialer,
-		Server:         server.Listener.Addr().String(),
-		Username:       "user",
-		Password:       "password",
-		TLSConfig:      &v2ray.TLSConfig{Host: "example.com", SkipCertVerify: true},
-		MaxConnections: 1,
+		Dialer:           dialer,
+		Server:           server.Listener.Addr().String(),
+		Username:         "user",
+		Password:         "password",
+		TLSConfig:        &v2ray.TLSConfig{Host: "example.com", SkipCertVerify: true},
+		MaxConnections:   1,
+		HandshakeTimeout: 300 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatal(err)

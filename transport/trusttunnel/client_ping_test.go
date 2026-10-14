@@ -137,14 +137,7 @@ func startEchoServer(t *testing.T) *httptest.Server {
 	return server
 }
 
-func setPingTimeouts(t *testing.T, interval, timeout time.Duration) {
-	t.Helper()
-	oldInterval, oldTimeout := sessionPingInterval, sessionPingTimeout
-	sessionPingInterval, sessionPingTimeout = interval, timeout
-	t.Cleanup(func() { sessionPingInterval, sessionPingTimeout = oldInterval, oldTimeout })
-}
-
-func newProxiedClient(t *testing.T, address string) (*PoolClient, *countingDialer) {
+func newProxiedClient(t *testing.T, address string, pingInterval, pingTimeout time.Duration) (*PoolClient, *countingDialer) {
 	t.Helper()
 	dialer := &countingDialer{}
 	client, err := NewPoolClient(context.Background(), ClientOptions{
@@ -154,6 +147,8 @@ func newProxiedClient(t *testing.T, address string) (*PoolClient, *countingDiale
 		Password:       "password",
 		TLSConfig:      &v2ray.TLSConfig{Host: "example.com", SkipCertVerify: true},
 		MaxConnections: 1,
+		PingInterval:   pingInterval,
+		PingTimeout:    pingTimeout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -181,10 +176,9 @@ func echoOnce(t *testing.T, conn net.Conn, message string) {
 // A session that stops answering is closed by the ping, its stream fails and
 // the next stream gets a new connection.
 func TestClientClosesSilentSession(t *testing.T) {
-	setPingTimeouts(t, 200*time.Millisecond, 300*time.Millisecond)
 	server := startEchoServer(t)
 	proxy := startFreezeProxy(t, server.Listener.Addr().String())
-	client, dialer := newProxiedClient(t, proxy.listener.Addr().String())
+	client, dialer := newProxiedClient(t, proxy.listener.Addr().String(), 200*time.Millisecond, 300*time.Millisecond)
 
 	conn, err := client.Dial(context.Background(), "example.org:443")
 	if err != nil {
@@ -226,10 +220,9 @@ func TestClientClosesSilentSession(t *testing.T) {
 
 // A pause shorter than the ping timeout must not cost the session.
 func TestClientKeepsSessionThroughShortPause(t *testing.T) {
-	setPingTimeouts(t, 200*time.Millisecond, 2*time.Second)
 	server := startEchoServer(t)
 	proxy := startFreezeProxy(t, server.Listener.Addr().String())
-	client, dialer := newProxiedClient(t, proxy.listener.Addr().String())
+	client, dialer := newProxiedClient(t, proxy.listener.Addr().String(), 200*time.Millisecond, 2*time.Second)
 
 	conn, err := client.Dial(context.Background(), "example.org:443")
 	if err != nil {
