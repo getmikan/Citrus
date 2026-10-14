@@ -64,6 +64,9 @@ type OpenVPNOption struct {
 	TranWindow         *int              `proxy:"tran-window,omitempty"`
 	HandshakeTimeout   int               `proxy:"handshake-timeout,omitempty"`
 	TLSVersionMin      string            `proxy:"tls-version-min,omitempty"`
+	VerifyX509Name     string            `proxy:"verify-x509-name,omitempty"`
+	VerifyX509Type     string            `proxy:"verify-x509-type,omitempty"`
+	VerifyServerName   bool              `proxy:"verify-server-name,omitempty"`
 	MTU                int               `proxy:"mtu,omitempty"`
 	UDP                bool              `proxy:"udp,omitempty"`
 
@@ -123,9 +126,15 @@ func NewOpenVPN(option OpenVPNOption) (*OpenVPN, error) {
 		TransitionWindow:    transitionWindow,
 		TransitionWindowSet: transitionWindowSet,
 		TLSVersionMin:       option.TLSVersionMin,
+		VerifyX509Name:      option.VerifyX509Name,
+		VerifyX509Type:      option.VerifyX509Type,
+		VerifyServerName:    option.VerifyServerName,
 	}
 	if err := cfg.Prepare(); err != nil {
 		return nil, err
+	}
+	if !cfg.ChecksServerIdentity() {
+		log.Warnln("[OpenVPN] %s: the server certificate is only checked against the CA, so any server certificate from that CA is accepted. Set verify-x509-name (as in the .ovpn file) or verify-server-name: true", option.Name)
 	}
 
 	outbound := &OpenVPN{
