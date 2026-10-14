@@ -133,6 +133,9 @@ func (s *Service) NewConnection(ctx context.Context, conn net.Conn, metadata M.M
 	// the header is read and the user is authenticated: lift the handshake
 	// deadline set by the listener, the session may idle from here on
 	clearHandshakeDeadline(conn)
+	if onAuthenticated := onAuthenticatedFrom(ctx); onAuthenticated != nil {
+		onAuthenticated() // e.g. an xhttp session leaves its pre-auth limits
+	}
 
 	// the session dies with the user: removing or re-keying it closes conn
 	release, ok := s.users.Bind(entry, conn)

@@ -2,6 +2,7 @@ package xhttp
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -21,6 +22,22 @@ type ServerOption struct {
 	Config
 	ConnHandler func(net.Conn, *http.Request)
 	HttpHandler http.Handler
+	// ReportsAuthentication: ConnHandler calls the function returned by
+	// OnAuthenticated for its request once the inner protocol has
+	// authenticated the client, and a packet-up/stream-up session stays
+	// pending (capped, reaped, upload-limited) until then. Without it the
+	// session leaves the pending state with the first upload byte, which
+	// proves nothing.
+	ReportsAuthentication bool
+}
+
+type authenticatedKey struct{}
+
+// OnAuthenticated returns the function the ConnHandler of a server with
+// ReportsAuthentication calls once the client is authenticated, or nil.
+func OnAuthenticated(r *http.Request) func() {
+	fn, _ := r.Context().Value(authenticatedKey{}).(func())
+	return fn
 }
 
 type httpServerConn struct {
@@ -88,14 +105,32 @@ func (c *httpServerConn) Wait() <-chan struct{} {
 var (
 	maxPendingSessions    = 4096
 	pendingSessionTimeout = 30 * time.Second
+	// pendingUploadTimeout bounds reading the body of a packet-up upload to a
+	// pending session: the client has not authenticated, it must not hold a
+	// request open by trickling its body.
+	pendingUploadTimeout = 15 * time.Second
+	// maxPendingUploadBytes bounds the upload payload accepted by all pending
+	// sessions together (counted until a session leaves the pending state or
+	// is removed); beyond it a new pending upload gets 503. A client sends
+	// little before it authenticates, the VLESS header and its first data.
+	maxPendingUploadBytes = 64 << 20
 )
+
+// maxSessionIDLength bounds the session ID taken from the request. Xray-core
+// and Citrus clients send 32 hex digits, a UUID or a configured 16-32
+// character string by default.
+const maxSessionIDLength = 256
 
 type httpSession struct {
 	uploadQueue *UploadQueue
-	activated   chan struct{} // closed once upload data has reached the inner handler
+	activated   chan struct{} // closed once the session is no longer pending
 	activate    sync.Once
 	closed      chan struct{} // closed once the session is removed from the handler
-	pending     bool          // guarded by requestHandler.mu
+	// guarded by requestHandler.mu
+	pending      bool
+	pendingBytes int  // upload payload accepted while pending
+	uploads      int  // packet-up uploads in progress while pending
+	downloading  bool // a session download is being served
 }
 
 func newHTTPSession(maxPackets int) *httpSession {
@@ -117,7 +152,7 @@ type sessionReader struct {
 
 func (r *sessionReader) Read(b []byte) (int, error) {
 	n, err := r.UploadQueue.Read(b)
-	if n > 0 {
+	if n > 0 && !r.h.reportsAuthentication {
 		r.h.activateSession(r.s)
 	}
 	return n, err
@@ -128,14 +163,17 @@ type requestHandler struct {
 	connHandler func(net.Conn, *http.Request)
 	httpHandler http.Handler
 
+	reportsAuthentication bool
+
 	xPaddingBytes        Range
 	scMaxEachPostBytes   Range
 	scStreamUpServerSecs Range
 	scMaxBufferedPosts   Range
 
-	mu       sync.Mutex
-	sessions map[string]*httpSession
-	pending  int // sessions that have not delivered any upload data yet
+	mu           sync.Mutex
+	sessions     map[string]*httpSession
+	pending      int // sessions that have not left the pending state yet
+	pendingBytes int // sum of httpSession.pendingBytes
 }
 
 func NewServerHandler(opt ServerOption) (http.Handler, error) {
@@ -156,27 +194,87 @@ func NewServerHandler(opt ServerOption) (http.Handler, error) {
 		return nil, err
 	}
 	return &requestHandler{
-		config:               opt.Config,
-		connHandler:          opt.ConnHandler,
-		httpHandler:          opt.HttpHandler,
-		xPaddingBytes:        xPaddingBytes,
-		scMaxEachPostBytes:   scMaxEachPostBytes,
-		scStreamUpServerSecs: scStreamUpServerSecs,
-		scMaxBufferedPosts:   scMaxBufferedPosts,
-		sessions:             map[string]*httpSession{},
+		config:                opt.Config,
+		connHandler:           opt.ConnHandler,
+		httpHandler:           opt.HttpHandler,
+		reportsAuthentication: opt.ReportsAuthentication,
+		xPaddingBytes:         xPaddingBytes,
+		scMaxEachPostBytes:    scMaxEachPostBytes,
+		scStreamUpServerSecs:  scStreamUpServerSecs,
+		scMaxBufferedPosts:    scMaxBufferedPosts,
+		sessions:              map[string]*httpSession{},
 	}, nil
 }
 
 func (h *requestHandler) activateSession(s *httpSession) {
 	s.activate.Do(func() {
 		h.mu.Lock()
-		if s.pending {
-			s.pending = false
-			h.pending--
-		}
+		h.leavePendingLocked(s)
 		h.mu.Unlock()
 		close(s.activated)
 	})
+}
+
+// leavePendingLocked drops s from the pending accounting. h.mu must be held.
+func (h *requestHandler) leavePendingLocked(s *httpSession) {
+	if s.pending {
+		s.pending = false
+		h.pending--
+		h.pendingBytes -= s.pendingBytes
+		s.pendingBytes = 0
+	}
+}
+
+// beginPendingUpload admits a packet-up upload. It returns whether the
+// session is pending, and false for ok when a pending session already has as
+// many uploads in progress as its queue holds packets: more could not be
+// queued anyway, and each holds a request and its body.
+func (h *requestHandler) beginPendingUpload(s *httpSession) (pending, ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !s.pending {
+		return false, true
+	}
+	if s.uploads >= h.scMaxBufferedPosts.Max {
+		return true, false
+	}
+	s.uploads++
+	return true, true
+}
+
+func (h *requestHandler) endPendingUpload(s *httpSession) {
+	h.mu.Lock()
+	s.uploads--
+	h.mu.Unlock()
+}
+
+// reservePendingBytes counts n payload bytes against the pending budget; it
+// fails when the session is still pending and the budget is spent.
+func (h *requestHandler) reservePendingBytes(s *httpSession, n int) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !s.pending {
+		return true
+	}
+	if h.pendingBytes+n > maxPendingUploadBytes {
+		return false
+	}
+	h.pendingBytes += n
+	s.pendingBytes += n
+	return true
+}
+
+// beginDownload marks the session download as served; a second concurrent
+// download of the same session would run a second inner handler on the same
+// upload queue.
+func (h *requestHandler) beginDownload(s *httpSession) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if s.downloading {
+		return false
+	}
+	s.downloading = true
+	return true
 }
 
 // upsertSession returns the session for sessionID, creating it if needed. It
@@ -225,10 +323,7 @@ func (h *requestHandler) deleteSession(sessionID string, s *httpSession) {
 		return
 	}
 	delete(h.sessions, sessionID)
-	if s.pending {
-		s.pending = false
-		h.pending--
-	}
+	h.leavePendingLocked(s)
 	_ = s.uploadQueue.Close()
 	close(s.closed)
 }
@@ -327,6 +422,10 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	obfsPaddingAccepted := h.config.XPaddingObfsMode && paddingValue != ""
 	sessionId, seqStr := h.config.ExtractMetaFromRequest(r, path)
+	if len(sessionId) > maxSessionIDLength {
+		http.Error(w, "invalid xhttp session", http.StatusBadRequest)
+		return
+	}
 
 	var currentSession *httpSession
 	if sessionId != "" {
@@ -391,10 +490,24 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// (uplink-http-method): CDNs that pass only GET/HEAD to the origin, or
 	// answer 405 to POST, still get through with GET/PUT/... uploads.
 	if sessionId != "" && seqStr != "" && h.allowPacketUpUpload() {
+		seq, err := strconv.ParseUint(seqStr, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid xhttp seq", http.StatusBadRequest)
+			return
+		}
+		pending, ok := h.beginPendingUpload(currentSession)
+		if !ok {
+			http.Error(w, "too many pending uploads", http.StatusServiceUnavailable)
+			return
+		}
+		if pending {
+			defer h.endPendingUpload(currentSession)
+			// the client is not authenticated yet: the body must come in time
+			_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(pendingUploadTimeout))
+		}
 		scMaxEachPostBytes := h.scMaxEachPostBytes.Max
 		dataPlacement := h.config.GetNormalizedServerUplinkDataPlacement()
 		var headerPayload []byte
-		var err error
 		if dataPlacement == PlacementAuto || dataPlacement == PlacementHeader {
 			uplinkDataKey := h.config.GetNormalizedUplinkDataKey(PlacementHeader)
 			var headerPayloadChunks []string
@@ -445,6 +558,9 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "failed to read body", http.StatusBadRequest)
 				return
 			}
+			if pending {
+				_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
+			}
 		}
 
 		var payload []byte
@@ -478,12 +594,11 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		seq, err := strconv.ParseUint(seqStr, 10, 64)
-		if err != nil {
+		if !h.reservePendingBytes(currentSession, len(payload)) {
 			if release != nil {
 				release()
 			}
-			http.Error(w, "invalid xhttp seq", http.StatusBadRequest)
+			http.Error(w, "too much pending upload data", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -507,6 +622,14 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// stream-up/packet-up download: GET /path/{session}
 	if r.Method == http.MethodGet && sessionId != "" && seqStr == "" && h.allowSessionDownload() {
+		if !h.beginDownload(currentSession) {
+			http.Error(w, "session download already in progress", http.StatusConflict)
+			return
+		}
+		if h.reportsAuthentication {
+			s := currentSession
+			r = r.WithContext(context.WithValue(r.Context(), authenticatedKey{}, func() { h.activateSession(s) }))
+		}
 		// magic header instructs nginx + apache to not buffer response body
 		w.Header().Set("X-Accel-Buffering", "no")
 		// A web-compliant header telling all middleboxes to disable caching.

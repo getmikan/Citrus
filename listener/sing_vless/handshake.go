@@ -1,9 +1,23 @@
 package sing_vless
 
 import (
+	"context"
 	"net"
 	"time"
 )
+
+type onAuthenticatedKey struct{}
+
+// withOnAuthenticated records a function NewConnection calls once the user is
+// authenticated.
+func withOnAuthenticated(ctx context.Context, fn func()) context.Context {
+	return context.WithValue(ctx, onAuthenticatedKey{}, fn)
+}
+
+func onAuthenticatedFrom(ctx context.Context) func() {
+	fn, _ := ctx.Value(onAuthenticatedKey{}).(func())
+	return fn
+}
 
 // handshakeTimeout bounds how long a client may take, from the moment its
 // connection reaches the VLESS layer, to finish the VLESS Encryption handshake
