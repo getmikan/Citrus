@@ -96,7 +96,7 @@ journalctl -u citrus -f
 
 ## Дашборд
 
-Включите API контроллера в конфиге (`external-controller: 127.0.0.1:9090`) и подключите совместимый дашборд, например [MetaCubeXD](https://github.com/MetaCubeX/metacubexd).
+Включите API контроллера в конфиге (`external-controller: 127.0.0.1:9090` и `secret`) и подключите совместимый дашборд, например [MetaCubeXD](https://github.com/MetaCubeX/metacubexd). Контроллер без secret отклоняет запросы браузера с других сайтов и не запускается на сетевом адресе, см. [Безопасность контроллера](/Citrus/start/controller/).
 
 ## Собрать из исходников
 

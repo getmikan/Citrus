@@ -113,6 +113,10 @@ func wsUpgrade(r *http.Request, w http.ResponseWriter) (conn net.Conn, rw *bufio
 		return nil, nil, err
 	}
 
+	// The caller closes the connection with untrackStream; a change of the
+	// controller configuration closes it too, see closeStreams.
+	trackStream(conn)
+
 	// Clear deadlines set by server.
 	conn.SetDeadline(time.Time{})
 
@@ -123,9 +127,12 @@ func wsUpgrade(r *http.Request, w http.ResponseWriter) (conn net.Conn, rw *bufio
 	header.Set("Sec-WebSocket-Accept", N.GetWebSocketSecAccept(nonce))
 	header.Write(rw.Writer)
 	rw.Writer.WriteString("\r\n")
-	err = rw.Writer.Flush()
+	if err = rw.Writer.Flush(); err != nil {
+		untrackStream(conn)
+		return nil, nil, err
+	}
 
-	return conn, rw, err
+	return conn, rw, nil
 }
 
 // wsWriteServerMessage writes message to w, considering that caller represents server side.

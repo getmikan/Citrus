@@ -46,6 +46,7 @@ var (
 	externalControllerUnix        string
 	externalControllerPipe        string
 	externalControllerRoutingMark int
+	externalControllerInsecure    bool
 	secret                        string
 	postUp                        string
 	postDown                      string
@@ -55,6 +56,11 @@ func getIntEnv(key string) int {
 	value := os.Getenv(key)
 	intValue, _ := strconv.Atoi(value)
 	return intValue
+}
+
+func getBoolEnv(key string) bool {
+	value, _ := strconv.ParseBool(os.Getenv(key))
+	return value
 }
 
 func init() {
@@ -68,6 +74,7 @@ func init() {
 	flag.StringVar(&externalControllerUnix, "ext-ctl-unix", os.Getenv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER_UNIX"), "override external controller unix address")
 	flag.StringVar(&externalControllerPipe, "ext-ctl-pipe", os.Getenv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER_PIPE"), "override external controller pipe address")
 	flag.IntVar(&externalControllerRoutingMark, "ext-ctl-routing-mark", getIntEnv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ROUTING_MARK"), "override external controller routing mark")
+	flag.BoolVar(&externalControllerInsecure, "ext-ctl-allow-insecure", getBoolEnv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE"), "allow the external controller on a non-loopback address without a secret")
 	flag.StringVar(&secret, "secret", os.Getenv("CLASH_OVERRIDE_SECRET"), "override secret for RESTful API")
 	flag.StringVar(&postUp, "post-up", os.Getenv("CLASH_POST_UP"), "set post-up script")
 	flag.StringVar(&postDown, "post-down", os.Getenv("CLASH_POST_DOWN"), "set post-down script")
@@ -213,6 +220,9 @@ func main() {
 	}
 	if externalControllerRoutingMark != 0 {
 		options = append(options, hub.WithExternalControllerRoutingMark(externalControllerRoutingMark))
+	}
+	if externalControllerInsecure {
+		options = append(options, hub.WithExternalControllerAllowInsecure(true))
 	}
 	if secret != "" {
 		options = append(options, hub.WithSecret(secret))

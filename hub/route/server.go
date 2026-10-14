@@ -8,8 +8,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +36,9 @@ import (
 var (
 	uiPath = ""
 
+	// serverMu guards the servers below and applied.
+	serverMu   sync.Mutex
+	applied    *appliedConfig
 	httpServer *http.Server
 	tlsServer  *http.Server
 	unixServer *http.Server
@@ -73,6 +78,16 @@ type Config struct {
 	DohServer      string
 	IsDebug        bool
 	Cors           Cors
+	// AllowInsecure lets the tcp and tls listeners run on a non-loopback
+	// address without a secret and turns off the browser guard of a
+	// controller without a secret (external-controller-allow-insecure).
+	AllowInsecure bool
+}
+
+// appliedConfig is what ReCreateServer last applied.
+type appliedConfig struct {
+	cfg    Config
+	uiPath string
 }
 
 type Cors struct {
@@ -90,12 +105,30 @@ func (c Cors) Apply(r chi.Router) {
 	}).Handler)
 }
 
+// ReCreateServer applies the controller configuration. The listeners are
+// rebuilt only when something in it changed (or the ui path did): then every
+// transport restarts with the new secret, TLS, address and CORS policy, and the
+// open websocket streams, authorized by the old settings, are closed. An
+// unchanged configuration leaves the listeners and their clients alone.
 func ReCreateServer(cfg *Config) {
-	go start(cfg)
-	go startTLS(cfg)
-	go startUnix(cfg)
+	serverMu.Lock()
+	defer serverMu.Unlock()
+
+	state := appliedConfig{cfg: *cfg, uiPath: uiPath}
+	if applied != nil && reflect.DeepEqual(*applied, state) {
+		return
+	}
+	if applied != nil {
+		log.Infoln("External controller settings changed, restarting the controller listeners")
+	}
+	applied = &state
+
+	closeStreams()
+	start(cfg)
+	startTLS(cfg)
+	startUnix(cfg)
 	if inbound.SupportNamedPipe {
-		go startPipe(cfg)
+		startPipe(cfg)
 	}
 }
 
@@ -167,10 +200,20 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 	return r
 }
 
-// newHandler builds the controller handler. Every listener (tcp, tls, unix
-// socket and namedpipe) enforces the configured secret.
+// newHandler builds the controller handler of the local transports (unix
+// socket and namedpipe). Every listener enforces the configured secret.
 func newHandler(cfg *Config) http.Handler {
 	return router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors)
+}
+
+// newNetworkHandler builds the handler of the tcp and tls listeners: the
+// local handler behind the browser guard of a controller without a secret.
+func newNetworkHandler(cfg *Config) http.Handler {
+	h := newHandler(cfg)
+	if cfg.Secret == "" && !cfg.AllowInsecure {
+		h = browserGuard(h, cfg.Cors.AllowOrigins, cfg.DohServer)
+	}
+	return h
 }
 
 func start(cfg *Config) {
@@ -182,6 +225,13 @@ func start(cfg *Config) {
 
 	// handle addr
 	if len(cfg.Addr) > 0 {
+		if err := cfg.checkTCP(); err != nil {
+			log.Errorln("External controller refused: %s", err)
+			return
+		}
+		if cfg.Secret != "" && !isLoopbackAddr(cfg.Addr) {
+			log.Warnln("External controller %s is plain HTTP on a non-loopback address: the secret travels in clear text, prefer external-controller-tls, a loopback address or external-controller-unix", cfg.Addr)
+		}
 		lc := inbound.NewListenConfig()
 		lc.SetRouteMark(cfg.RoutingMark)
 		l, err := lc.Listen(context.Background(), "tcp", cfg.Addr)
@@ -191,13 +241,9 @@ func start(cfg *Config) {
 		}
 		log.Infoln("RESTful API listening at: %s", l.Addr().String())
 
-		server := &http.Server{
-			Handler: newHandler(cfg),
-		}
+		server := newServer(newNetworkHandler(cfg))
 		httpServer = server
-		if err = server.Serve(l); err != nil {
-			log.Errorln("External controller serve error: %s", err)
-		}
+		go serve(server, l, "External controller serve error: %s")
 	}
 }
 
@@ -210,21 +256,16 @@ func startTLS(cfg *Config) {
 
 	// handle tlsAddr
 	if len(cfg.TLSAddr) > 0 {
+		if err := cfg.checkTLS(); err != nil {
+			log.Errorln("External controller refused: %s", err)
+			return
+		}
 		certLoader, err := ca.NewTLSKeyPairLoader(cfg.Certificate, cfg.PrivateKey)
 		if err != nil {
 			log.Errorln("External controller tls listen error: %s", err)
 			return
 		}
 
-		lc := inbound.NewListenConfig()
-		lc.SetRouteMark(cfg.RoutingMark)
-		l, err := lc.Listen(context.Background(), "tcp", cfg.TLSAddr)
-		if err != nil {
-			log.Errorln("External controller tls listen error: %s", err)
-			return
-		}
-
-		log.Infoln("RESTful API tls listening at: %s", l.Addr().String())
 		tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
 		tlsConfig.NextProtos = []string{"h2", "http/1.1"}
 		tlsConfig.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -252,13 +293,19 @@ func startTLS(cfg *Config) {
 				return
 			}
 		}
-		server := &http.Server{
-			Handler: newHandler(cfg),
+
+		lc := inbound.NewListenConfig()
+		lc.SetRouteMark(cfg.RoutingMark)
+		l, err := lc.Listen(context.Background(), "tcp", cfg.TLSAddr)
+		if err != nil {
+			log.Errorln("External controller tls listen error: %s", err)
+			return
 		}
+		log.Infoln("RESTful API tls listening at: %s", l.Addr().String())
+
+		server := newServer(newNetworkHandler(cfg))
 		tlsServer = server
-		if err = server.Serve(tls.NewListener(l, tlsConfig)); err != nil {
-			log.Errorln("External controller tls serve error: %s", err)
-		}
+		go serve(server, tls.NewListener(l, tlsConfig), "External controller tls serve error: %s")
 	}
 }
 
@@ -298,13 +345,9 @@ func startUnix(cfg *Config) {
 		}
 		log.Infoln("RESTful API unix listening at: %s", l.Addr().String())
 
-		server := &http.Server{
-			Handler: newHandler(cfg),
-		}
+		server := newServer(newHandler(cfg))
 		unixServer = server
-		if err = server.Serve(l); err != nil {
-			log.Errorln("External controller unix serve error: %s", err)
-		}
+		go serve(server, l, "External controller unix serve error: %s")
 	}
 }
 
@@ -329,13 +372,9 @@ func startPipe(cfg *Config) {
 		}
 		log.Infoln("RESTful API pipe listening at: %s", l.Addr().String())
 
-		server := &http.Server{
-			Handler: newHandler(cfg),
-		}
+		server := newServer(newHandler(cfg))
 		pipeServer = server
-		if err = server.Serve(l); err != nil {
-			log.Errorln("External controller pipe serve error: %s", err)
-		}
+		go serve(server, l, "External controller pipe serve error: %s")
 	}
 }
 
@@ -388,6 +427,7 @@ func traffic(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
+		defer untrackStream(wsConn)
 	}
 
 	if wsConn == nil {
@@ -434,6 +474,7 @@ func memory(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
+		defer untrackStream(wsConn)
 	}
 
 	if wsConn == nil {
@@ -517,6 +558,7 @@ func getLogs(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
+		defer untrackStream(wsConn)
 	}
 
 	if wsConn == nil {
