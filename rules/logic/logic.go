@@ -85,11 +85,25 @@ func (logic *Logic) payloadToRule(subPayload string, parseRule common.ParseRuleF
 	return parseRule(tp, payload, target, param, nil)
 }
 
+// Limits for a logic rule payload. Each nesting level re-enters the rule
+// parser, and rule providers can be remote, so nesting and the number of
+// parenthesised groups are capped well above anything written by hand.
+const (
+	maxLogicDepth  = 32
+	maxLogicGroups = 4096
+)
+
 func (logic *Logic) format(payload string) ([]Range, error) {
 	stack := make([]int, 0)
 	subRanges := make([]Range, 0)
 	for i, c := range payload {
 		if c == '(' {
+			if len(stack) >= maxLogicDepth {
+				return nil, fmt.Errorf("logic rule nests deeper than %d levels", maxLogicDepth)
+			}
+			if len(subRanges)+len(stack) >= maxLogicGroups {
+				return nil, fmt.Errorf("logic rule has more than %d groups", maxLogicGroups)
+			}
 			stack = append(stack, i) // push
 		} else if c == ')' {
 			if len(stack) == 0 {
@@ -183,7 +197,7 @@ func matchSubRules(metadata *C.Metadata, name string, subRules map[string][]C.Ru
 				m, a = matchSubRules(metadata, rule.Adapter(), subRules, helper)
 			}
 			if m && (a == "PASS-RULE" || (helper.CheckPassRule != nil && helper.CheckPassRule(a))) {
-				continue 
+				continue
 			}
 			return m, a
 		}
