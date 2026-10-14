@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/metacubex/mihomo/component/auth"
+	"github.com/metacubex/mihomo/component/eventbus"
 	C "github.com/metacubex/mihomo/constant"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	"github.com/metacubex/mihomo/listener/inbounduser"
@@ -58,8 +59,8 @@ func setListenerUsers(name string, l any, users []C.InboundUser) error {
 
 // settleUserChange closes what is left of the removed and re-keyed users
 // (the protocol already closed their sessions; this catches the tunnel
-// connections, e.g. UDP NAT sessions) and retires or revives their traffic
-// counters.
+// connections, e.g. UDP NAT sessions), retires or revives their traffic
+// counters and reports the change on the event stream.
 func settleUserChange(name string, change inbounduser.Change) {
 	if revoked := change.Revoked(); len(revoked) > 0 {
 		statistic.DefaultManager.CloseUserConnections(name, revoked...)
@@ -67,6 +68,9 @@ func settleUserChange(name string, change inbounduser.Change) {
 	users := statistic.DefaultManager.Users()
 	users.SetRetired(name, change.Removed, true)
 	users.SetRetired(name, change.Added, false)
+	if (len(change.Added) > 0 || len(change.Removed) > 0 || len(change.Changed) > 0) && eventbus.Enabled(eventbus.TypeUserChanged) {
+		eventbus.Publish(eventbus.TypeUserChanged, eventbus.UserChanged{Inbound: name, Added: change.Added, Removed: change.Removed, Changed: change.Changed})
+	}
 }
 
 // userNames returns the names of users, without the empty ones.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/xsync"
+	"github.com/metacubex/mihomo/component/eventbus"
 	C "github.com/metacubex/mihomo/constant"
 )
 
@@ -143,16 +144,17 @@ func (c *UserCounter) observe(now time.Time) {
 
 // acquire registers a new connection from ip; ok is false when the sweep has
 // already deleted the counter. With lim set, the limits are checked first and
-// a refused connection is not registered but reported in err.
-func (c *UserCounter) acquire(key UserKey, ip netip.Addr, now time.Time, lim *limitState, ipRelease time.Duration) (ok bool, err error) {
+// a refused connection is not registered but reported in err. fresh is set
+// when ip was not online for the user (see the auth events).
+func (c *UserCounter) acquire(key UserKey, ip netip.Addr, now time.Time, lim *limitState, ipRelease time.Duration) (ok, fresh bool, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.deleted {
-		return false, nil
+		return false, false, nil
 	}
 	if lim != nil {
 		if reason, detail := lim.check(c, ip, now, ipRelease); reason != "" {
-			return true, c.reject(key, reason, detail, now)
+			return true, false, c.reject(key, ip, reason, detail, now)
 		}
 	}
 	c.conns.Add(1)
@@ -166,16 +168,17 @@ func (c *UserCounter) acquire(key UserKey, ip netip.Addr, now time.Time, lim *li
 			e = &userIPEntry{}
 			c.ips[ip] = e
 		}
+		fresh = e.conns <= 0 && (e.lastSeen.IsZero() || now.Sub(e.lastSeen) > ipRelease)
 		e.conns++
 		e.lastSeen = now
 	}
-	return true, nil
+	return true, fresh, nil
 }
 
 const rejectLogInterval = time.Second
 
 // reject counts a refused connection; c.mu must be held.
-func (c *UserCounter) reject(key UserKey, reason, detail string, now time.Time) *LimitError {
+func (c *UserCounter) reject(key UserKey, ip netip.Addr, reason, detail string, now time.Time) *LimitError {
 	c.rejected.Add(1)
 	if c.reasons == nil {
 		c.reasons = make(map[string]int64)
@@ -188,6 +191,13 @@ func (c *UserCounter) reject(key UserKey, reason, detail string, now time.Time) 
 	} else {
 		c.rejectLogAt.Store(now.UnixNano())
 		err.Suppressed = c.suppressed.Swap(0)
+		if eventbus.Enabled(eventbus.TypeUserLimit) {
+			d := eventbus.UserLimit{Inbound: key.Inbound, User: key.User, Reason: reason, Action: eventbus.LimitRejected, Detail: detail, Suppressed: err.Suppressed}
+			if ip.IsValid() {
+				d.Remote = ip.String()
+			}
+			eventbus.Publish(eventbus.TypeUserLimit, d)
+		}
 	}
 	return err
 }

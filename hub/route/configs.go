@@ -6,6 +6,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/eventbus"
 	"github.com/metacubex/mihomo/component/process"
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/component/updater"
@@ -430,6 +431,7 @@ func updateConfigs(w http.ResponseWriter, r *http.Request) {
 	if req.Payload != "" {
 		cfg, err = executor.ParseWithBytes([]byte(req.Payload))
 		if err != nil {
+			eventbus.PublishConfigReload(err)
 			render.Status(r, http.StatusBadRequest)
 			render.JSON(w, r, newError(err.Error()))
 			return
@@ -453,6 +455,7 @@ func updateConfigs(w http.ResponseWriter, r *http.Request) {
 
 		cfg, err = executor.ParseWithPath(req.Path)
 		if err != nil {
+			eventbus.PublishConfigReload(err)
 			render.Status(r, http.StatusBadRequest)
 			render.JSON(w, r, newError(err.Error()))
 			return

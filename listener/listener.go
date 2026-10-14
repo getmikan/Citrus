@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
+	"github.com/metacubex/mihomo/component/eventbus"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/http"
@@ -581,14 +582,17 @@ func PatchInboundListeners(newListenerMap map[string]C.InboundListener, tunnel C
 			}
 			_ = oldListener.Close()
 			delete(runtimeUsers, name)
+			publishInboundState(name, oldListener, eventbus.InboundStopped, nil)
 		}
 		if err := newListener.Listen(tunnel); err != nil {
 			log.Errorln("Listener %s listen err: %s", name, err.Error())
 			failedListeners[name] = struct{}{}
+			publishInboundState(name, newListener, eventbus.InboundFailed, err)
 			continue
 		}
 		delete(failedListeners, name)
 		inboundListeners[name] = newListener
+		publishInboundState(name, newListener, eventbus.InboundStarted, nil)
 	}
 
 	if dropOld {
@@ -602,9 +606,23 @@ func PatchInboundListeners(newListenerMap map[string]C.InboundListener, tunnel C
 				_ = oldListener.Close()
 				delete(inboundListeners, name)
 				delete(runtimeUsers, name)
+				publishInboundState(name, oldListener, eventbus.InboundStopped, nil)
 			}
 		}
 	}
+}
+
+// publishInboundState reports a listener of the `listeners:` section that
+// started, failed to listen or stopped.
+func publishInboundState(name string, l C.InboundListener, state string, err error) {
+	if !eventbus.Enabled(eventbus.TypeInboundState) {
+		return
+	}
+	d := eventbus.InboundState{Inbound: name, Type: inboundTypeOf(l), State: state}
+	if err != nil {
+		d.Error = err.Error()
+	}
+	eventbus.Publish(eventbus.TypeInboundState, d)
 }
 
 // FailedInboundListeners returns the number of listeners of the last applied

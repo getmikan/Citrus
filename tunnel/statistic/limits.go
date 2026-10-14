@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/metacubex/mihomo/component/eventbus"
 	"github.com/metacubex/mihomo/log"
 )
 
@@ -216,6 +217,7 @@ func (l *limitState) charge(n int64) {
 	used := l.used.Add(n)
 	if q := l.quota.Load(); q > 0 && used >= q && !l.tripped.Load() && l.tripped.CompareAndSwap(false, true) {
 		log.Infoln("[Limits] user %s of %s used up the quota of %d bytes, closing its connections", l.key.User, l.key.Inbound, q)
+		publishLimitClosed(l.key, RejectQuota, fmt.Sprintf("quota of %d bytes used up", q))
 		go l.um.closeUser(l.key)
 	}
 }
@@ -252,22 +254,34 @@ func (l *limitState) apply(spec UserLimit, inherited bool, now time.Time) {
 	exceeded := spec.Quota > 0 && l.used.Load() >= spec.Quota
 	if l.tripped.Swap(exceeded) != exceeded && exceeded {
 		log.Infoln("[Limits] user %s of %s is over the new quota of %d bytes, closing its connections", l.key.User, l.key.Inbound, spec.Quota)
+		publishLimitClosed(l.key, RejectQuota, fmt.Sprintf("quota of %d bytes used up", spec.Quota))
 		go l.um.closeUser(l.key)
 	}
 	if old == nil || old.ExpireAt != spec.ExpireAt {
 		l.stopTimer()
 		if spec.ExpireAt > 0 {
 			d := time.Unix(spec.ExpireAt, 0).Sub(now)
+			expired := fmt.Sprintf("expired at %s", time.Unix(spec.ExpireAt, 0).UTC().Format(time.RFC3339))
 			if d <= 0 {
+				publishLimitClosed(l.key, RejectExpired, expired)
 				go l.um.closeUser(l.key)
 			} else {
 				key := l.key
 				l.timer = time.AfterFunc(d, func() {
 					log.Infoln("[Limits] user %s of %s expired, closing its connections", key.User, key.Inbound)
+					publishLimitClosed(key, RejectExpired, expired)
 					l.um.closeUser(key)
 				})
 			}
 		}
+	}
+}
+
+// publishLimitClosed reports a user whose connections are closed because it
+// used up its quota or expired.
+func publishLimitClosed(key UserKey, reason, detail string) {
+	if eventbus.Enabled(eventbus.TypeUserLimit) {
+		eventbus.Publish(eventbus.TypeUserLimit, eventbus.UserLimit{Inbound: key.Inbound, User: key.User, Reason: reason, Action: eventbus.LimitClosed, Detail: detail})
 	}
 }
 
@@ -581,13 +595,16 @@ func (um *UserManager) acquire(key UserKey, ip netip.Addr, check bool) (*UserCou
 		if check {
 			checkLim = lim
 		}
-		ok, err := c.acquire(key, ip, now, checkLim, um.IPRelease)
+		ok, fresh, err := c.acquire(key, ip, now, checkLim, um.IPRelease)
 		if ok {
 			if locked {
 				um.lmu.Unlock()
 			}
 			if err != nil {
 				return nil, err
+			}
+			if fresh {
+				eventbus.PublishAuthSuccess(key.Inbound, key.User, ip)
 			}
 			return c, nil
 		}

@@ -209,6 +209,7 @@ func NewProxySetProvider(name string, interval time.Duration, payload []map[stri
 
 	fetcher := resource.NewFetcher[[]C.Proxy](name, interval, vehicle, nil, parser, pd.setProxies)
 	pd.Fetcher = fetcher
+	fetcher.SetResourceType("proxy")
 	if httpVehicle, ok := vehicle.(*resource.HTTPVehicle); ok {
 		httpVehicle.SetInRead(func(resp *http.Response) {
 			if subscriptionInfo := resp.Header.Get("subscription-userinfo"); subscriptionInfo != "" {

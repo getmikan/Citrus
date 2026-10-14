@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"github.com/metacubex/mihomo/component/eventbus"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/hub/route"
@@ -94,6 +95,7 @@ func Parse(configBytes []byte, options ...Option) error {
 	}
 
 	if err != nil {
+		eventbus.PublishConfigReload(err)
 		return err
 	}
 
