@@ -241,25 +241,34 @@ func GetGeneral() *config.General {
 	return general
 }
 
+// updateListeners applies the listeners of the configuration. The access
+// policy of the built-in listeners (allow-lan, bind-address,
+// skip-auth-prefixes, lan-allowed-ips, lan-disallowed-ips) and the built-in
+// ShadowSocks and TUIC servers, with their credentials, always come from the
+// new configuration: a reload that tightens them must not leave the old ones
+// in force. Without force the built-in http, socks, redir, tproxy and mixed
+// listeners keep the ports they run on (a client may have changed them with
+// PATCH /configs); they are still rebound when allow-lan or bind-address
+// changed.
 func updateListeners(general *config.General, listeners map[string]C.InboundListener, force bool) {
 	listener.PatchInboundListeners(listeners, tunnel.Tunnel, true)
-	if !force {
-		return
-	}
 
-	allowLan := general.AllowLan
-	listener.SetAllowLan(allowLan)
 	inbound.SetSkipAuthPrefixes(general.SkipAuthPrefixes)
 	inbound.SetAllowedIPs(general.LanAllowedIPs)
 	inbound.SetDisAllowedIPs(general.LanDisAllowedIPs)
+	listener.SetAllowLan(general.AllowLan)
+	listener.SetBindAddress(general.BindAddress)
 
-	bindAddress := general.BindAddress
-	listener.SetBindAddress(bindAddress)
-	listener.ReCreateHTTP(general.Port, tunnel.Tunnel)
-	listener.ReCreateSocks(general.SocksPort, tunnel.Tunnel)
-	listener.ReCreateRedir(general.RedirPort, tunnel.Tunnel)
-	listener.ReCreateTProxy(general.TProxyPort, tunnel.Tunnel)
-	listener.ReCreateMixed(general.MixedPort, tunnel.Tunnel)
+	port, socksPort, redirPort, tproxyPort, mixedPort := general.Port, general.SocksPort, general.RedirPort, general.TProxyPort, general.MixedPort
+	if !force {
+		ports := listener.GetPorts()
+		port, socksPort, redirPort, tproxyPort, mixedPort = ports.Port, ports.SocksPort, ports.RedirPort, ports.TProxyPort, ports.MixedPort
+	}
+	listener.ReCreateHTTP(port, tunnel.Tunnel)
+	listener.ReCreateSocks(socksPort, tunnel.Tunnel)
+	listener.ReCreateRedir(redirPort, tunnel.Tunnel)
+	listener.ReCreateTProxy(tproxyPort, tunnel.Tunnel)
+	listener.ReCreateMixed(mixedPort, tunnel.Tunnel)
 	listener.ReCreateShadowSocks(general.ShadowSocksConfig, tunnel.Tunnel)
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
 }
