@@ -38,6 +38,7 @@ A user's own limit replaces the default of the inbound as a whole; it does not a
 - The speed is limited in the read and write paths of the connection. For a user with a speed limit the copy goes through a buffer rather than `splice` (a splice moves up to a megabyte per step, so the rate would be jumpy); for users without a speed limit `splice` and the other fast paths are unchanged. A limit set while a splice already runs is honoured too, in steps of what the splice moved.
 - A user without limits pays nothing beyond the traffic accounting: the check is one comparison of a pointer with `nil`.
 - Limits need connections to be attributed: with `user-stats: false`, users are still attributed as long as there is any limit.
+- SOCKS5 UDP (`socks`, `mixed` with `udp: true`): the datagrams of a UDP ASSOCIATE carry the user that authenticated it, so each UDP session counts against that user's limits. An association is held to one UDP source port of the client: the port named in the request when the client named its own address, otherwise the port of the first datagram. Other sockets on the same client IP (another client behind the same NAT) cannot use it. The association's TCP control connection itself is not counted in `max-conns`.
 
 ## Config reload
 
