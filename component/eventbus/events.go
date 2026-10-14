@@ -72,6 +72,18 @@ type InboundState struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// ChainHealth is the data of a chain.health event, sent when the health check
+// of a chain group finds the chain in another state than the previous check.
+type ChainHealth struct {
+	Chain string `json:"chain"`
+	Alive bool   `json:"alive"`
+	// FailedHop is the first hop that failed (Position counts from 1); both
+	// are empty when the chain is alive.
+	FailedHop string `json:"failedHop,omitempty"`
+	Position  int    `json:"position,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 // Dropped is the data of a dropped event.
 type Dropped struct {
 	Count uint64 `json:"count"`

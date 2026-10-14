@@ -23,7 +23,7 @@ description: Где искать полный справочник config.yaml �
 | `dns`, `hosts` | DNS-серверы, fake IP, политики для DNS-запросов. |
 | `dns.serve-expired`, `dns.serve-expired-ttl`, `dns.serve-expired-client-timeout` | Ответ просроченной записью из кэша, пока она обновляется (RFC 8767). По умолчанию просроченная запись отдаётся сразу и обновляется в фоне, как и раньше; TTL и таймаут клиента дают поведение по RFC 8767. |
 | `sniffer` | Определение домена по трафику (TLS, HTTP, QUIC). |
-| `proxies`, `proxy-groups`, `proxy-providers` | Исходящие прокси, группы выбора и удалённые наборы прокси. |
+| `proxies`, `proxy-groups`, `proxy-providers` | Исходящие прокси, группы выбора и удалённые наборы прокси; группы `type: chain` для каскадов, см. [Цепочки](/Citrus/start/chains/). |
 | `rules`, `sub-rules`, `rule-providers` | Правила маршрутизации и удалённые наборы правил. |
 | `listeners`, `tunnels` | Дополнительные входящие, в том числе серверные протоколы. |
 | `geox-url`, `geo-auto-update` | Откуда и как часто обновлять geodata. |

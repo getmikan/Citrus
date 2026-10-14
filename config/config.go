@@ -959,6 +959,12 @@ func parseTLS(cfg *RawConfig) (*TLS, error) {
 func parseProxies(cfg *RawConfig) (proxies map[string]C.Proxy, providersMap map[string]P.ProxyProvider, err error) {
 	proxies = make(map[string]C.Proxy)
 	providersMap = make(map[string]P.ProxyProvider)
+
+	// chain groups: wire their hops with dialer-proxy before anything is parsed
+	if err := expandChains(cfg); err != nil {
+		return nil, nil, err
+	}
+
 	proxiesConfig := cfg.Proxy
 	groupsConfig := cfg.ProxyGroup
 	providersConfig := cfg.ProxyProvider

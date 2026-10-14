@@ -1,0 +1,69 @@
+---
+title: Chains
+description: A chain group sends traffic through several hops in order (entry, then exit), and its health check names the hop that broke.
+---
+
+A cascade sends traffic through more than one node: the client connects to an entry node, the entry node to an exit node, the exit node to the site. On the node that runs Citrus, a `chain` proxy group describes the hops after it in one place:
+
+```yaml
+proxies:
+  - { name: entry, type: vless, server: entry.example.com, port: 443, ... }
+  - { name: exit-de, type: vless, server: de.example.com, port: 443, ... }
+  - { name: exit-nl, type: vless, server: nl.example.com, port: 443, ... }
+
+proxy-groups:
+  - name: exits
+    type: url-test
+    proxies: [exit-de, exit-nl]
+    url: https://cp.cloudflare.com/generate_204
+
+  - name: cascade
+    type: chain
+    proxies: [entry, exits] # in order: the first hop, ..., the exit
+    url: https://cp.cloudflare.com/generate_204
+    interval: 300
+
+rules:
+  - MATCH,cascade
+```
+
+## How the hops are wired
+
+A chain is built from `dialer-proxy`: every hop after the first one is dialed through the hop before it. When the config is loaded, the chain sets the `dialer-proxy` of the proxies that make a hop up:
+
+- a proxy: the proxy itself;
+- a group: its members, and the providers of its `use` (their `dialer-proxy`);
+- another chain: its first hop.
+
+The first hop is used as it is, and can be anything: a proxy, a group (several entry nodes), a group over a provider, `DIRECT`.
+
+The wiring is part of the proxies: an exit of a chain always goes through the entry, also when a rule or another group uses it. That is what a cascade needs, and it is what makes failover across exits work: the health checks of the `exits` group above test every exit through the entry, so the group switches to an exit that works through the entry. Without a chain the same config can be written by hand with `dialer-proxy` on every exit; `dialer-proxy` itself works as before.
+
+The config does not load when:
+
+- a hop is not found, or appears twice in a chain;
+- there is a loop: a group of the chain that contains the chain, or a hop that would go through itself (an exit group that contains the entry);
+- a proxy or provider of a hop already has another `dialer-proxy` (also one set by another chain that puts it after a different hop);
+- a built-in (`DIRECT`, `REJECT`, ...) or a group with `include-all*` is a hop after the first;
+- the chain has fewer than two hops, or `use`, `include-all*`, `filter`.
+
+The options of a chain are `url`, `interval` (300 seconds by default), `timeout`, `lazy`, `expected-status`, `disable-udp`, `hidden`, `icon`.
+
+## Health of a chain
+
+The health check tests the whole chain with one request, through all the hops. When it fails, it tests the hops from the first one: testing hop *k* goes through hops 1 to *k*−1, so the first hop that fails is the one that breaks the chain (or the link to it). The result is shown:
+
+- in `GET /proxies/cascade`: `hops` (`name`, `position`, `alive`: `true`, `false`, or `null` when unknown), `chainAlive`, and for a broken chain `failedHop`, `failedHopPosition`, `chainError`;
+- by `GET /group/cascade/delay`: an error that names the hop, such as `chain cascade: hop 2 [exit-de] failed, the hops before it are alive`;
+- in the [metrics](/Citrus/en/start/metrics/): `citrus_chain_alive{chain}` and `citrus_chain_hop_alive{chain,hop,position}`;
+- as a `chain.health` [event](/Citrus/en/start/events/) when the state changes.
+
+A hop is tested by fetching the test URL from it. A hop that is only allowed to reach the next one (not the internet) fails that test; when the chain breaks after such a hop, it is reported in place of the real one.
+
+The hops record their own delays too: a hop that is a proxy or a group has the history of its tests in `/proxies` and `citrus_proxy_alive`.
+
+## Traffic, users and UDP
+
+- `/connections` shows a connection of a chain with `chains` such as `["exit-de", "exits", "cascade"]`: the outbound that carried it, then the groups. The connections of the earlier hops are internal and not listed.
+- The traffic of a user is counted once, on the user's connection, and [user limits](/Citrus/en/start/user-limits/) apply to it; the hops do not count it again.
+- UDP goes through the chain when the last hop supports it. A protocol that carries UDP inside its stream (VLESS, Trojan, Shadowsocks with UDP over TCP) needs only TCP from the hops before it; one that sends UDP datagrams (Shadowsocks UDP, Hysteria2, TUIC) needs UDP from every hop before it (for example `udp: true` on a SOCKS5 hop).
