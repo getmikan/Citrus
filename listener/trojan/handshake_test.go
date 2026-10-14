@@ -20,9 +20,9 @@ const testPassword = "password"
 
 // shortHandshakeTimeout shortens handshakeTimeout for one test.
 func shortHandshakeTimeout(t *testing.T, d time.Duration) {
-	old := handshakeTimeout
-	handshakeTimeout = d
-	t.Cleanup(func() { handshakeTimeout = old })
+	old := handshakeTimeout.Load()
+	handshakeTimeout.Store(d)
+	t.Cleanup(func() { handshakeTimeout.Store(old) })
 }
 
 // echoAfterIdleTunnel idles past the handshake timeout, then echoes 5 bytes.
