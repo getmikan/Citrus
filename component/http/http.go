@@ -86,7 +86,7 @@ func HttpRequest(ctx context.Context, url, method string, header map[string][]st
 		TLSClientConfig: tlsConfig,
 	}
 
-	client := http.Client{Transport: transport}
+	client := http.Client{Transport: transport, CheckRedirect: checkRedirect}
 	return client.Do(req)
 }
 

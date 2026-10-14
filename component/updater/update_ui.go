@@ -163,6 +163,12 @@ func detectFileType(data []byte) compressionType {
 }
 
 func (u *UIUpdater) downloadUI() error {
+	// Checked here, with symlinks resolved, because the directory is about
+	// to be emptied and refilled: a link planted under the UI path must not
+	// redirect that outside the safe paths.
+	if !C.Path.IsSafePath(u.externalUIPath) {
+		return C.Path.ErrNotSafePath(u.externalUIPath)
+	}
 	data, err := downloadForBytes(u.externalUIURL, maxUIArchiveSize)
 	if err != nil {
 		return fmt.Errorf("can't download file: %w", err)
