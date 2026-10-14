@@ -104,6 +104,24 @@ func (p *path) SafePaths() []string {
 	return append([]string{p.homeDir}, p.safePaths...) // add homedir to safePaths
 }
 
+// HoldsCoreState reports whether dir is the home directory, the directory of
+// the config file or a SAFE_PATHS root, or an ancestor of one of them: a
+// directory the core keeps its own files in. Such a directory must never be
+// emptied or served as a whole, whatever SKIP_SAFE_PATH_CHECK says.
+func (p *path) HoldsCoreState(dir string) bool {
+	dir = filepath.Clean(p.Resolve(dir))
+	roots := append([]string{filepath.Dir(p.Resolve(p.configFile))}, p.SafePaths()...)
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		if rel, err := filepath.Rel(dir, filepath.Clean(root)); err == nil && filepath.IsLocal(rel) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *path) ErrNotSafePath(path string) error {
 	return ErrNotSafePath{Path: path, SafePaths: p.SafePaths()}
 }

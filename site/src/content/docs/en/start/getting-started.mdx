@@ -75,6 +75,8 @@ citrus -d ~/.config/citrus
 | `-f <file>` | A specific config file. |
 | `-t` | Test the config and exit. |
 | `-v` | Print the version. |
+| `-secret-file <file>` | Read the controller `secret` override from a file (`CLASH_OVERRIDE_SECRET_FILE`); unlike `-secret`, it does not show in the process list. |
+| `-age-secret-key-file <file>` | Read the age key that decrypts the config from a file (`CLASH_AGE_SECRET_KEY_FILE`). `citrus age decrypt` and `citrus age convert` take the key as `@file` too. |
 
 Test a config before a restart:
 
