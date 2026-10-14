@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -159,6 +160,34 @@ func GenHybridKeyPair() (secretKey string, publicKey string, err error) {
 	return identity.String(), identity.Recipient().String(), nil
 }
 
+// writePrivateFile writes decrypted data to path readable by the owner only.
+// It writes a new 0600 file next to path and renames it into place, so an
+// existing target with wider permissions (or a symlink) is replaced rather
+// than written through.
+func writePrivateFile(path string, data []byte) (err error) {
+	dir, name := filepath.Split(path)
+	if dir == "" {
+		dir = "."
+	}
+	tmp, err := os.CreateTemp(dir, "."+name+".*.tmp") // created with mode 0600
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if _, err = tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
 // secretKeyArg reads the secret key argument of the age subcommands: "@path"
 // reads it from a file and "-" from the standard input, which keeps it out of
 // the process arguments; anything else is the key itself.
@@ -242,13 +271,13 @@ func Main(args []string) {
 		if args[3] == "-" {
 			_, err = os.Stdout.Write(result)
 		} else {
-			err = os.WriteFile(args[3], result, 0600) // the plain config holds secrets
+			err = writePrivateFile(args[3], result)
 		}
 		if err != nil {
 			panic(err)
 		}
 	case "encrypt":
-		if len(args) < 3 {
+		if len(args) < 4 {
 			panic("Using: age encrypt <public_key> <source_file> <target_file>")
 		}
 		var data []byte

@@ -193,7 +193,9 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			vless := make(map[string]any, 20)
 			err = handleVShareLink(names, urlVLess, scheme, vless)
 			if err != nil {
-				log.Warnln("error:%s line:%s", err.Error(), line)
+				// Only the server and the name: the link's user part and
+				// query carry the UUID, keys and passwords.
+				log.Warnln("skip vless link to %s (%s): %s", urlVLess.Host, urlVLess.Fragment, err.Error())
 				continue
 			}
 			if flow := query.Get("flow"); flow != "" {
