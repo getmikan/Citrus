@@ -38,10 +38,14 @@ func NewHTTP(options *HTTPOption) (*HTTP, error) {
 	if err != nil {
 		return nil, err
 	}
+	users, err := newAuthStoreUsers(base.Name(), options.Users)
+	if err != nil {
+		return nil, err
+	}
 	return &HTTP{
 		Base:           base,
 		config:         options,
-		authStoreUsers: newAuthStoreUsers(base.Name(), options.Users),
+		authStoreUsers: users,
 	}, nil
 }
 

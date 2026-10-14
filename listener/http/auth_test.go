@@ -217,3 +217,40 @@ func TestHTTPLargeHeaderUnderLimit(t *testing.T) {
 	// and the limit is armed again for the next request
 	require.Equal(t, http.StatusOK, roundTrip(t, client, br, http.MethodGet, "").StatusCode)
 }
+
+func useGlobalAuth(t *testing.T, a auth.Authenticator) {
+	t.Helper()
+	authStore.Default.SetAuthenticator(a)
+	t.Cleanup(func() { authStore.Default.SetAuthenticator(nil) })
+}
+
+func aliceWith(pass string) auth.Authenticator {
+	return auth.NewAuthenticator([]auth.AuthUser{{User: "alice", Pass: pass}, {User: "bob", Pass: "bob-pw"}})
+}
+
+// A reload of the global authentication closes the keep-alive connections of
+// a re-keyed user and keeps the others.
+func TestHTTPGlobalAuthRotation(t *testing.T) {
+	useGlobalAuth(t, aliceWith("alice-pw"))
+	origin := &originTunnel{}
+	alice, aliceBr, aliceDone := serveProxy(t, authStore.Default, origin)
+	bob, bobBr, _ := serveProxy(t, authStore.Default, origin)
+	require.Equal(t, http.StatusOK, roundTrip(t, alice, aliceBr, http.MethodGet, basic("alice", "alice-pw")).StatusCode)
+	require.Equal(t, http.StatusOK, roundTrip(t, bob, bobBr, http.MethodGet, basic("bob", "bob-pw")).StatusCode)
+
+	authStore.Default.SetAuthenticator(aliceWith("alice-new"))
+	requireClosed(t, aliceBr, aliceDone)
+	require.Equal(t, http.StatusOK, roundTrip(t, bob, bobBr, http.MethodGet, basic("bob", "bob-pw")).StatusCode)
+}
+
+// Turning the global authentication on closes the connections that were let
+// in without it.
+func TestHTTPGlobalAuthTurnedOn(t *testing.T) {
+	useGlobalAuth(t, nil)
+	origin := &originTunnel{}
+	client, br, done := serveProxy(t, authStore.Default, origin)
+	require.Equal(t, http.StatusOK, roundTrip(t, client, br, http.MethodGet, "").StatusCode)
+
+	authStore.Default.SetAuthenticator(aliceWith("alice-pw"))
+	requireClosed(t, br, done)
+}
