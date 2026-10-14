@@ -35,6 +35,7 @@ func NewServerHandler(option *ServerOption, quicConn *quic.Conn, uuid uuid.UUID)
 		quicConn:     quicConn,
 		uuid:         uuid,
 		authCh:       make(chan struct{}),
+		fragCache:    fragCache[uint32]{maxPackets: serverMaxFragPackets},
 	}
 }
 
@@ -49,6 +50,10 @@ type serverHandler struct {
 	authOnce sync.Once
 
 	udpInputMap xsync.Map[uint16, *serverUDPInput]
+	// fragCache reassembles fragmented packets of every association of the
+	// connection, keyed by ASSOC_ID<<16 | PKT_ID, so the connection has one
+	// bounded budget of incomplete packets however many associations it opens.
+	fragCache fragCache[uint32]
 }
 
 func (s *serverHandler) AuthOk() bool {
@@ -107,7 +112,7 @@ func (s *serverHandler) parsePacket(packet *Packet, udpRelayMode types.UdpRelayM
 	if input.writeClosed.Load() {
 		return nil
 	}
-	packetPtr := input.Feed(packet)
+	packetPtr := s.fragCache.feed(uint32(assocId)<<16|uint32(packet.PKT_ID), packet)
 	if packetPtr == nil {
 		return
 	}
@@ -229,7 +234,6 @@ func UserKey(user C.InboundUser) ([16]byte, error) {
 
 type serverUDPInput struct {
 	writeClosed atomic.Bool
-	deFragger
 }
 
 type serverUDPPacket struct {
