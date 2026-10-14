@@ -40,6 +40,17 @@ type HealthCheck struct {
 	lastTouch      atomic.TypedValue[time.Time]
 	singleDo       *singledo.Single[struct{}]
 	timeout        time.Duration
+	checker        Checker
+}
+
+// Checker runs a health check in place of the test of every proxy, for a
+// group whose members are not independent (a chain). It gets the default URL,
+// expected status and timeout of the health check.
+type Checker func(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16], timeout time.Duration)
+
+// SetChecker makes the health check run fn instead of testing every proxy.
+func (hc *HealthCheck) SetChecker(fn Checker) {
+	hc.checker = fn
 }
 
 func (hc *HealthCheck) process() {
@@ -129,6 +140,11 @@ func (hc *HealthCheck) check() {
 	_, _, _ = hc.singleDo.Do(func() (struct{}, error) {
 		id := utils.NewUUIDV4().String()
 		log.Debugln("Start New Health Checking {%s}", id)
+		if hc.checker != nil {
+			hc.checker(hc.ctx, hc.url, hc.expectedStatus, hc.timeout)
+			log.Debugln("Finish A Health Checking {%s}", id)
+			return struct{}{}, nil
+		}
 		b := new(errgroup.Group)
 		b.SetLimit(10)
 

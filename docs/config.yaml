@@ -1723,6 +1723,41 @@ proxy-groups:
   #                   # 两种策略给出的一致性时长不同(前者永久、后者 10 分钟),
   #                   # 取舍见 PR #3133。
 
+  # chain: a cascade of hops (entry -> ... -> exit). Every hop after the first
+  # one is dialed through the hop before it: the config sets the dialer-proxy
+  # of the proxies that make the hop up (a proxy; the members of a group and
+  # the providers of its `use`; the first hop of a nested chain). Those proxies
+  # then always go through the previous hop, also when they are used on their
+  # own, so the health checks of an exit group go through the entry as well and
+  # a url-test/fallback as the last hop fails over across the exits.
+  # The first hop can be anything: a proxy, a group, DIRECT.
+  # Load errors: a hop not found, a hop listed twice, a loop (e.g. a group of
+  # the chain that contains the chain), a dialer-proxy already set to another
+  # proxy, a built-in or a group with include-all after the first hop.
+  # The health check tests the whole chain; when it fails, it tests the hops
+  # from the first one (hop k goes through hops 1..k-1) and reports the first
+  # hop that fails: /proxies/cascade (hops, chainAlive, failedHop,
+  # failedHopPosition, chainError), /metrics (citrus_chain_alive,
+  # citrus_chain_hop_alive) and the chain.health event of GET /events.
+  # - name: exits
+  #   type: url-test
+  #   proxies:
+  #     - vless-de
+  #     - vless-nl
+  #   url: "https://cp.cloudflare.com/generate_204"
+  # - name: cascade
+  #   type: chain
+  #   proxies:          # in order: the first hop, ..., the exit
+  #     - ss1           # entry
+  #     - exits         # exit: a group, failover across exits
+  #   url: "https://cp.cloudflare.com/generate_204"
+  #   interval: 300
+  #   # timeout: 5000
+  #   # lazy: true
+  #   # expected-status: 204
+  #   # disable-udp: true
+  #   # `use`, `include-all*` and `filter` are not supported on a chain
+
   # select 用户自行选择节点
   - name: Proxy
     type: select

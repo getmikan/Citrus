@@ -35,7 +35,7 @@ import (
 )
 
 type Listener struct {
-	closed       bool
+	closed       atomic.Bool
 	config       LC.ShadowsocksServer
 	listeners    []net.Listener
 	udpListeners []net.PacketConn
@@ -227,7 +227,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 					}
 					if err != nil {
 						buff.Release()
-						if sl.closed {
+						if sl.closed.Load() {
 							break
 						}
 						continue
@@ -260,7 +260,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 			for {
 				c, err := l.Accept()
 				if err != nil {
-					if sl.closed {
+					if sl.closed.Load() {
 						break
 					}
 					continue
@@ -275,7 +275,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, lis := range l.listeners {
 		err := lis.Close()

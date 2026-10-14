@@ -89,6 +89,8 @@ The bytes are the payload on the outbound side of the tunnel, as in `/traffic` a
 | --- | --- | --- |
 | `citrus_proxy_alive{proxy}` | gauge | 1 when the last health check or delay test of the proxy succeeded. |
 | `citrus_proxy_delay_ms{proxy}` | gauge | Delay of the last check, when it succeeded. |
+| `citrus_chain_alive{chain}` | gauge | 1 when the last health check of a [chain group](/Citrus/en/start/chains/) got through all its hops. |
+| `citrus_chain_hop_alive{chain,hop,position}` | gauge | A hop of a chain after its last health check: 0 for the first hop that failed, 1 for the hops before it (all hops of a working chain). The hops after a failed one are not shown. |
 
 Only proxies and groups that have been tested at least once are listed, including the proxies of providers.
 

@@ -10,10 +10,12 @@ import (
 	"runtime/debug"
 	rtmetrics "runtime/metrics"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/metacubex/mihomo/adapter/outboundgroup"
 	"github.com/metacubex/mihomo/component/eventbus"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/listener"
@@ -79,6 +81,7 @@ func Write(out io.Writer, o Options) error {
 		writeUsers(w)
 	}
 	writeProxies(w)
+	writeChains(w)
 	writeEvents(w)
 	return bw.Flush()
 }
@@ -344,6 +347,41 @@ func writeProxies(w writer) {
 	for _, p := range list {
 		if p.alive && p.delay > 0 {
 			w.int("citrus_proxy_delay_ms", int64(p.delay), "proxy", p.name)
+		}
+	}
+}
+
+// writeChains reports the chain groups that a health check has tested: the
+// chain, and the hops whose state the check told (the hops up to the first one
+// that failed; all of them when the chain is alive).
+func writeChains(w writer) {
+	type chainHealth struct {
+		name   string
+		status outboundgroup.ChainStatus
+	}
+	var list []chainHealth
+	for name, p := range tunnel.Proxies() {
+		if c, ok := p.Adapter().(*outboundgroup.Chain); ok {
+			if st := c.Status(); st.Checked {
+				list = append(list, chainHealth{name: name, status: st})
+			}
+		}
+	}
+	if len(list) == 0 {
+		return
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].name < list[j].name })
+
+	w.family("citrus_chain_alive", "gauge", "1 when the last health check of a chain group got through all its hops.")
+	for _, c := range list {
+		w.int("citrus_chain_alive", boolValue(c.status.Alive), "chain", c.name)
+	}
+	w.family("citrus_chain_hop_alive", "gauge", "State of a hop of a chain group after its last health check: 0 for the first hop that failed, 1 for the hops before it (or all hops of a chain that is alive); the hops after a failed one are not reported.")
+	for _, c := range list {
+		for _, h := range c.status.Hops {
+			if h.Alive != nil {
+				w.int("citrus_chain_hop_alive", boolValue(*h.Alive), "chain", c.name, "hop", h.Name, "position", strconv.Itoa(h.Position))
+			}
 		}
 	}
 }
