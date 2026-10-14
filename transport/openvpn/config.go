@@ -88,6 +88,15 @@ type ClientConfig struct {
 	// client default, which is TLS 1.2 as well.
 	TLSVersionMin string
 	tlsMinVersion uint16
+
+	// VerifyX509Name and VerifyX509Type check the server certificate's
+	// subject or common name, like OpenVPN --verify-x509-name. The type is
+	// "subject" (the default), "name" or "name-prefix".
+	VerifyX509Name string
+	VerifyX509Type string
+	// VerifyServerName requires the server certificate to be valid for
+	// RemoteHost, as an HTTPS client would.
+	VerifyServerName bool
 }
 
 // DataCipherKeyLength returns the key size for the negotiated data cipher.
@@ -254,6 +263,9 @@ func (c *ClientConfig) Prepare() error {
 		return err
 	}
 	c.tlsMinVersion = minVersion
+	if err := c.prepareServerIdentity(); err != nil {
+		return err
+	}
 	if len(bytes.TrimSpace(c.TLSAuth)) > 0 {
 		key, err := DecodeStaticKey(c.TLSAuth)
 		if err != nil {

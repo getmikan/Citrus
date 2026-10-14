@@ -1759,7 +1759,10 @@ func (c *Client) tlsConfig() (*tls.Config, error) {
 			Intermediates: intermediates,
 			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		return c.config.checkServerIdentity(cs.PeerCertificates[0])
 	}
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,

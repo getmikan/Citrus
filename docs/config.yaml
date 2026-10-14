@@ -1461,6 +1461,11 @@ proxies: # socks5
     # tran-window: 3600 # 旧 data key 在 rekey 后保留的秒数；默认 3600，显式设为 0 表示立即过期，应与服务端 --tran-window 对齐
     # handshake-timeout: 30 # 单位为秒；配置后握手时不受外层连接超时影响；默认值为 0，表示仅使用外层连接超时
     # tls-version-min: "1.3" # lowest TLS version of the control channel, "1.2" or "1.3"; unset = 1.2 (as --tls-version-min)
+    # Server identity. Without these only the CA chain and the server EKU are checked (any server
+    # certificate from the same CA is accepted) and a warning is logged.
+    # verify-x509-name: server_abc123 # as --verify-x509-name in the .ovpn file
+    # verify-x509-type: name # subject (default, e.g. "C=US, O=VPN, CN=server"), name (common name) or name-prefix
+    # verify-server-name: true # require the certificate to be valid for `server` (DNS name or IP SAN)
     # mtu: 1500
     udp: true
     # ip-stack:
@@ -1597,6 +1602,11 @@ proxies: # socks5
     username: root
     password: password
     private-key: path
+    # Server key(s) in authorized_keys format (e.g. from `ssh-keyscan -t ed25519 host`).
+    # Without host-key the server is not authenticated and a warning is logged.
+    # host-key:
+    #   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+    # skip-host-key-check: true # accept any server key without the warning (not recommended)
 
   # mieru
   - name: mieru
