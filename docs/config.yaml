@@ -9,6 +9,11 @@ mixed-port: 10801 # HTTP(S) 和 SOCKS 代理混合端口
 allow-lan: true # 允许局域网连接
 bind-address: "*" # 绑定 IP 地址，仅作用于 allow-lan 为 true，'*'表示所有地址
 authentication: # http,socks 入口的验证用户名，密码
+  # HTTP (and mixed) check the credentials of every request on a keep-alive
+  # connection: a request without them gets 407, a wrong password gets 403 and
+  # the connection is closed. Without authentication a Proxy-Authorization
+  # header does not set the user (IN-USER). A request header over 64 KiB gets
+  # 431 and the connection is closed.
   - "username:password"
 skip-auth-prefixes: # 设置跳过验证的 IP 段
   - 127.0.0.1/8
