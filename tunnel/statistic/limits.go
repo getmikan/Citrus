@@ -262,7 +262,17 @@ func (l *limitState) apply(spec UserLimit, inherited bool, now time.Time) {
 				go l.um.closeUser(l.key)
 			} else {
 				key := l.key
+				expireAt := spec.ExpireAt
 				l.timer = time.AfterFunc(d, func() {
+					// the timer runs on the monotonic clock and ExpireAt is wall-clock time: if the
+					// wall clock was slewed meanwhile, wait for it, or the user is closed while
+					// still admitted and reconnects until the second turns
+					if early := time.Until(time.Unix(expireAt, 0)); early > 0 {
+						time.Sleep(early)
+					}
+					if l.spec.Load().ExpireAt != expireAt { // changed while waiting
+						return
+					}
 					log.Infoln("[Limits] user %s of %s expired, closing its connections", key.User, key.Inbound)
 					l.um.closeUser(key)
 				})
