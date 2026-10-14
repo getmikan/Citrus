@@ -90,7 +90,7 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		IdleTimeout: 30 * time.Second,
 		// bounds the TLS handshake and the request header of ws/grpc/xhttp
 		// before the conn reaches serveConn and its own handshake deadline
-		ReadHeaderTimeout: handshakeTimeout,
+		ReadHeaderTimeout: handshakeTimeout.Load(),
 		Protocols:         new(http.Protocols),
 	}
 	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
@@ -243,6 +243,9 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 				sl.HandleHTTPConn(r, conn, tunnel, additions...)
 			},
 			HttpHandler: httpServer.Handler,
+			// NewConnection reports the authenticated user through the
+			// request's OnAuthenticated (HandleHTTPConn passes it on)
+			ReportsAuthentication: true,
 		})
 		if err != nil {
 			return nil, err
@@ -351,12 +354,13 @@ func (l *Listener) AddrList() (addrList []net.Addr) {
 }
 
 func (l *Listener) HandleHTTPConn(r *http.Request, conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
+	onAuthenticated := xhttp.OnAuthenticated(r)
 	if ap := l.realIP.ClientAddrPort(r); ap.IsValid() {
 		additions = append(slices.Clip(additions), inbound.WithSrcAddrPort(ap))
-		l.serveConn(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), tunnel, additions...)
+		l.serveConnAuth(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), onAuthenticated, tunnel, additions...)
 		return
 	}
-	l.HandleConn(conn, tunnel, additions...)
+	l.serveConnAuth(conn, nil, onAuthenticated, tunnel, additions...)
 }
 
 func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
@@ -366,9 +370,18 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 // serveConn serves a vless connection; client is the address of the client
 // behind a trusted reverse proxy, nil when the TCP peer is the client.
 func (l *Listener) serveConn(conn net.Conn, client net.Addr, tunnel C.Tunnel, additions ...inbound.Addition) {
+	l.serveConnAuth(conn, client, nil, tunnel, additions...)
+}
+
+// serveConnAuth is serveConn with onAuthenticated, called (if not nil) once
+// the user is authenticated.
+func (l *Listener) serveConnAuth(conn net.Conn, client net.Addr, onAuthenticated func(), tunnel C.Tunnel, additions ...inbound.Addition) {
 	ctx := sing.WithAdditions(context.TODO(), additions...)
 	if client != nil {
 		ctx = withClientAddr(ctx, client)
+	}
+	if onAuthenticated != nil {
+		ctx = withOnAuthenticated(ctx, onAuthenticated)
 	}
 	// cleared by NewConnection once the request header is read and the user
 	// is authenticated
