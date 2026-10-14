@@ -10,6 +10,8 @@ on:
       - "component/ech/**"
       - "listener/**"
       - "adapter/outbound/**"
+      - "hub/route/**"
+      - "tunnel/statistic/**"
       - "go.mod"
       - "go.sum"
       - "test/interop/**"
@@ -111,6 +113,96 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: interop-logs
+          path: ${{ runner.temp }}/interop-logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Upstream mihomo release (the core inside Mikan, ClashFest, Clash Verge and
+  # other clients) -> Citrus server, for every inbound those clients can reach.
+  # To bump a version: change it and its hash, the sha256 digest GitHub shows
+  # for mihomo-linux-amd64-<version>.gz on the release page.
+  interop-mihomo:
+    name: interop-mihomo (${{ matrix.mihomo }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mihomo: v1.19.32 # the version the panel targets, latest stable
+            sha256: 8451100836c9eda194331c2babfad490b2faf30cebc1a04b0e76fd8ac2d35d10
+          - mihomo: v1.19.31 # the one before it, still in the wild
+            sha256: d5e74bbddbdfff49a1aef7775bf5911da59f0d7196ed509a0ac914b3653dd5f1
+    defaults:
+      run:
+        shell: bash
+    env:
+      CGO_ENABLED: 0
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        id: setup_go_0
+        continue-on-error: true
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
+          go-version: '1.26'
+
+      - name: Wait before retrying the Go download
+        if: ${{ steps.setup_go_0.outcome == 'failure' }}
+        run: sleep 30
+
+      - name: Set up Go (retry)
+        if: ${{ steps.setup_go_0.outcome == 'failure' }}
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
+          go-version: '1.26'
+
+      - name: Verify Go installation
+        run: go version
+
+      - name: Download upstream mihomo
+        env:
+          MIHOMO_VERSION: ${{ matrix.mihomo }}
+          MIHOMO_SHA256: ${{ matrix.sha256 }}
+        run: |
+          set -euo pipefail
+          file="mihomo-linux-amd64-${MIHOMO_VERSION}.gz"
+          mkdir -p "$RUNNER_TEMP/mihomo"
+          cd "$RUNNER_TEMP/mihomo"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$file" \
+            "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/$file"
+          actual=$(sha256sum "$file" | cut -d' ' -f1)
+          echo "pinned: $MIHOMO_SHA256"
+          echo "actual: $actual"
+          if [ "$actual" != "$MIHOMO_SHA256" ]; then
+            echo "::error::$file SHA256 mismatch"
+            exit 1
+          fi
+          gunzip -c "$file" > mihomo
+          chmod +x mihomo
+          ./mihomo -v
+          echo "MIHOMO_BIN=$RUNNER_TEMP/mihomo/mihomo" >> "$GITHUB_ENV"
+
+      - name: Build Citrus
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/citrus" .
+          echo "CITRUS_BIN=$RUNNER_TEMP/citrus" >> "$GITHUB_ENV"
+
+      - name: Interop tests
+        working-directory: test/interop
+        env:
+          INTEROP_LOG_DIR: ${{ runner.temp }}/interop-logs
+        run: go test -tags interop -v -count=1 -timeout 10m -run TestMihomoClient ./...
+
+      - name: Upload logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: interop-mihomo-logs-${{ matrix.mihomo }}
           path: ${{ runner.temp }}/interop-logs
           if-no-files-found: ignore
           retention-days: 14
