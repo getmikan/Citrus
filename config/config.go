@@ -116,6 +116,7 @@ type Controller struct {
 	ExternalDohServer             string
 	Secret                        string
 	Cors                          Cors
+	AllowInsecure                 bool
 }
 
 type Cors struct {
@@ -469,6 +470,7 @@ type RawConfig struct {
 	ExternalControllerUnix        string                  `yaml:"external-controller-unix" json:"external-controller-unix"`
 	ExternalControllerTLS         string                  `yaml:"external-controller-tls" json:"external-controller-tls"`
 	ExternalControllerCors        RawCors                 `yaml:"external-controller-cors" json:"external-controller-cors"`
+	ExternalControllerInsecure    bool                    `yaml:"external-controller-allow-insecure" json:"external-controller-allow-insecure"`
 	ExternalUI                    string                  `yaml:"external-ui" json:"external-ui"`
 	ExternalUIURL                 string                  `yaml:"external-ui-url" json:"external-ui-url"`
 	ExternalUIName                string                  `yaml:"external-ui-name" json:"external-ui-name"`
@@ -907,6 +909,7 @@ func parseController(cfg *RawConfig) (*Controller, error) {
 			AllowOrigins:        cfg.ExternalControllerCors.AllowOrigins,
 			AllowPrivateNetwork: cfg.ExternalControllerCors.AllowPrivateNetwork,
 		},
+		AllowInsecure: cfg.ExternalControllerInsecure,
 	}, nil
 }
 

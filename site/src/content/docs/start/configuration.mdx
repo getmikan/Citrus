@@ -15,7 +15,7 @@ description: Где искать полный справочник config.yaml �
 | `allow-lan`, `bind-address`, `authentication`, `lan-allowed-ips` | Доступ из локальной сети и авторизация. |
 | `mode`, `log-level`, `ipv6`, `find-process-mode` | Общий режим работы. |
 | `tcp-concurrent`, `tcp-connect-timeout` | Исходящие TCP-соединения: параллельный набор всех IP; общий срок установки соединения в миллисекундах (по умолчанию 5000, диапазон 100–600000). |
-| `external-controller`, `external-ui`, `secret` | API контроллера и веб-интерфейс. |
+| `external-controller`, `external-ui`, `secret` | API контроллера и веб-интерфейс; сетевому адресу нужен `secret`, см. [Безопасность контроллера](/Citrus/start/controller/). |
 | `user-stats` | Учёт трафика по пользователям входящих (по умолчанию включён), см. [Трафик пользователей](/Citrus/start/user-stats/). |
 | `user-limits` | Лимиты пользователей входящих: скорость, соединения, адреса, квота, срок, см. [Лимиты пользователей](/Citrus/start/user-limits/). |
 | `metrics`, `health-without-auth` | Метрики Prometheus (`GET /metrics`) и проверки `/healthz`, `/readyz`, см. [Метрики и здоровье](/Citrus/start/metrics/). |

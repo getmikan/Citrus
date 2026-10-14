@@ -43,7 +43,7 @@ func getEvents(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer untrackStream(conn)
 		closed := make(chan struct{})
 		go func() { // the client sends nothing we use; a read error is the end
 			_, _ = io.Copy(io.Discard, conn)
