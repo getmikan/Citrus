@@ -89,10 +89,10 @@ func answerTTL(msg *D.Msg) uint32 {
 // waitRefreshed waits until the cache holds a non-expired freshIP answer.
 func waitRefreshed(t *testing.T, r *Resolver) {
 	t.Helper()
-	q := queryA().Question[0]
+	key := cacheKey(queryA())
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		msg, expire, hit := getMsgFromCache(r.cache, q)
+		msg, expire, hit := getMsgFromCache(r.cache, key)
 		if hit && expire.After(time.Now()) && msgToIP(msg)[0] == freshIP {
 			return
 		}

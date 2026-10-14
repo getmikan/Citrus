@@ -2,6 +2,7 @@ package ntp
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ type Service struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	syncSystemTime bool
+	guard          stepGuard
 }
 
 func ReCreateNTPService(server string, interval time.Duration, dialerProxy string, tunnel C.Tunnel, syncSystemTime bool) {
@@ -63,9 +65,18 @@ func (srv *Service) Stop() {
 }
 
 func (srv *Service) update() error {
-	var response *ntp.Response
 	var err error
-	for i := 0; i < 3; i++ {
+	// Three attempts for network errors, plus room to confirm a large step
+	// with consecutive answers (see stepGuard).
+	for i := 0; i < 2+ntpConfirmations; i++ {
+		if i > 0 {
+			select {
+			case <-srv.ctx.Done():
+				return nil
+			case <-time.After(2 * time.Second):
+			}
+		}
+		var response *ntp.Response
 		response, err = ntp.Exchange(srv.ctx, srv.dialer, srv.server)
 		if err != nil {
 			if srv.ctx.Err() != nil {
@@ -74,10 +85,20 @@ func (srv *Service) update() error {
 			continue
 		}
 		offset := response.ClockOffset
+		now := time.Now()
+		ok, step := srv.guard.check(now, now.Add(offset))
+		if !ok {
+			log.Warnln("NTP answer from %s would move the clock by %s since the last sync; ignored until consecutive answers confirm it", srv.server, step)
+			err = fmt.Errorf("unconfirmed clock step of %s", step)
+			continue
+		}
 		if offset > time.Duration(0) {
 			log.Infoln("System clock is ahead of NTP time by %s", offset)
 		} else if offset < time.Duration(0) {
 			log.Infoln("System clock is behind NTP time by %s", -offset)
+		}
+		if absDuration(offset) > largeInitialOffset {
+			log.Warnln("NTP time differs from the system clock by %s; certificate checks now use NTP time", absDuration(offset))
 		}
 		mihomoNtp.SetOffset(offset)
 		if srv.syncSystemTime {
