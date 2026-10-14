@@ -40,11 +40,13 @@ const (
 
 var (
 	xrayBin   string
+	mihomoBin string // upstream mihomo release binary, the client of mihomo_test.go
 	citrusBin string
 	workDir   string
 	logDir    string
 
 	echoAddr      string // plain HTTP echo server, the destination of every request
+	udpEchoAddr   string // UDP echo server, the destination of the UDP checks
 	targetAddr    string // TLS 1.3 server used as REALITY target
 	targetCertMsg int    // size of the target's certificate chain, bytes
 
@@ -57,15 +59,12 @@ func TestMain(m *testing.M) {
 }
 
 func run(m *testing.M) int {
-	xrayBin = os.Getenv("XRAY_BIN")
-	if xrayBin == "" {
-		fmt.Println("XRAY_BIN is not set: interop tests are skipped")
+	xrayBin, mihomoBin = os.Getenv("XRAY_BIN"), os.Getenv("MIHOMO_BIN")
+	if xrayBin == "" && mihomoBin == "" {
+		fmt.Println("neither XRAY_BIN nor MIHOMO_BIN is set: interop tests are skipped")
 		return m.Run()
 	}
 	var err error
-	if xrayBin, err = filepath.Abs(xrayBin); err != nil {
-		return fail(err)
-	}
 	if workDir, err = os.MkdirTemp("", "citrus-interop-"); err != nil {
 		return fail(err)
 	}
@@ -81,11 +80,26 @@ func run(m *testing.M) int {
 		return fail(err)
 	}
 
-	out, err := exec.Command(xrayBin, "version").CombinedOutput()
-	if err != nil {
-		return fail(fmt.Errorf("xray version: %v\n%s", err, out))
+	if xrayBin != "" {
+		if xrayBin, err = filepath.Abs(xrayBin); err != nil {
+			return fail(err)
+		}
+		out, err := exec.Command(xrayBin, "version").CombinedOutput()
+		if err != nil {
+			return fail(fmt.Errorf("xray version: %v\n%s", err, out))
+		}
+		fmt.Print(firstLine(string(out)), "\n")
 	}
-	fmt.Print(firstLine(string(out)), "\n")
+	if mihomoBin != "" {
+		if mihomoBin, err = filepath.Abs(mihomoBin); err != nil {
+			return fail(err)
+		}
+		out, err := exec.Command(mihomoBin, "-v").CombinedOutput()
+		if err != nil {
+			return fail(fmt.Errorf("mihomo -v: %v\n%s", err, out))
+		}
+		fmt.Print("client: ", firstLine(string(out)), "\n")
+	}
 
 	citrusBin = os.Getenv("CITRUS_BIN")
 	if citrusBin == "" {
@@ -101,7 +115,7 @@ func run(m *testing.M) int {
 	} else if citrusBin, err = filepath.Abs(citrusBin); err != nil {
 		return fail(err)
 	}
-	out, err = exec.Command(citrusBin, "-v").CombinedOutput()
+	out, err := exec.Command(citrusBin, "-v").CombinedOutput()
 	if err != nil {
 		return fail(fmt.Errorf("citrus -v: %v\n%s", err, out))
 	}
@@ -112,6 +126,11 @@ func run(m *testing.M) int {
 		return fail(err)
 	}
 	defer stopEcho()
+	stopUDPEcho, err := startUDPEcho()
+	if err != nil {
+		return fail(err)
+	}
+	defer stopUDPEcho()
 	stopTarget, err := startTarget()
 	if err != nil {
 		return fail(err)
@@ -171,6 +190,26 @@ func startEcho() (func(), error) {
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
 	return func() { srv.Close() }, nil
+}
+
+// startUDPEcho sends every datagram back to where it came from.
+func startUDPEcho() (func(), error) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	udpEchoAddr = pc.LocalAddr().String()
+	go func() {
+		buf := make([]byte, 64*1024)
+		for {
+			n, addr, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			pc.WriteTo(buf[:n], addr)
+		}
+	}()
+	return func() { pc.Close() }, nil
 }
 
 // startTarget runs the REALITY target: TLS 1.3 only, h2 + http/1.1, with a
@@ -488,7 +527,8 @@ func startXray(t *testing.T, role string, cfg obj, port int) {
 }
 
 // startCitrus writes cfg (JSON is valid YAML) and runs citrus; waits for port.
-func startCitrus(t *testing.T, role string, cfg obj, port int) {
+// It returns the path of the log.
+func startCitrus(t *testing.T, role string, cfg obj, port int) string {
 	t.Helper()
 	dir := caseDir(t, role)
 	p := filepath.Join(dir, "config.yaml")
@@ -501,6 +541,7 @@ func startCitrus(t *testing.T, role string, cfg obj, port int) {
 	// so neither a pass nor an "expected rejection" comes from startup.
 	waitLog(t, logPath, "Start initial compatible provider")
 	time.Sleep(300 * time.Millisecond)
+	return logPath
 }
 
 // xrayFreedom is a freedom outbound that may reach 127.0.0.1: since v26 Xray
