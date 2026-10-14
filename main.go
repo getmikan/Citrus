@@ -40,6 +40,7 @@ var (
 	configString                  string
 	configBytes                   []byte
 	ageSecretKey                  string
+	ageSecretKeyFile              string
 	externalUI                    string
 	externalController            string
 	externalControllerTLS         string
@@ -48,6 +49,7 @@ var (
 	externalControllerRoutingMark int
 	externalControllerInsecure    bool
 	secret                        string
+	secretFile                    string
 	postUp                        string
 	postDown                      string
 )
@@ -68,6 +70,7 @@ func init() {
 	flag.StringVar(&configFile, "f", os.Getenv("CLASH_CONFIG_FILE"), "specify configuration file")
 	flag.StringVar(&configString, "config", os.Getenv("CLASH_CONFIG_STRING"), "specify base64-encoded configuration string")
 	flag.StringVar(&ageSecretKey, "age-secret-key", os.Getenv("CLASH_AGE_SECRET_KEY"), "specify age secret key to decrypt configuration")
+	flag.StringVar(&ageSecretKeyFile, "age-secret-key-file", os.Getenv("CLASH_AGE_SECRET_KEY_FILE"), "read the age secret key to decrypt configuration from a file")
 	flag.StringVar(&externalUI, "ext-ui", os.Getenv("CLASH_OVERRIDE_EXTERNAL_UI_DIR"), "override external ui directory")
 	flag.StringVar(&externalController, "ext-ctl", os.Getenv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER"), "override external controller address")
 	flag.StringVar(&externalControllerTLS, "ext-ctl-tls", os.Getenv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER_TLS"), "override external controller tls address")
@@ -76,6 +79,7 @@ func init() {
 	flag.IntVar(&externalControllerRoutingMark, "ext-ctl-routing-mark", getIntEnv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ROUTING_MARK"), "override external controller routing mark")
 	flag.BoolVar(&externalControllerInsecure, "ext-ctl-allow-insecure", getBoolEnv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE"), "allow the external controller on a non-loopback address without a secret")
 	flag.StringVar(&secret, "secret", os.Getenv("CLASH_OVERRIDE_SECRET"), "override secret for RESTful API")
+	flag.StringVar(&secretFile, "secret-file", os.Getenv("CLASH_OVERRIDE_SECRET_FILE"), "read the override secret for RESTful API from a file")
 	flag.StringVar(&postUp, "post-up", os.Getenv("CLASH_POST_UP"), "set post-up script")
 	flag.StringVar(&postDown, "post-down", os.Getenv("CLASH_POST_DOWN"), "set post-down script")
 	flag.BoolVar(&geodataMode, "m", false, "set geodata mode")
@@ -142,6 +146,31 @@ func main() {
 		geodata.SetGeodataMode(true)
 	}
 
+	// The file forms keep the secrets out of the process arguments, which other
+	// users of the host may read.
+	if ageSecretKeyFile != "" {
+		if ageSecretKey != "" {
+			log.Fatalln("Set -age-secret-key or -age-secret-key-file, not both")
+		}
+		data, err := os.ReadFile(ageSecretKeyFile)
+		if err != nil {
+			log.Fatalln("Read age-secret-key-file error: %s", err.Error())
+		}
+		ageSecretKey = strings.TrimSpace(string(data))
+	}
+	if secretFile != "" {
+		if secret != "" {
+			log.Fatalln("Set -secret or -secret-file, not both")
+		}
+		data, err := os.ReadFile(secretFile)
+		if err != nil {
+			log.Fatalln("Read secret-file error: %s", err.Error())
+		}
+		if secret = strings.TrimSpace(string(data)); secret == "" {
+			log.Fatalln("secret-file %s is empty", secretFile)
+		}
+	}
+
 	if ageSecretKey != "" {
 		if err := age.VeritySecretKeys(ageSecretKey); err != nil {
 			log.Errorln("Parse age-secret-key error: %s", err.Error())
@@ -204,6 +233,9 @@ func main() {
 
 	var options []hub.Option
 	if externalUI != "" {
+		if err := config.CheckExternalUI(externalUI, ""); err != nil {
+			log.Fatalln("ext-ui error: %s", err.Error())
+		}
 		options = append(options, hub.WithExternalUI(externalUI))
 	}
 	if externalController != "" {

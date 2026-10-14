@@ -176,6 +176,10 @@ external-controller-routing-mark: 0
 
 # 配置 WEB UI 目录，使用 http://{{external-controller}}/ui 访问
 external-ui: /path/to/ui/folder/
+# external-ui (with external-ui-name) must not be the home directory, the config
+# directory, a SAFE_PATHS root or a parent of one of them: the UI update empties
+# the folder before installing, and /ui serves it without the secret. Such a
+# config (or -ext-ui) is refused; use a subfolder such as ./ui.
 external-ui-name: xd
 # 目前支持下载zip,tgz格式的压缩包
 external-ui-url: "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip"
@@ -1820,6 +1824,9 @@ proxy-providers:
     # #   您可以通过 "citrus age keygen-pq" 生成符合要求的 mlkem768-x25519 key
     # #   您可以通过 "citrus age convert <secret_key>" 从 age-secret-key 导出 age-public-key
     # #   您可以通过 "citrus age decrypt <secret_key> <source_file> <target_file>" 将已加密文件解密，<source_file> 为 - 时会从标准输入读取，<target_file> 为 - 时会往标准输出写入
+    # #   <secret_key> may be @/path/to/key.txt (read from a file) and, for convert, - (stdin): a key on the
+    # #   command line is visible to other users of the host. The core takes -age-secret-key-file
+    # #   (CLASH_AGE_SECRET_KEY_FILE) besides -age-secret-key (CLASH_AGE_SECRET_KEY).
     # #   您可以通过 "citrus age encrypt <public_key> <source_file> <target_file>" 将未加密文件加密，<source_file> 为 - 时会从标准输入读取，<target_file> 为 - 时会往标准输出写入
     # # 参考实现：
     # #   https://github.com/FiloSottile/awesome-age#implementations
@@ -2815,6 +2822,8 @@ listeners:
 # 入口配置与 Listener 等价，传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理
 # shadowsocks 入口配置（传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理）
 # ss-config: ss://2022-blake3-aes-256-gcm:vlmpIPSyHH6f4S8WVPdRIHIlzmB+GIRfoH3aNJ/t9Gg=@:23456
+# GET /configs shows ss-config and tuic-server with the passwords, tokens and
+# keys replaced by "******".
 
 # tuic 服务器入口（传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理）
 # tuic-server:

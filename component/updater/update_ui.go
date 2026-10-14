@@ -184,6 +184,9 @@ func (u *UIUpdater) downloadUI() error {
 		return fmt.Errorf("can't extract compressed file: %w", err)
 	}
 
+	if C.Path.HoldsCoreState(u.externalUIPath) { // never empty the home or config directory
+		return fmt.Errorf("refusing to replace %s: it holds the files of the core", u.externalUIPath)
+	}
 	log.Debugln("cleanupFolder: %s", u.externalUIPath)
 	err = cleanup(u.externalUIPath) // cleanup files in dir don't remove dir itself
 	if err != nil {
