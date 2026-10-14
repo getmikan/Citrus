@@ -112,6 +112,11 @@ func NewUiUpdater(externalUI, externalUIURL, externalUIName string) *UIUpdater {
 
 	if externalUIURL != "" {
 		updater.externalUIURL = externalUIURL
+		// The dashboard runs with the controller's origin and sees its
+		// secret; over plain HTTP anyone on the path can replace it.
+		if strings.HasPrefix(strings.ToLower(externalUIURL), "http://") {
+			log.Warnln("external-ui-url %s uses plain HTTP: the downloaded dashboard can be replaced in transit", externalUIURL)
+		}
 	}
 	return updater
 }
