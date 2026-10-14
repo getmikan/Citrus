@@ -2,6 +2,7 @@ package trojan
 
 import (
 	"net"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,8 +16,10 @@ import (
 // (proxy/trojan). The value here is more generous, for slow mobile links (and
 // the lazy TLS handshake, done on the first read on the tls listener). The
 // deadline is cleared once the header is read, so an idle session after that
-// is never affected. A variable only so that tests can shorten it.
-var handshakeTimeout = 15 * time.Second
+// is never affected; it also covers the header of every mux stream. Atomic
+// only so that tests can shorten it while listener goroutines of an earlier
+// test still read it.
+var handshakeTimeout = newDuration(15 * time.Second)
 
 // maxMuxStreams caps the streams one Trojan mux (smux) session may have open
 // at once; a stream beyond it is closed as soon as it is accepted. Every
@@ -31,10 +34,22 @@ var maxMuxStreams = 1024
 // ResTLS, JLS, ws (wrapped in N.NewDeadlineConn) and gun (whose deadline
 // closes the conn when it fires).
 func setHandshakeDeadline(conn net.Conn) {
-	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout.Load()))
 }
 
 // clearHandshakeDeadline lifts the deadline set by setHandshakeDeadline.
 func clearHandshakeDeadline(conn net.Conn) {
 	_ = conn.SetReadDeadline(time.Time{})
 }
+
+// duration is a time.Duration safe for concurrent use.
+type duration struct{ v atomic.Int64 }
+
+func newDuration(d time.Duration) *duration {
+	x := &duration{}
+	x.Store(d)
+	return x
+}
+
+func (d *duration) Load() time.Duration   { return time.Duration(d.v.Load()) }
+func (d *duration) Store(v time.Duration) { d.v.Store(int64(v)) }

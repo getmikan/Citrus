@@ -42,9 +42,9 @@ func serveAnyTLSOnce(t *testing.T) net.Conn {
 }
 
 func shortHandshakeTimeout(t *testing.T, d time.Duration) {
-	old := handshakeTimeout
-	handshakeTimeout = d
-	t.Cleanup(func() { handshakeTimeout = old })
+	old := handshakeTimeout.Load()
+	handshakeTimeout.Store(d)
+	t.Cleanup(func() { handshakeTimeout.Store(old) })
 }
 
 func TestAnyTLSHandshakeTimeoutSilentClient(t *testing.T) {

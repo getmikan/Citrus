@@ -96,7 +96,7 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		IdleTimeout: 30 * time.Second,
 		// bounds the TLS handshake and the request header of ws/grpc/xhttp
 		// before the conn reaches serveConn and its own handshake deadline
-		ReadHeaderTimeout: handshakeTimeout,
+		ReadHeaderTimeout: handshakeTimeout.Load(),
 		Protocols:         new(http.Protocols),
 	}
 	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
