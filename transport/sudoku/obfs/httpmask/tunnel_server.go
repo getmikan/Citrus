@@ -72,6 +72,20 @@ var (
 	pendingTunnelSessionTimeout = 30 * time.Second
 )
 
+// Upload (push) requests of a stream/poll session read their body after the
+// header deadline is cleared, and any holder of a token may send them, so:
+//   - a body must arrive within uploadBodyReadTimeout (clients give up on an
+//     upload after 20 s; a body is at most 1 MiB);
+//   - a session serves at most maxConcurrentSessionUploads uploads at once
+//     (clients send one at a time; the rest is headroom for retries that
+//     overlap a stale request), and an excess one gets a retryable 503;
+//   - closing or reaping a session closes the sockets of its uploads, so the
+//     uploads of a pending session end with it.
+var (
+	uploadBodyReadTimeout       = 60 * time.Second
+	maxConcurrentSessionUploads = 8
+)
+
 type tunnelSession struct {
 	conn           net.Conn
 	lastActive     time.Time
@@ -83,6 +97,8 @@ type tunnelSession struct {
 
 	uploadMu        sync.Mutex
 	nextUploadSeq   uint64
+	uploads         map[net.Conn]struct{} // in-flight upload sockets, guarded by TunnelServer.mu
+	uploadsClosed   bool                  // the session is gone, guarded by TunnelServer.mu
 	pullMu          sync.Mutex
 	pull            *sessionPullLease
 	downlinkMu      sync.Mutex
@@ -773,7 +789,7 @@ func (s *TunnelServer) sessionAuthorize(rawConn net.Conn, headerBytes, buffered,
 	}
 	s.mu.Unlock()
 
-	go s.reapLater(token)
+	go s.reapLater(token, pendingTunnelSessionTimeout)
 
 	if err := writeTokenHTTPResponse(rawConn, token, responsePayload); err != nil {
 		s.sessionClose(token)
@@ -792,7 +808,7 @@ func newSessionToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }
 
-func (s *TunnelServer) reapLater(token string) {
+func (s *TunnelServer) reapLater(token string, pendingTimeout time.Duration) {
 	ttl := s.sessionTTL
 	if ttl <= 0 {
 		return
@@ -802,7 +818,7 @@ func (s *TunnelServer) reapLater(token string) {
 	defer timer.Stop()
 
 	// A pending session gets a shorter deadline that activity does not extend.
-	pendingTimer := time.NewTimer(pendingTunnelSessionTimeout)
+	pendingTimer := time.NewTimer(pendingTimeout)
 	defer pendingTimer.Stop()
 	pendingC := pendingTimer.C
 
@@ -858,6 +874,7 @@ func (s *TunnelServer) reapLater(token string) {
 			sess.pullMu.Unlock()
 			lease.stop()
 			_ = sess.conn.Close()
+			s.closeSessionUploads(sess)
 			return
 		}
 		next := ttl - idle
@@ -940,6 +957,59 @@ func (s *TunnelServer) finishSessionClose(sess *tunnelSession) {
 	sess.pullMu.Unlock()
 	lease.stop()
 	_ = sess.conn.Close()
+	s.closeSessionUploads(sess)
+}
+
+// beginSessionUpload registers rawConn as an upload of sess. It refuses when
+// the session is gone or already has maxConcurrentSessionUploads uploads.
+func (s *TunnelServer) beginSessionUpload(token string, sess *tunnelSession, rawConn net.Conn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessions[token] != sess || sess.uploadsClosed || len(sess.uploads) >= maxConcurrentSessionUploads {
+		return false
+	}
+	if sess.uploads == nil {
+		sess.uploads = make(map[net.Conn]struct{})
+	}
+	sess.uploads[rawConn] = struct{}{}
+	return true
+}
+
+func (s *TunnelServer) endSessionUpload(sess *tunnelSession, rawConn net.Conn) {
+	s.mu.Lock()
+	delete(sess.uploads, rawConn)
+	s.mu.Unlock()
+}
+
+// closeSessionUploads closes the sockets of the uploads still running for a
+// session that has been removed. s.mu must not be held.
+func (s *TunnelServer) closeSessionUploads(sess *tunnelSession) {
+	s.mu.Lock()
+	sess.uploadsClosed = true
+	conns := make([]net.Conn, 0, len(sess.uploads))
+	for c := range sess.uploads {
+		conns = append(conns, c)
+	}
+	sess.uploads = nil
+	s.mu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
+	}
+}
+
+// readUploadBody reads at most limit bytes of an upload body, within
+// uploadBodyReadTimeout.
+func readUploadBody(rawConn net.Conn, body io.Reader, limit int64) ([]byte, error) {
+	_ = rawConn.SetReadDeadline(time.Now().Add(uploadBodyReadTimeout))
+	payload, err := io.ReadAll(io.LimitReader(body, limit))
+	_ = rawConn.SetReadDeadline(time.Time{})
+	return payload, err
+}
+
+func writeUploadBusy(rawConn net.Conn) (HandleResult, net.Conn, error) {
+	_ = writeSimpleHTTPResponse(rawConn, http.StatusServiceUnavailable, "busy")
+	_ = rawConn.Close()
+	return HandleDone, nil, nil
 }
 
 // unpendLocked drops sess from the pending count. s.mu must be held.
@@ -1004,6 +1074,7 @@ func (s *TunnelServer) sessionHalfClose(token string, direction sessionDirection
 	s.mu.Unlock()
 	if !stillPresent {
 		_ = conn.Close()
+		s.closeSessionUploads(sess)
 	}
 }
 
@@ -1068,7 +1139,12 @@ func (s *TunnelServer) pollPush(rawConn net.Conn, token string, sequence uint64,
 		return HandleDone, nil, nil
 	}
 
-	payload, err := io.ReadAll(io.LimitReader(body, 1<<20)) // 1MiB per request cap
+	if !s.beginSessionUpload(token, sess, rawConn) {
+		return writeUploadBusy(rawConn)
+	}
+	defer s.endSessionUpload(sess, rawConn)
+
+	payload, err := readUploadBody(rawConn, body, 1<<20) // 1MiB per request cap
 	if err != nil {
 		_ = writeSimpleHTTPResponse(rawConn, http.StatusBadRequest, "bad request")
 		_ = rawConn.Close()
@@ -1114,8 +1190,13 @@ func (s *TunnelServer) streamPush(rawConn net.Conn, token string, sequence uint6
 		return HandleDone, nil, nil
 	}
 
+	if !s.beginSessionUpload(token, sess, rawConn) {
+		return writeUploadBusy(rawConn)
+	}
+	defer s.endSessionUpload(sess, rawConn)
+
 	const maxUploadBytes = 1 << 20
-	payload, err := io.ReadAll(io.LimitReader(body, maxUploadBytes+1))
+	payload, err := readUploadBody(rawConn, body, maxUploadBytes+1)
 	if err != nil {
 		_ = writeSimpleHTTPResponse(rawConn, http.StatusBadRequest, "bad request")
 		_ = rawConn.Close()
