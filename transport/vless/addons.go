@@ -40,6 +40,11 @@ func ReadAddons(data []byte) (*Addons, error) {
 			if err != nil {
 				return nil, err
 			}
+			// the length is read from the input: never allocate more than
+			// the input still holds
+			if bytesLen > uint64(reader.Len()) {
+				return nil, io.ErrUnexpectedEOF
+			}
 			bytesData := make([]byte, bytesLen)
 			_, err = io.ReadFull(reader, bytesData)
 			if err != nil {
