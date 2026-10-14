@@ -105,5 +105,7 @@ func handlePacketConn(pc net.PacketConn, tunnel C.Tunnel, buf []byte, lAddr, rAd
 		tunnel:    tunnel,
 		additions: additions,
 	}
-	tunnel.HandleUDPPacket(inbound.NewPacket(target, pkt, C.TPROXY, additions...))
+	udpPacket, metadata := inbound.NewPacket(target, pkt, C.TPROXY, additions...)
+	pkt.natKey = C.NatKey(pkt, metadata)
+	tunnel.HandleUDPPacket(udpPacket, metadata)
 }
