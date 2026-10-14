@@ -31,6 +31,8 @@ type Client interface {
 
 type ServerHandler interface {
 	AuthOk() bool
+	// AuthDone is closed once the authentication outcome is known.
+	AuthDone() <-chan struct{}
 	HandleTimeout()
 	HandleStream(conn *N.BufferedConn) (err error)
 	HandleMessage(message []byte) (err error)

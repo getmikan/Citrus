@@ -21,6 +21,26 @@ import (
 	"github.com/metacubex/tls"
 )
 
+// Before a connection has authenticated, every stream or datagram handler
+// would park on the authentication outcome (up to AuthenticationTimeout plus
+// the handshake). These budgets bound how many such handlers a connection may
+// have at once; after authentication they no longer apply.
+//
+//   - streams (bidirectional, TCP relay): the accept loop waits for a free
+//     slot, so extra streams stay queued in QUIC (still bounded by
+//     MaxIncomingStreams) and are served as soon as the auth arrives;
+//   - unidirectional streams carrying a packet (UDP-over-stream): dropped when
+//     the budget is full, as UDP may be. The accept loop itself never waits:
+//     the client opens the authenticate stream concurrently with its first
+//     packets, so it may come after them. The other commands (authenticate,
+//     dissociate, heartbeat) do not wait for the outcome;
+//   - datagrams (native UDP relay): dropped when the budget is full.
+const (
+	preAuthMaxStreams    = 64
+	preAuthMaxUniStreams = 64
+	preAuthMaxDatagrams  = 64
+)
+
 type ServerOption struct {
 	HandleTcpFn func(conn net.Conn, addr socks5.Addr, additions ...inbound.Addition) error
 	HandleUdpFn func(addr socks5.Addr, packet C.UDPPacket, additions ...inbound.Addition) error
@@ -56,6 +76,9 @@ func (s *Server) Serve() error {
 		if h.optionV5 != nil {
 			h.v5Handler = v5.NewServerHandler(h.optionV5, conn, h.uuid)
 		}
+		h.streamSlots = make(chan struct{}, preAuthMaxStreams)
+		h.uniStreamSlots = make(chan struct{}, preAuthMaxUniStreams)
+		h.datagramSlots = make(chan struct{}, preAuthMaxDatagrams)
 		go h.handle()
 	}
 }
@@ -70,6 +93,49 @@ type serverHandler struct {
 	uuid     uuid.UUID
 
 	v5Handler types.ServerHandler
+
+	// pre-authentication budgets, see preAuthMaxStreams
+	streamSlots    chan struct{}
+	uniStreamSlots chan struct{}
+	datagramSlots  chan struct{}
+}
+
+func releaseNothing() {}
+
+// preAuthSlot takes a slot of the pre-authentication budget for one handler.
+// Once the authentication outcome is known no slot is needed. With wait it
+// blocks until a slot frees up, the outcome is known or the connection is
+// gone; without wait it gives up at once. ok is false when the input must be
+// dropped.
+func (s *serverHandler) preAuthSlot(slots chan struct{}, wait bool) (release func(), ok bool) {
+	if s.v5Handler == nil {
+		return releaseNothing, true
+	}
+	authDone := s.v5Handler.AuthDone()
+	select {
+	case <-authDone:
+		return releaseNothing, true
+	default:
+	}
+	release = func() { <-slots }
+	if !wait {
+		select {
+		case slots <- struct{}{}:
+			return release, true
+		case <-authDone:
+			return releaseNothing, true
+		default:
+			return nil, false
+		}
+	}
+	select {
+	case slots <- struct{}{}:
+		return release, true
+	case <-authDone:
+		return releaseNothing, true
+	case <-s.quicConn.Context().Done():
+		return nil, false
+	}
 }
 
 func (s *serverHandler) handle() {
@@ -108,7 +174,12 @@ func (s *serverHandler) handleMessage() (err error) {
 		if err != nil {
 			return err
 		}
+		release, ok := s.preAuthSlot(s.datagramSlots, false)
+		if !ok {
+			continue
+		}
 		go func() (err error) {
+			defer release()
 			if len(message) > 0 {
 				switch message[0] {
 				case v5.VER:
@@ -129,7 +200,14 @@ func (s *serverHandler) handleStream() (err error) {
 		if err != nil {
 			return err
 		}
+		release, ok := s.preAuthSlot(s.streamSlots, true)
+		if !ok {
+			quicStream.CancelRead(0)
+			quicStream.CancelWrite(0)
+			return context.Cause(s.quicConn.Context())
+		}
 		go func() (err error) {
+			defer release()
 			stream := types.NewQuicStreamConn(
 				quicStream,
 				s.quicConn.LocalAddr(),
@@ -168,14 +246,22 @@ func (s *serverHandler) handleUniStream() (err error) {
 				stream.CancelRead(0)
 			}()
 			reader := bufio.NewReader(stream)
-			verBytes, err := reader.Peek(1)
+			head, err := reader.Peek(2) // VER, TYPE
 			if err != nil {
 				return err
 			}
 
-			switch verBytes[0] {
+			switch head[0] {
 			case v5.VER:
 				if s.v5Handler != nil {
+					if v5.CommandType(head[1]) == v5.PacketType {
+						// a packet parks until the authentication outcome is known
+						release, ok := s.preAuthSlot(s.uniStreamSlots, false)
+						if !ok {
+							return
+						}
+						defer release()
+					}
 					return s.v5Handler.HandleUniStream(reader)
 				}
 			}

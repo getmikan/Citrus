@@ -27,7 +27,24 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-const ServerMaxIncomingStreams = (1 << 32) - 1
+// Per-connection QUIC stream limits. Streams over the limit are not refused:
+// QUIC flow control (MAX_STREAMS) makes the client wait for a stream to close.
+//
+//   - Bidirectional streams carry one TCP relay each. The mihomo client opens
+//     at most max-open-streams (100 by default) per connection before dialing
+//     another one; single-connection clients get room for 2048 concurrent TCP
+//     connections, far more than a phone or a home router uses.
+//   - Unidirectional streams carry the authentication, heartbeats, dissociate
+//     commands and, in the "quic" UDP relay mode, one stream per UDP packet.
+//     Each lives for well under an RTT, so 2048 credits allow ~2048 packets
+//     per RTT of UDP-over-stream.
+//
+// Before authentication the server additionally bounds the handlers it runs
+// per connection (see tuic.ServerOption).
+const (
+	ServerMaxIncomingStreams    = 2048
+	ServerMaxIncomingUniStreams = 2048
+)
 
 type Listener struct {
 	closed       bool
@@ -104,7 +121,7 @@ func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additi
 	quicConfig := &quic.Config{
 		MaxIdleTimeout:        time.Duration(config.MaxIdleTime) * time.Millisecond,
 		MaxIncomingStreams:    ServerMaxIncomingStreams,
-		MaxIncomingUniStreams: ServerMaxIncomingStreams,
+		MaxIncomingUniStreams: ServerMaxIncomingUniStreams,
 		EnableDatagrams:       true,
 		Allow0RTT:             true,
 		DisablePathManager:    true, // for port hopping
