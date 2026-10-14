@@ -24,6 +24,15 @@ import (
 const h2DatagramCapsuleType uint64 = 0
 
 const (
+	// maxH2DatagramCapsuleLen bounds a DATAGRAM capsule: an IP packet is at
+	// most 65535 bytes, plus room for a context ID varint.
+	maxH2DatagramCapsuleLen = 65535 + 8
+	// maxH2OtherCapsuleLen bounds any other capsule (address and route
+	// capsules, unknown types), which is skipped without being buffered.
+	maxH2OtherCapsuleLen = 1 << 20
+)
+
+const (
 	ipv4HeaderLen = 20
 	ipv6HeaderLen = 40
 )
@@ -290,13 +299,25 @@ func (s *h2DatagramStream) ReceiveDatagram(_ context.Context) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The length comes from the peer: check it before allocating, a
+		// varint can declare up to 2^62-1 bytes.
+		if capsuleType != h2DatagramCapsuleType {
+			if payloadLen > maxH2OtherCapsuleLen {
+				return nil, fmt.Errorf("connect-ip: capsule %d too large: %d bytes", capsuleType, payloadLen)
+			}
+			// skip it without buffering
+			if _, err = io.CopyN(io.Discard, reader, int64(payloadLen)); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if payloadLen > maxH2DatagramCapsuleLen {
+			return nil, fmt.Errorf("connect-ip: datagram capsule too large: %d bytes", payloadLen)
+		}
 		payload := make([]byte, payloadLen)
 		_, err = io.ReadFull(reader, payload)
 		if err != nil {
 			return nil, err
-		}
-		if capsuleType != h2DatagramCapsuleType {
-			continue
 		}
 		return payload, nil
 	}

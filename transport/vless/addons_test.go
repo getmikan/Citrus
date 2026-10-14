@@ -8,6 +8,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// A LEN field declaring more bytes than the input holds must fail before the
+// declared size is allocated (a huge varint used to reach make directly).
+func TestReadAddonsRejectsLengthBeyondInput(t *testing.T) {
+	for _, n := range []uint64{4, 1 << 40, 1<<63 - 1, 1<<64 - 1} {
+		var b bytes.Buffer
+		WriteUvarint(&b, (2<<3)|2)
+		WriteUvarint(&b, n)
+		b.WriteString("abc")
+		if _, err := ReadAddons(b.Bytes()); err == nil {
+			t.Fatalf("length %d over a 3-byte body accepted", n)
+		}
+	}
+}
+
 func TestAddons(t *testing.T) {
 	var tests = []struct {
 		flow string
