@@ -23,9 +23,9 @@ const testUUID = "b831381d-6324-4d53-ad4f-8cda48b30811"
 
 // shortHandshakeTimeout shortens handshakeTimeout for one test.
 func shortHandshakeTimeout(t *testing.T, d time.Duration) {
-	old := handshakeTimeout
-	handshakeTimeout = d
-	t.Cleanup(func() { handshakeTimeout = old })
+	old := handshakeTimeout.Load()
+	handshakeTimeout.Store(d)
+	t.Cleanup(func() { handshakeTimeout.Store(old) })
 }
 
 type echoAfterIdleHandler struct {

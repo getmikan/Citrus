@@ -3,6 +3,7 @@ package sing_vless
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,15 +31,28 @@ func onAuthenticatedFrom(ctx context.Context) func() {
 // mobile links (and the first read of a lazy TLS handshake on the tls
 // listener) are not cut; it is still far below any idle timeout, and the
 // deadline is cleared once the user is authenticated, so an idle session after
-// that is never affected. A variable only so that tests can shorten it.
-var handshakeTimeout = 15 * time.Second
+// that is never affected. Atomic only so that tests can shorten it while
+// listener goroutines of an earlier test still read it.
+var handshakeTimeout = newDuration(15 * time.Second)
+
+// duration is a time.Duration safe for concurrent use.
+type duration struct{ v atomic.Int64 }
+
+func newDuration(d time.Duration) *duration {
+	x := &duration{}
+	x.Store(d)
+	return x
+}
+
+func (d *duration) Load() time.Duration   { return time.Duration(d.v.Load()) }
+func (d *duration) Store(v time.Duration) { d.v.Store(int64(v)) }
 
 // setHandshakeDeadline arms the pre-authentication read deadline. Every conn
 // that reaches the VLESS layer supports it: TCP, TLS, REALITY, ShadowTLS,
 // ResTLS, JLS, ws (wrapped in N.NewDeadlineConn), and gun and xhttp (whose
 // deadlines close the conn when they fire).
 func setHandshakeDeadline(conn net.Conn) {
-	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout.Load()))
 }
 
 // clearHandshakeDeadline lifts the deadline set by setHandshakeDeadline.
