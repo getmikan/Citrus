@@ -18,6 +18,12 @@ lan-allowed-ips: # 允许连接的 IP 地址段，仅作用于 allow-lan 为 tru
   - ::/0
 lan-disallowed-ips: # 禁止连接的 IP 地址段，黑名单优先级高于白名单，默认值为空
   - 192.168.0.3/32
+# Every config reload (PUT /configs with or without force=true, SIGHUP) applies
+# allow-lan, bind-address, skip-auth-prefixes, lan-allowed-ips,
+# lan-disallowed-ips, ss-config and tuic-server of the new config. Without
+# force=true the built-in port/socks-port/redir-port/tproxy-port/mixed-port
+# listeners keep the ports they run on (they are still rebound when allow-lan
+# or bind-address changed).
 
 #  find-process-mode has 3 values:always, strict, off
 #  - always, 开启，强制匹配所有进程

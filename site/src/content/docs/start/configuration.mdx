@@ -41,3 +41,7 @@ citrus -t -f ~/.config/citrus/config.yaml
 ```
 
 Команда разбирает конфиг и выходит, ничего не запуская. Пакетная служба перечитывает конфиг по `systemctl reload citrus`.
+
+## Перезагрузка
+
+`PUT /configs` (с `force=true` или без) и `systemctl reload citrus` сразу применяют политику доступа из нового конфига: `allow-lan`, `bind-address`, `skip-auth-prefixes`, `lan-allowed-ips`, `lan-disallowed-ips`, `authentication`, встроенные `ss-config` и `tuic-server`. Без `force=true` встроенные листенеры `port`, `socks-port`, `redir-port`, `tproxy-port` и `mixed-port` остаются на своих текущих портах (клиент мог поменять их через `PATCH /configs`); при смене `allow-lan` или `bind-address` они перепривязываются.
