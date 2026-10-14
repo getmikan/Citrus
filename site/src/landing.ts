@@ -31,7 +31,7 @@ export const strings = {
 	ru: {
 		hero: {
 			title: 'Сетевое ядро Mikan',
-			lead: 'Citrus — кроссплатформенное прокси-ядро: листенеры, TUN, шифрованный DNS и маршрутизация по правилам в одном YAML-конфиге. Форк mihomo, который развивается вместе с панелью Mikan. GPL-3.0.',
+			lead: 'Citrus — ядро VPN-сервиса Mikan, форк mihomo. Совместим с Xray, включая пост-квантовый REALITY, XHTTP и ECH; считает трафик, лимиты и события по каждому пользователю; строит каскады и отдаёт метрики. Конфиг тот же, что у mihomo. GPL-3.0.',
 			note: 'Один бинарник для Linux, Windows, macOS, FreeBSD и Android.',
 			primary: 'Начать',
 			secondary: 'Скачать',
@@ -68,6 +68,64 @@ export const strings = {
 					title: 'API контроллера',
 					text: 'HTTP и WebSocket API, совместимые с клиентами и дашбордами для mihomo, например MetaCubeXD.',
 				},
+			],
+		},
+		why: {
+			title: 'Зачем отдельное ядро',
+			lead: 'Mikan — VPN-сервис: на его нодах ядро работает сервером для многих пользователей сразу. mihomo писался как клиент, и многого, что нужно ноде, в нём нет. Citrus добавляет это в само ядро.',
+			items: [
+				{
+					title: 'Совместимость с Xray',
+					text: 'Пост-квантовый REALITY (X25519MLKEM768 и ML-DSA-65) на клиенте и сервере, XHTTP с поведением и значениями по умолчанию как у Xray, ключи и ссылки ECH в форматах Xray. Всё это проверяют автотесты против Xray v26.10.10.',
+				},
+				{
+					title: 'Пользователи — часть ядра',
+					text: 'Трафик и онлайн-адреса каждого пользователя, лимиты скорости, соединений, адресов, квоты и срока, смена пользователей входящих без перезапуска. Через REST, Go API и поток событий /events.',
+				},
+				{
+					title: 'Укреплённый сервер',
+					text: 'Ревью безопасности, ревью кода и статический аудит: контроллер без secret не слушает сеть, состояние до авторизации ограничено, каждый запрос проходит авторизацию, обновления сверяются с checksums.txt, CI закреплён по хешам.',
+				},
+				{
+					title: 'Каскады',
+					text: 'Группа type: chain собирает цепочку «вход → выход» из прокси и групп, а проверка здоровья называет хоп, который сломался.',
+				},
+				{
+					title: 'Наблюдаемость',
+					text: 'Prometheus /metrics, пробы /healthz и /readyz, события отклонённой авторизации и JSON-логи для Loki и ELK.',
+				},
+				{
+					title: 'Ничего лишнего',
+					text: 'VMess, SSR, Hysteria v1, TUIC v4, потоковые шифры Shadowsocks, v2ray-plugin и mKCP удалены: около 20 тысяч строк, которые сервису не нужны.',
+				},
+			],
+		},
+		compare: {
+			title: 'Citrus и mihomo',
+			lead: 'Формат конфига и API контроллера общие с mihomo, а клиенты на mihomo подключаются к серверу Citrus. В таблице только то, что уже влито в Citrus.',
+			headers: ['', 'Citrus', 'mihomo'],
+			rows: [
+				['Пост-квантовый REALITY', 'X25519MLKEM768 по умолчанию, ML-DSA-65, на сервере require-x25519mlkem768 и mldsa65-seed', 'X25519MLKEM768 только по флагу, без ML-DSA-65'],
+				['Статистика пользователей', 'Трафик и онлайн-IP по паре «входящий, пользователь», выборка с обнулением', 'Только общие счётчики'],
+				['Лимиты пользователей', 'Скорость, соединения, адреса, квота, срок', 'Нет'],
+				['Пользователи входящих', 'Меняются через REST, листенер не пересоздаётся', 'Только перезагрузкой конфига'],
+				['События и метрики', '/events (WebSocket, SSE, NDJSON), /metrics, /healthz, /readyz', 'Нет'],
+				['Каскады', 'Группа type: chain с проверкой каждого хопа', 'Только dialer-proxy'],
+				['Контроллер на сетевом адресе', 'Только с secret', 'Запускается и без secret'],
+				['Самообновление', 'Пакет сверяется с checksums.txt релиза', 'Без сверки'],
+				['Устаревшие протоколы', 'Удалены', 'Есть'],
+			],
+			more: 'Подробнее о совместимости',
+		},
+		quick: {
+			title: 'Документация',
+			items: [
+				{ title: 'Быстрый старт', text: 'Скачать, положить конфиг, запустить.', path: 'start/getting-started/' },
+				{ title: 'Переход с mihomo', text: 'Что поменять в конфиге и к чему готовиться.', path: 'migration/' },
+				{ title: 'Совместимость', text: 'Клиенты mihomo и Xray с сервером Citrus.', path: 'compatibility/' },
+				{ title: 'Дорожная карта', text: 'Что сделано и что дальше.', path: 'roadmap/' },
+				{ title: 'Изменения', text: 'Все влитые pull request’ы по темам.', path: 'changelog/' },
+				{ title: 'Безопасность', text: 'Как сообщить об уязвимости.', path: 'security/' },
 			],
 		},
 		download: {
@@ -121,7 +179,7 @@ export const strings = {
 	en: {
 		hero: {
 			title: 'The network core of Mikan',
-			lead: 'Citrus is a cross-platform proxy core: listeners, TUN, encrypted DNS and rule-based routing in one YAML configuration. A fork of mihomo developed together with the Mikan panel. GPL-3.0.',
+			lead: 'Citrus is the core of the Mikan VPN service, a fork of mihomo. It speaks Xray, post-quantum REALITY, XHTTP and ECH included; keeps per-user traffic, limits and events; builds cascades and exports metrics. Same configuration as mihomo. GPL-3.0.',
 			note: 'One binary for Linux, Windows, macOS, FreeBSD and Android.',
 			primary: 'Get started',
 			secondary: 'Download',
@@ -158,6 +216,64 @@ export const strings = {
 					title: 'Controller API',
 					text: 'HTTP and WebSocket APIs compatible with mihomo clients and dashboards such as MetaCubeXD.',
 				},
+			],
+		},
+		why: {
+			title: 'Why a core of its own',
+			lead: 'Mikan is a VPN service: on its nodes the core runs as a server for many users at once. mihomo was written as a client, and much of what a node needs is not there. Citrus puts it into the core itself.',
+			items: [
+				{
+					title: 'Xray compatibility',
+					text: 'Post-quantum REALITY (X25519MLKEM768 and ML-DSA-65) on the client and the server, XHTTP with Xray’s behaviour and defaults, ECH keys and links in Xray’s formats. Automated tests check all of it against Xray v26.10.10.',
+				},
+				{
+					title: 'Users are part of the core',
+					text: 'Per-user traffic and online addresses, limits on speed, connections, addresses, quota and expiry, and inbound users changed without a restart. Through REST, the Go API and the /events stream.',
+				},
+				{
+					title: 'A hardened server',
+					text: 'A security review, a code review and a static audit: a controller without a secret stays off the network, pre-authentication state is bounded, every request is authenticated, updates are checked against checksums.txt, CI is pinned by digest.',
+				},
+				{
+					title: 'Cascades',
+					text: 'A type: chain group builds an entry → exit chain from proxies and groups, and its health check names the hop that broke.',
+				},
+				{
+					title: 'Observability',
+					text: 'Prometheus /metrics, /healthz and /readyz probes, events for rejected authentication and JSON logs for Loki and ELK.',
+				},
+				{
+					title: 'Less to carry',
+					text: 'VMess, SSR, Hysteria v1, TUIC v4, Shadowsocks stream ciphers, v2ray-plugin and mKCP are gone: about 20 thousand lines the service does not need.',
+				},
+			],
+		},
+		compare: {
+			title: 'Citrus and mihomo',
+			lead: 'The configuration format and the controller API are shared with mihomo, and mihomo clients connect to a Citrus server. The table lists only what has already landed in Citrus.',
+			headers: ['', 'Citrus', 'mihomo'],
+			rows: [
+				['Post-quantum REALITY', 'X25519MLKEM768 by default, ML-DSA-65, server-side require-x25519mlkem768 and mldsa65-seed', 'X25519MLKEM768 only behind a flag, no ML-DSA-65'],
+				['User stats', 'Traffic and online IPs per inbound and user, query with reset', 'Global totals only'],
+				['User limits', 'Speed, connections, addresses, quota, expiry', 'None'],
+				['Inbound users', 'Changed through REST, the listener stays up', 'Only by reloading the config'],
+				['Events and metrics', '/events (WebSocket, SSE, NDJSON), /metrics, /healthz, /readyz', 'None'],
+				['Cascades', 'A type: chain group with a check of every hop', 'dialer-proxy only'],
+				['Controller on a network address', 'Only with a secret', 'Starts without one'],
+				['Self-update', 'The package is checked against the release’s checksums.txt', 'No check'],
+				['Legacy protocols', 'Removed', 'Present'],
+			],
+			more: 'More on compatibility',
+		},
+		quick: {
+			title: 'Documentation',
+			items: [
+				{ title: 'Getting started', text: 'Download, add a config, run.', path: 'start/getting-started/' },
+				{ title: 'Migrating from mihomo', text: 'What to change and what to expect.', path: 'migration/' },
+				{ title: 'Compatibility', text: 'mihomo and Xray clients with a Citrus server.', path: 'compatibility/' },
+				{ title: 'Roadmap', text: 'What is done and what is next.', path: 'roadmap/' },
+				{ title: 'Changelog', text: 'Every merged pull request, by area.', path: 'changelog/' },
+				{ title: 'Security', text: 'How to report a vulnerability.', path: 'security/' },
 			],
 		},
 		download: {

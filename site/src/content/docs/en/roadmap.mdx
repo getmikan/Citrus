@@ -1,0 +1,46 @@
+---
+title: Roadmap
+description: What is done in Citrus and its forks, what is in progress, what comes next and what needs a decision.
+---
+
+The roadmap covers every getmikan repository: the [Citrus](https://github.com/getmikan/Citrus) core and the [utls](https://github.com/getmikan/utls), [tls](https://github.com/getmikan/tls) and [http](https://github.com/getmikan/http) forks. Moving the [Mikan](https://github.com/Miroshka000/mikan) panel to Citrus depends on the core, so it is here too. This is a plan, not a schedule.
+
+## Done
+
+The details, with a link to every PR, are in the [changelog](/Citrus/en/changelog/).
+
+- **Xray compatibility.** Post-quantum REALITY on the client and the server (X25519MLKEM768, ML-DSA-65), XHTTP with Xray's behaviour, ECH keys and links in Xray's formats. Automated tests against Xray v26.10.10 in CI.
+- **Users in the core.** Multi-user Shadowsocks 2022, traffic and online-address stats, limits on speed, connections, addresses, quota and expiry, inbound users changed without a restart, `PUT /rules`.
+- **Events and observability.** `GET /events` (WebSocket, SSE, NDJSON), Prometheus `/metrics`, `/healthz` and `/readyz` probes, rejected-authentication events, JSON logs.
+- **Cascades.** `type: chain` groups with a check of every hop.
+- **Networking and DNS.** Listeners on a unix socket, DNSCrypt v2, a BitTorrent sniffer and the `PROTOCOL` rule, `trusted-proxy-header` from trusted proxies.
+- **Cleanup.** VMess, SSR, Hysteria v1, TUIC v4, Shadowsocks stream ciphers, v2ray-plugin and mKCP removed.
+- **Hardening.** A security review, a code review and a static audit, all closed with fixes; TLS 1.2 minimum; self-update checked against `checksums.txt`; CI pinned by digest. See [Security](/Citrus/en/security/).
+- **Performance.** An idle connection takes 30 KB less memory, XHTTP over h2 uses half the CPU per gigabyte, Snell v4 reads through a buffer. A benchmark harness backs the numbers.
+- **Client compatibility.** Automated tests: mihomo v1.19.31 and v1.19.32 clients against a Citrus server on every protocol, see [Compatibility](/Citrus/en/compatibility/).
+- **Forks.** utls `v1.8.8-citrus.1`–`.3`, tls `v0.1.8-citrus.1`, http `v0.1.8-citrus.1`–`.2`.
+- **Documentation.** The site in two languages: getting started, configuration, controller, users, limits, metrics, events, chains, migrating from mihomo.
+
+## In progress
+
+- **The first release.** Merging `dev` into `main` and the first `vX.Y.Z` tag. Everything above exists only on `dev` so far, and `Prerelease-main` is still built from the old `main`.
+- **Moving the Mikan panel to Citrus.** The panel embeds the core as a library, and the move depends on the first release:
+  - replace utls, tls and http in the panel's `go.mod` with the getmikan forks, as Citrus does;
+  - take events from `/events` instead of polling `/traffic/users`, `/limits/users` and the other endpoints;
+  - set a controller `secret`: without one the core will not open the controller on a network address;
+  - move custom node configs that use VMess, which Citrus removed, to VLESS.
+- **A live check.** A test node on Citrus and a phone checklist: connecting with every protocol in the subscription, network switches and airplane mode, speed, stats and limits in the panel.
+- **English docs on par with Russian.** The site pages exist in both languages; next are the comments in `docs/config.yaml`, which are still mostly in Chinese, as in mihomo.
+
+## Next
+
+- **Shadowsocks 2022 performance.** Every connection currently allocates two 64 KB buffers up front. The plan is a sing-shadowsocks fork that takes buffers only while data flows.
+- **TLS performance.** Record coalescing and `writev` in the tls fork: bulk transfers currently cost one system call per TLS record.
+- **Release signing.** Sign `checksums.txt` in CI and verify the signature with a key built into Citrus on self-update.
+- **Verify downloaded dashboards and geodata.**
+- **Further hardening.** More reviews and audits as the code grows.
+
+## Needs a decision
+
+- **Dropping builds on Go older than 1.24.** `go 1.20` in `go.mod` holds back `golang.org/x/net` and `golang.org/x/text`. While it stays, govulncheck cannot block PRs and Dependabot does not update Go modules. Dropping it ends builds for systems that need an old Go (Windows 7, for example).
+- **Weekly sync from mihomo.** The workflow is ready and tested, but to let it open PRs the repository settings must allow GitHub Actions to create pull requests.

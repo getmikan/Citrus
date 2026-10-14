@@ -13,7 +13,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'Citrus',
-			description: 'Сетевое ядро Mikan: форк mihomo с прокси-листенерами, TUN, шифрованным DNS и маршрутизацией по правилам. GPL-3.0.',
+			description: 'Ядро VPN-сервиса Mikan: форк mihomo с совместимостью с Xray, пост-квантовым REALITY, учётом и лимитами пользователей, каскадами и метриками. GPL-3.0.',
 			logo: { src: './src/assets/logo.webp', alt: '' },
 			favicon: '/favicon.png',
 			defaultLocale: 'root',
@@ -67,9 +67,14 @@ export default defineConfig({
 					items: [{ slug: 'start/getting-started' }, { slug: 'start/configuration' }, { slug: 'start/controller' }, { slug: 'start/chains' }, { slug: 'start/user-stats' }, { slug: 'start/inbound-users' }, { slug: 'start/user-limits' }, { slug: 'start/metrics' }, { slug: 'start/events' }],
 				},
 				{
+					label: 'Переход',
+					translations: { en: 'Moving to Citrus' },
+					items: [{ slug: 'migration' }, { slug: 'compatibility' }],
+				},
+				{
 					label: 'Проект',
 					translations: { en: 'Project' },
-					items: [{ slug: 'project/contributing' }],
+					items: [{ slug: 'roadmap' }, { slug: 'changelog' }, { slug: 'security' }, { slug: 'project/contributing' }],
 				},
 			],
 			// The news pages (src/pages/**/news) are not docs pages, so the validator does not

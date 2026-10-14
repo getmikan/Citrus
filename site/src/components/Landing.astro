@@ -38,6 +38,51 @@ const posts = (await getPosts(lang)).slice(0, 3);
 		</div>
 	</section>
 
+	<section class="block" aria-labelledby="why-title">
+		<header class="block-head">
+			<h2 id="why-title">{t.why.title}</h2>
+			<p>{t.why.lead}</p>
+		</header>
+		<ul class="features">
+			{
+				t.why.items.map((f) => (
+					<li>
+						<h3>{f.title}</h3>
+						<p>{f.text}</p>
+					</li>
+				))
+			}
+		</ul>
+	</section>
+
+	<section class="block" aria-labelledby="compare-title">
+		<header class="block-head">
+			<h2 id="compare-title">{t.compare.title}</h2>
+			<p>{t.compare.lead}</p>
+		</header>
+		<div class="matrix-wrap">
+			<table class="matrix compare">
+				<thead>
+					<tr>{t.compare.headers.map((h) => <th scope="col">{h}</th>)}</tr>
+				</thead>
+				<tbody>
+					{
+						t.compare.rows.map(([what, citrus, mihomo]) => (
+							<tr>
+								<th scope="row">{what}</th>
+								<td>{citrus}</td>
+								<td>{mihomo}</td>
+							</tr>
+						))
+					}
+				</tbody>
+			</table>
+		</div>
+		<p class="news-links">
+			<a class="more" href={page(lang, 'compatibility/')}>{t.compare.more}</a>
+		</p>
+	</section>
+
 	<section class="block" aria-labelledby="features-title">
 		<header class="block-head">
 			<h2 id="features-title">{t.features.title}</h2>
@@ -101,6 +146,24 @@ const posts = (await getPosts(lang)).slice(0, 3);
 				<a class="btn btn-ghost" href={links.mikanRepo}>{t.mikan.code}</a>
 			</div>
 		</div>
+	</section>
+
+	<section class="block" aria-labelledby="quick-title">
+		<header class="block-head">
+			<h2 id="quick-title">{t.quick.title}</h2>
+		</header>
+		<ul class="features quick">
+			{
+				t.quick.items.map((q) => (
+					<li>
+						<h3>
+							<a href={page(lang, q.path)}>{q.title}</a>
+						</h3>
+						<p>{q.text}</p>
+					</li>
+				))
+			}
+		</ul>
 	</section>
 
 	{
@@ -441,6 +504,26 @@ const posts = (await getPosts(lang)).slice(0, 3);
 
 	.matrix tbody th a:hover code {
 		border-color: color-mix(in srgb, var(--ct-accent) 60%, transparent);
+	}
+
+	.compare tbody th {
+		white-space: normal;
+		min-width: 9rem;
+	}
+
+	.compare td {
+		min-width: 11rem;
+	}
+
+	.quick h3 a {
+		color: var(--ct-ink);
+		text-decoration: none;
+	}
+
+	.quick h3 a:hover {
+		color: var(--ct-accent-text);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
 	}
 
 	.note {

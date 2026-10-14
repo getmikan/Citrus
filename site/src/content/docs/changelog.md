@@ -1,0 +1,149 @@
+---
+title: Журнал изменений
+description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
+---
+
+Всё, что влито в ветку `dev` с начала проекта (95 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+
+Что из этого меняет поведение для существующих конфигов, собрано на странице [Переход с mihomo](/Citrus/migration/).
+
+## Инфраструктура, CI и документация
+
+- [#2](https://github.com/getmikan/Citrus/pull/2) Ветка `dev` синхронизирована с `main`.
+- [#3](https://github.com/getmikan/Citrus/pull/3) Проверки безопасности в CI (gofmt, vet, `go mod tidy`, govulncheck, CodeQL, dependency review) и CONTRIBUTING.md.
+- [#4](https://github.com/getmikan/Citrus/pull/4) Сайт Citrus на GitHub Pages с новостями.
+- [#12](https://github.com/getmikan/Citrus/pull/12) Лёгкий CI для PR (около 8 задач), полная сборка только на `main` и тегах.
+- [#13](https://github.com/getmikan/Citrus/pull/13) Новость о пост-квантовом REALITY, XHTTP и удалённых протоколах.
+- [#24](https://github.com/getmikan/Citrus/pull/24) Еженедельная синхронизация с веткой Alpha mihomo (workflow, пока выключен в настройках).
+- [#25](https://github.com/getmikan/Citrus/pull/25) Интеграционные тесты против Xray-core (REALITY PQ, XHTTP, ECH) и задача в CI.
+- [#51](https://github.com/getmikan/Citrus/pull/51) Нагрузочный стенд и первые замеры производительности.
+- [#74](https://github.com/getmikan/Citrus/pull/74) Интеграционные тесты: клиенты mihomo v1.19.31 и v1.19.32 против сервера Citrus.
+
+## Удалённое наследие
+
+- [#7](https://github.com/getmikan/Citrus/pull/7) Удалены SSR, Hysteria v1, TUIC v4, потоковые шифры Shadowsocks и v2ray-plugin.
+- [#38](https://github.com/getmikan/Citrus/pull/38) Общий транспорт TLS/WS/H2 вынесен из `transport/vmess` в `transport/v2ray`.
+- [#39](https://github.com/getmikan/Citrus/pull/39) Удалены VMess, mKCP, mekya и TLSMirror.
+
+## Xray и пост-квантовая криптография
+
+- [#8](https://github.com/getmikan/Citrus/pull/8) Пост-квантовый клиент REALITY для Xray 26.9.8+: ML-KEM по умолчанию, ML-DSA-65, `client-version`.
+- [#9](https://github.com/getmikan/Citrus/pull/9) XHTTP: быстрый packet-up через CDN, паддинг, query в пути и умолчания xmux как у Xray.
+- [#10](https://github.com/getmikan/Citrus/pull/10) Пост-квантовый сервер REALITY и отпечатки Firefox 148 и Safari 26.3 (getmikan/utls).
+- [#19](https://github.com/getmikan/Citrus/pull/19) ECH: ключи `echServerKeys` Xray в `ech-key`, `ech-opts.query-server` и формы `ech=` в ссылках.
+- [#20](https://github.com/getmikan/Citrus/pull/20) Сервер XHTTP принимает packet-up любым методом и с любым размещением данных, как Xray; `server-max-header-bytes`.
+- [#21](https://github.com/getmikan/Citrus/pull/21) HTTP/2-входящие шлют такой же первый кадр SETTINGS, как Caddy (getmikan/http).
+- [#34](https://github.com/getmikan/Citrus/pull/34) XHTTP: XMUX по умолчанию как в Xray при пустом `reuse-settings`, исправления менеджера переиспользования.
+
+## Возможности для VPN-сервиса
+
+- [#1](https://github.com/getmikan/Citrus/pull/1) TrustTunnel: `fallback` на сайт для запросов без верных учётных данных (из Kinkan).
+- [#5](https://github.com/getmikan/Citrus/pull/5) События отклонённой авторизации на входящих (`authevent`, из Kinkan).
+- [#36](https://github.com/getmikan/Citrus/pull/36) TrustTunnel: визиты на сайт-заглушку не попадают в события авторизации.
+- [#41](https://github.com/getmikan/Citrus/pull/41) Shadowsocks 2022 с несколькими пользователями (EIH) и учётом каждого.
+- [#42](https://github.com/getmikan/Citrus/pull/42) Трафик и онлайн-IP по пользователям в ядре, REST и Go API.
+- [#43](https://github.com/getmikan/Citrus/pull/43) Пользователи входящих меняются на лету: REST `/inbounds/{name}/users`, перезагрузка без пересоздания листенера.
+- [#44](https://github.com/getmikan/Citrus/pull/44) Лимиты пользователей в ядре: скорость, соединения, адреса, квота, срок.
+- [#47](https://github.com/getmikan/Citrus/pull/47) Prometheus `/metrics` и пробы `/healthz`, `/readyz`.
+- [#63](https://github.com/getmikan/Citrus/pull/63) DNSCrypt v2 для штампов `sdns://`.
+- [#64](https://github.com/getmikan/Citrus/pull/64) `PUT /rules`: замена правил во время работы.
+- [#68](https://github.com/getmikan/Citrus/pull/68) TCP-листенеры на unix-сокете.
+- [#70](https://github.com/getmikan/Citrus/pull/70) `GET /events`: поток событий ядра.
+- [#71](https://github.com/getmikan/Citrus/pull/71) TrustTunnel: таймеры HTTP/2-сессии на каждом прокси.
+- [#73](https://github.com/getmikan/Citrus/pull/73) Группы `type: chain` для каскадов с проверкой, которая называет сломавшийся хоп.
+
+## Производительность
+
+- [#30](https://github.com/getmikan/Citrus/pull/30) Snell v4: буферизованное чтение, примерно в 90 раз меньше системных вызовов.
+- [#52](https://github.com/getmikan/Citrus/pull/52) Простаивающие соединения не держат буфер 32 КБ: минус 30 КБ кучи на соединение.
+- [#53](https://github.com/getmikan/Citrus/pull/53) XHTTP: вдвое меньше CPU на гигабайт при загрузке по h2 (getmikan/http).
+
+## Укрепление ядра
+
+- [#14](https://github.com/getmikan/Citrus/pull/14) Контроллер: unix-сокет и канал только для владельца, secret на каждом листенере, `/debug` за авторизацией.
+- [#15](https://github.com/getmikan/Citrus/pull/15) TLS 1.2 минимум, проверка сертификата маскировки Hysteria2, файлы только для владельца, скрытые учётные данные DoH.
+- [#16](https://github.com/getmikan/Citrus/pull/16) Ограничения на загрузки, распаковку архивов, ответы DoH и бинарные форматы правил и geodata.
+- [#17](https://github.com/getmikan/Citrus/pull/17) ShadowTLS: без перехода на частные и локальные адреса для неавторизованных клиентов.
+- [#18](https://github.com/getmikan/Citrus/pull/18) SOCKS5 UDP только для авторизованного UDP ASSOCIATE и разрешённых источников.
+- [#22](https://github.com/getmikan/Citrus/pull/22) `tcp-concurrent`: ограниченный параллельный набор и отмена проигравших попыток.
+- [#23](https://github.com/getmikan/Citrus/pull/23) DIRECT подключается к адресу, который проверили IP-правила.
+- [#26](https://github.com/getmikan/Citrus/pull/26) Ограничено состояние до авторизации: тикеты VLESS 0-RTT, сессии XHTTP без данных.
+- [#37](https://github.com/getmikan/Citrus/pull/37) Срок рукопожатия до авторизации: VLESS, Trojan, AnyTLS, HTTP-транспорты.
+- [#55](https://github.com/getmikan/Citrus/pull/55) getmikan/utls v1.8.8-citrus.2: исправления ошибок TLS-библиотеки.
+- [#56](https://github.com/getmikan/Citrus/pull/56) Пакет исправлений после ревью кода: mmdb, проверка сертификатов в ссылках, лимиты obfs и Sudoku, сроки листенеров, таймауты regexp.
+- [#58](https://github.com/getmikan/Citrus/pull/58) Исправления безопасности TLS из Go 1.26 (ECH CVE-2026-97031, KeyUpdate) через getmikan/tls и getmikan/utls.
+
+## Исправления по аудиту
+
+- [#75](https://github.com/getmikan/Citrus/pull/75) CI: actions и образы закреплены по digest, токены с минимальными правами.
+- [#76](https://github.com/getmikan/Citrus/pull/76) Ограничены объявленные длины кадров (gun, MASQUE h2, UDP TrustTunnel, дополнения VLESS).
+- [#77](https://github.com/getmikan/Citrus/pull/77) Самообновление сверяет пакет с `checksums.txt` и игнорирует имена внутри архива.
+- [#78](https://github.com/getmikan/Citrus/pull/78) Пути с учётом симлинков, атомарная запись ресурсов, без редиректов в частные сети.
+- [#79](https://github.com/getmikan/Citrus/pull/79) Контроллер: secret на сетевых адресах, защита от браузера, применение настроек при перезагрузке.
+- [#80](https://github.com/getmikan/Citrus/pull/80) Перезагрузка без `force` применяет политику доступа входящих.
+- [#81](https://github.com/getmikan/Citrus/pull/81) Sudoku: ограничены кэш повторов, мультиплексированные потоки и выгрузки http-mask.
+- [#82](https://github.com/getmikan/Citrus/pull/82) Учётные данные и файлы ядра вне досягаемости API.
+- [#83](https://github.com/getmikan/Citrus/pull/83) Провайдеры: ограничены `override-expr`, размер провайдера и вложенность логики; атомарная замена rule-set.
+- [#84](https://github.com/getmikan/Citrus/pull/84) Snell и Shadowsocks: срок рукопожатия до авторизации.
+- [#85](https://github.com/getmikan/Citrus/pull/85) HTTP-прокси авторизует каждый запрос на keep-alive соединении.
+- [#86](https://github.com/getmikan/Citrus/pull/86) Отзыв сессий глобальной авторизации при перезагрузке; пустые имена запрещены.
+- [#87](https://github.com/getmikan/Citrus/pull/87) SSH: предупреждение и явный отказ от проверки ключа хоста; проверки сервера OpenVPN.
+- [#88](https://github.com/getmikan/Citrus/pull/88) SOCKS5: UDP-ассоциации привязаны к пользователю и порту.
+- [#89](https://github.com/getmikan/Citrus/pull/89) Ограничены скачки часов по NTP; кэш DNS учитывает подсеть клиента.
+- [#90](https://github.com/getmikan/Citrus/pull/90) AnyTLS и Trojan: ограничено число потоков в одной mux-сессии.
+- [#91](https://github.com/getmikan/Citrus/pull/91) QUIC: ограничены потоки TUIC, ShadowQUIC и TrustTunnel; бюджет TUIC до авторизации.
+- [#92](https://github.com/getmikan/Citrus/pull/92) QUIC: ограничены сборка фрагментов TUIC и непривязанные ассоциации ShadowQUIC.
+- [#93](https://github.com/getmikan/Citrus/pull/93) UDP-сессии разделены по входящему и пользователю.
+- [#95](https://github.com/getmikan/Citrus/pull/95) Snell: пользователь, проверенный ShadowTLS или JLS, важнее ID клиента.
+- [#96](https://github.com/getmikan/Citrus/pull/96) Hysteria2 Realm: заголовок с IP только от `trusted-proxies`; токены сессий не попадают в логи.
+- [#97](https://github.com/getmikan/Citrus/pull/97) XHTTP: сессия остаётся в лимитах до авторизации, пока VLESS её не проверит.
+
+## Перенесено из mihomo и сообщества
+
+- [#27](https://github.com/getmikan/Citrus/pull/27) WireGuard: одно устройство на ключ при перезагрузках, устройства удалённых прокси закрываются.
+- [#28](https://github.com/getmikan/Citrus/pull/28) Без повторов набора при нехватке ресурсов (портов, дескрипторов, буферов).
+- [#29](https://github.com/getmikan/Citrus/pull/29) Настраиваемый `tcp-connect-timeout`.
+- [#31](https://github.com/getmikan/Citrus/pull/31) DNS: настройки `serve-expired` (по умолчанию поведение прежнее).
+- [#32](https://github.com/getmikan/Citrus/pull/32) `trusted-proxy-header` для VLESS и Trojan, только от `trusted-proxies`.
+- [#33](https://github.com/getmikan/Citrus/pull/33) Сниффер BitTorrent (TCP, uTP, DHT, трекер) и правило `PROTOCOL`.
+- [#60](https://github.com/getmikan/Citrus/pull/60) Hosts: ограничены цепочки доменных отображений, резолвер ядра их учитывает.
+- [#61](https://github.com/getmikan/Citrus/pull/61) url-test сохраняет текущий узел при обновлении провайдера.
+- [#62](https://github.com/getmikan/Citrus/pull/62) Мелкие переносы: `Close` у TUIC, `disable-mtu-discovery`, лимит памяти, домен из сниффера в логах.
+- [#65](https://github.com/getmikan/Citrus/pull/65) Мелкие переносы 2: JSON-логи, `sniffer.skip-threshold`, fake IP для экранированных имён, `tls-version-min` в OpenVPN.
+- [#66](https://github.com/getmikan/Citrus/pull/66) Tailscale: `dialer-proxy` работает, и UDP не идёт в обход него.
+
+## Исправления ошибок и тестов
+
+- [#11](https://github.com/getmikan/Citrus/pull/11) Гонки данных в Vision и AnyTLS.
+- [#35](https://github.com/getmikan/Citrus/pull/35) Интеграционные тесты ждут готовности Citrus перед отправкой трафика.
+- [#40](https://github.com/getmikan/Citrus/pull/40) Тесты TrustTunnel: нестабильная привязка TCP+UDP к одному порту на Windows.
+- [#45](https://github.com/getmikan/Citrus/pull/45) Нестабильный тест `TestBindRace`.
+- [#46](https://github.com/getmikan/Citrus/pull/46) Статистика: учёт переданных байт, запись которых вернула ошибку (недосчёт в h2mux).
+- [#48](https://github.com/getmikan/Citrus/pull/48) Нестабильный `TestInboundRuntimeUsersConcurrent` (детектор петель, TIME_WAIT).
+- [#49](https://github.com/getmikan/Citrus/pull/49) Детектор петель DIRECT сравнивает соединение целиком, а не порт источника.
+- [#50](https://github.com/getmikan/Citrus/pull/50) Гонки данных в клиентской сессии AnyTLS.
+- [#54](https://github.com/getmikan/Citrus/pull/54) Клиент TrustTunnel: ограничено число соединений, мёртвые HTTP/2-сессии закрываются.
+- [#57](https://github.com/getmikan/Citrus/pull/57) Предупреждение о порче стека UDP на Windows в Go 1.26.0 и 1.26.1.
+- [#59](https://github.com/getmikan/Citrus/pull/59) Нестабильный `TestTrackerSpeedLimit`.
+- [#67](https://github.com/getmikan/Citrus/pull/67) Тесты SOCKS: нестабильные порты UDP на Windows.
+- [#69](https://github.com/getmikan/Citrus/pull/69) Сервер TrustTunnel закрывает сессии исчезнувших клиентов.
+- [#72](https://github.com/getmikan/Citrus/pull/72) XHTTP: истёкший срок не закрывает простаивающее соединение; ранний срок пользователя; гонки в тестах.
+
+## Форки
+
+Citrus подменяет три библиотеки mihomo своими форками через `replace` в `go.mod`. Путь модулей не меняется, у каждого форка есть ветка `citrus` с CI.
+
+### [getmikan/utls](https://github.com/getmikan/utls)
+
+- `v1.8.8-citrus.1`: серверная сторона пост-квантового REALITY (подпись ML-DSA-65, требование X25519MLKEM768), отпечатки Firefox 148 и Safari 26.3 ([#10](https://github.com/getmikan/Citrus/pull/10)).
+- `v1.8.8-citrus.2`: исправления ошибок после ревью кода: возобновление сессий, ECH, минимальная версия сервера, сжатые сертификаты, HKDF ([#55](https://github.com/getmikan/Citrus/pull/55)).
+- `v1.8.8-citrus.3`: исправления безопасности из Go 1.26: проверка ссылок на внешние расширения ECH (CVE-2026-97031) и KeyUpdate ([#58](https://github.com/getmikan/Citrus/pull/58)).
+
+### [getmikan/tls](https://github.com/getmikan/tls)
+
+- `v0.1.8-citrus.1`: то же исправление ECH (CVE-2026-97031) для TLS-входящих ([#58](https://github.com/getmikan/Citrus/pull/58)).
+
+### [getmikan/http](https://github.com/getmikan/http)
+
+- `v0.1.8-citrus.1`: первый кадр SETTINGS HTTP/2 как у Caddy ([#21](https://github.com/getmikan/Citrus/pull/21)).
+- `v0.1.8-citrus.2`: буфер записи HTTP/2 64 КиБ и пакетная отправка WINDOW_UPDATE ([#53](https://github.com/getmikan/Citrus/pull/53)).
