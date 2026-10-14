@@ -200,8 +200,9 @@ func (h *requestHandler) upsertSession(sessionID string) *httpSession {
 
 	// Reap sessions that never deliver any upload data (e.g. from probing).
 	// Xray-core's reaper stops at the download GET; this one waits for data.
+	timeout := pendingSessionTimeout // read here, not in the goroutine, which may outlive a test that changes it
 	go func() {
-		timer := time.NewTimer(pendingSessionTimeout)
+		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 		select {
 		case <-timer.C:
