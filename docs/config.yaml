@@ -2736,8 +2736,8 @@ listeners:
     max-realms-per-ip: 4 # maximum realms per client IP (0 = unlimited)
     trusted-proxy-header: "" # header to read real client IP from (e.g. X-Forwarded-For)
     # # TCP peers whose trusted-proxy-header is believed, read from the right like the vless listener.
-    # # Unlike vless/trojan, empty keeps the old behaviour: the leftmost value is believed from any
-    # # client, which lets a client dodge max-realms-per-ip; set this when trusted-proxy-header is used.
+    # # Empty (the default) = never: as with vless/trojan, the header is ignored and the TCP peer is
+    # # the client (a forged header could dodge max-realms-per-ip). Set it when trusted-proxy-header is used.
     # trusted-proxies: [loopback]
     realm-name-pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" # regex realm names must match
     # # 下面内容如果配置， realm 将通过 TLS 提供 HTTPS 服务；否则提供明文 HTTP

@@ -3,6 +3,7 @@ package hysteria2_realm
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
 	"sync"
@@ -23,7 +24,8 @@ const (
 )
 
 type session struct {
-	id        string
+	id        string // the bearer token of the session: never logged
+	logID     string // names the session in the logs, see sessionLogID
 	realmID   string
 	addresses []string
 	expires   time.Time
@@ -84,6 +86,16 @@ func randToken() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
+}
+
+// sessionLogID names a session in the logs. The session ID is the bearer
+// token of the heartbeat, events and connect-response calls, and the debug
+// log reaches every log subscriber (the /logs stream, log files), so the logs
+// carry a short digest of it instead: it tells the sessions apart and
+// cannot be presented as the token.
+func sessionLogID(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:6])
 }
 
 func (s *server) getSessionByToken(token string) *session {
@@ -206,7 +218,7 @@ func (s *server) reaper(ctx context.Context) {
 			s.mu.Unlock()
 			for _, sess := range expired {
 				if s.removeExpiredSession(sess, now) {
-					debugf("session expired realm=%s session=%s", sess.realmID, sess.id)
+					debugf("session expired realm=%s session=%s", sess.realmID, sess.logID)
 				}
 			}
 		}
