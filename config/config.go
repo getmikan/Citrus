@@ -797,7 +797,10 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 
-	config.Users = parseAuthentication(rawCfg.Authentication)
+	config.Users, err = parseAuthentication(rawCfg.Authentication)
+	if err != nil {
+		return nil, err
+	}
 
 	config.Tunnels = rawCfg.Tunnels
 	// verify tunnels
@@ -1827,14 +1830,20 @@ func isDomainRule(rt C.RuleType) bool {
 	}
 }
 
-func parseAuthentication(rawRecords []string) []auth.AuthUser {
+// parseAuthentication parses the "user:pass" records of `authentication`. An
+// empty user name is refused: it means "no user" to IN-USER, the user limits
+// and the session binding.
+func parseAuthentication(rawRecords []string) ([]auth.AuthUser, error) {
 	var users []auth.AuthUser
-	for _, line := range rawRecords {
+	for i, line := range rawRecords {
 		if user, pass, found := strings.Cut(line, ":"); found {
+			if user == "" {
+				return nil, fmt.Errorf("authentication[%d]: empty user name", i)
+			}
 			users = append(users, auth.AuthUser{User: user, Pass: pass})
 		}
 	}
-	return users
+	return users, nil
 }
 
 func parseIPV6(rawCfg *RawConfig) {

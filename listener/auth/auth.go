@@ -20,7 +20,10 @@ func NewAuthStore(authenticator auth.Authenticator) auth.AuthStore {
 	return &authStore{authenticator}
 }
 
-var Default auth.AuthStore = NewAuthStore(nil)
+// Default holds the global `authentication`. A reload that removes a user,
+// changes its password or turns authentication on closes the sessions it
+// invalidates (see RevocableStore).
+var Default auth.AuthStore = NewRevocableStore(nil)
 
 type nilAuthStore struct{}
 

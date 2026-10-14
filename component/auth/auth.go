@@ -47,6 +47,27 @@ func (au *inMemoryAuthenticator) Verify(user string, pass string) bool {
 
 func (au *inMemoryAuthenticator) Users() []string { return au.usernames }
 
+// SameCredentials reports whether user has the same password in a and b, so
+// that a session verified by a stays valid under b. It is false when either
+// lacks the user, and for authenticators whose credentials it cannot compare
+// unless a and b are the same.
+func SameCredentials(a, b Authenticator, user string) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	am, ok1 := a.(*inMemoryAuthenticator)
+	bm, ok2 := b.(*inMemoryAuthenticator)
+	if !ok1 || !ok2 {
+		return false
+	}
+	pa, ok1 := am.storage[user]
+	pb, ok2 := bm.storage[user]
+	return ok1 && ok2 && pa == pb
+}
+
 func NewAuthenticator(users []AuthUser) Authenticator {
 	if len(users) == 0 {
 		return nil

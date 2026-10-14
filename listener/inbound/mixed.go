@@ -45,11 +45,15 @@ func NewMixed(options *MixedOption) (*Mixed, error) {
 	if base.IsUnix() && options.UDP {
 		return nil, errUnixUDP(options.Listen, "udp")
 	}
+	users, err := newAuthStoreUsers(base.Name(), options.Users)
+	if err != nil {
+		return nil, err
+	}
 	return &Mixed{
 		Base:           base,
 		config:         options,
 		udp:            options.UDP,
-		authStoreUsers: newAuthStoreUsers(base.Name(), options.Users),
+		authStoreUsers: users,
 	}, nil
 }
 

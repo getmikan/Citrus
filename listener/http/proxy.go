@@ -32,6 +32,11 @@ func (b *bodyWrapper) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
+type boundKey struct {
+	user   string
+	authed bool
+}
+
 func HandleConn(c net.Conn, tunnel C.Tunnel, store auth.AuthStore, additions ...inbound.Addition) {
 	additions = append(additions, inbound.Placeholder) // Add a placeholder for InUser
 	inUserIdx := len(additions) - 1
@@ -47,7 +52,7 @@ func HandleConn(c net.Conn, tunnel C.Tunnel, store auth.AuthStore, additions ...
 	conn := N.NewBufferedConn(limited)
 
 	lastUser := ""
-	var bound map[string]struct{} // users this connection is bound to
+	var bound map[boundKey]struct{} // what this connection is bound to
 
 	for {
 		peekMutex.Lock()
@@ -78,17 +83,19 @@ func HandleConn(c net.Conn, tunnel C.Tunnel, store auth.AuthStore, additions ...
 		resp, user := authenticate(request, authenticator)
 		if resp == nil {
 			// the connection dies with the user when its users can change
-			// at runtime
-			if _, ok := bound[user]; !ok && user != "" {
-				release, ok := auth.BindSession(authenticator, user, c)
+			// at runtime, and with the state "authentication off" when it is
+			// turned on
+			key := boundKey{user: user, authed: authenticator != nil}
+			if _, ok := bound[key]; !ok {
+				release, ok := authStore.BindSession(store, authenticator, user, c)
 				if !ok {
 					break // close connection
 				}
 				defer release()
 				if bound == nil {
-					bound = make(map[string]struct{})
+					bound = make(map[boundKey]struct{})
 				}
-				bound[user] = struct{}{}
+				bound[key] = struct{}{}
 			}
 			additions[inUserIdx] = inbound.WithInUser(user)
 
