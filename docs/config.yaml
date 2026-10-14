@@ -1660,6 +1660,10 @@ proxies: # socks5
     # max-connections: 8 # Maximum connections. Conflict with max-streams.
     # min-streams: 5 # Minimum multiplexed streams in a connection before opening a new connection. Conflict with max-streams.
     # max-streams: 0 # Maximum multiplexed streams in a connection before opening a new connection. Conflict with max-connections and min-streams.
+    ### HTTP/2 session timers (seconds; 0 = default). Not applied with quic: true.
+    # ping-interval: 15 # Ping a session that received nothing for this long. -1 turns pings off.
+    # ping-timeout: 15 # Close the session if the ping is not answered in time; its streams fail and are redialed.
+    # handshake-timeout: 0 # Bounds TCP dial + TLS handshake of a new session. 0 = default TLS timeout.
 
 # dns 出站会将请求劫持到内部 dns 模块，所有请求均在内部处理
   - name: "dns-out"
