@@ -25,6 +25,22 @@ import (
 
 type DialOptionsFunc func() []dialer.Option
 
+// A session that receives nothing for sessionPingInterval is pinged and closed
+// if the ping is not answered within sessionPingTimeout, so a dead session is
+// closed about 30 seconds after its last incoming frame. Open streams on it
+// fail; redialing them is up to the caller. The timeout leaves room for a PING
+// ACK queued behind DATA on a busy uplink.
+//
+// sessionDialTimeout bounds the TCP dial and the TLS handshake together: with
+// one connection per client every stream of a cold client waits for that dial.
+//
+// Variables so tests can shorten them.
+var (
+	sessionPingInterval = 15 * time.Second
+	sessionPingTimeout  = 15 * time.Second
+	sessionDialTimeout  = C.DefaultTLSTimeout
+)
+
 type ClientOptions struct {
 	Dialer                C.Dialer
 	DialOptions           DialOptionsFunc // for quic
@@ -97,6 +113,8 @@ func (c *Client) h2RoundTripper(tlsConfig *v2ray.TLSConfig) {
 	protocols.SetUnencryptedHTTP2(true)
 	c.roundTripper = &http.Transport{
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			ctx, cancel := context.WithTimeout(ctx, sessionDialTimeout)
+			defer cancel()
 			conn, err := c.dialer.DialContext(ctx, network, c.server)
 			if err != nil {
 				return nil, err
@@ -110,6 +128,17 @@ func (c *Client) h2RoundTripper(tlsConfig *v2ray.TLSConfig) {
 		},
 		Protocols:       protocols,
 		IdleConnTimeout: DefaultSessionTimeout,
+		// One Client is one connection: the pool adds Clients for more.
+		// Without the limit, streams opened before the first HTTP/2 session
+		// is ready each dial their own TLS connection.
+		MaxConnsPerHost: 1,
+		// Ping a session that has gone quiet and close it if the ping is
+		// not answered, so its streams fail and get redialed instead of
+		// hanging until TCP gives up.
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: sessionPingInterval,
+			PingTimeout:     sessionPingTimeout,
+		},
 	}
 }
 
