@@ -11,6 +11,7 @@ import (
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/sockopt"
 	C "github.com/metacubex/mihomo/constant"
+	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/jls"
@@ -109,14 +110,14 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 			err = sl.swapMultiService()
 		}
 	case config.Cipher == shadowsocks.MethodNone:
-		sl.service.Store(&serviceBox{shadowsocks.NewNoneService(udpTimeout, h)})
+		sl.service.Store(&serviceBox{shadowsocks.NewNoneService(udpTimeout, handshakeDone{h})})
 	case common.Contains(shadowaead.List, config.Cipher):
 		var service shadowsocks.Service
-		service, err = shadowaead.NewService(config.Cipher, nil, config.Password, udpTimeout, h)
+		service, err = shadowaead.NewService(config.Cipher, nil, config.Password, udpTimeout, handshakeDone{h})
 		sl.service.Store(&serviceBox{service})
 	case common.Contains(shadowaead_2022.List, config.Cipher):
 		var service shadowsocks.Service
-		service, err = shadowaead_2022.NewServiceWithPassword(config.Cipher, config.Password, udpTimeout, h, ntp.Now)
+		service, err = shadowaead_2022.NewServiceWithPassword(config.Cipher, config.Password, udpTimeout, handshakeDone{h}, ntp.Now)
 		sl.service.Store(&serviceBox{service})
 	default:
 		err = fmt.Errorf("shadowsocks: unsupported method: %s", config.Cipher)
@@ -311,6 +312,10 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 	if jlsUser, jlsLoaded := jls.UserFromConn(conn); jlsLoaded {
 		user, loaded = jlsUser, true
 	}
+	// The service reads the salt, authenticates and reads the target before
+	// it hands the conn to the handler; until then the client is cut at the
+	// handshake deadline. handshakeDone lifts it.
+	authStore.SetHandshakeDeadline(conn)
 	if l.simpleObfs != nil {
 		conn = l.simpleObfs(conn)
 	}
