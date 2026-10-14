@@ -14,18 +14,19 @@ description: Где искать полный справочник config.yaml �
 | `mixed-port`, `port`, `socks-port`, `redir-port`, `tproxy-port` | Локальные порты прокси. |
 | `allow-lan`, `bind-address`, `authentication`, `lan-allowed-ips` | Доступ из локальной сети и авторизация. |
 | `mode`, `log-level`, `ipv6`, `find-process-mode` | Общий режим работы. |
+| `log-format`, `log-timestamp-format` | Формат логов: `text` (по умолчанию) или `json`, по объекту на строку для Loki и ELK. |
 | `tcp-concurrent`, `tcp-connect-timeout` | Исходящие TCP-соединения: параллельный набор всех IP; общий срок установки соединения в миллисекундах (по умолчанию 5000, диапазон 100–600000). |
 | `external-controller`, `external-ui`, `secret` | API контроллера и веб-интерфейс; сетевому адресу нужен `secret`, см. [Безопасность контроллера](/Citrus/start/controller/). |
 | `user-stats` | Учёт трафика по пользователям входящих (по умолчанию включён), см. [Трафик пользователей](/Citrus/start/user-stats/). |
 | `user-limits` | Лимиты пользователей входящих: скорость, соединения, адреса, квота, срок, см. [Лимиты пользователей](/Citrus/start/user-limits/). |
 | `metrics`, `health-without-auth` | Метрики Prometheus (`GET /metrics`) и проверки `/healthz`, `/readyz`, см. [Метрики и здоровье](/Citrus/start/metrics/). |
 | `tun` | TUN-устройство и сетевой стек. |
-| `dns`, `hosts` | DNS-серверы, fake IP, политики для DNS-запросов. |
+| `dns`, `hosts` | DNS-серверы (в том числе DNSCrypt v2 штампами `sdns://`), fake IP, политики для DNS-запросов. |
 | `dns.serve-expired`, `dns.serve-expired-ttl`, `dns.serve-expired-client-timeout` | Ответ просроченной записью из кэша, пока она обновляется (RFC 8767). По умолчанию просроченная запись отдаётся сразу и обновляется в фоне, как и раньше; TTL и таймаут клиента дают поведение по RFC 8767. |
-| `sniffer` | Определение домена по трафику (TLS, HTTP, QUIC). |
+| `sniffer` | Определение домена по трафику (TLS, HTTP, QUIC) и BitTorrent для правила `PROTOCOL`; `skip-threshold` — после скольких неудач адрес больше не сниффится. |
 | `proxies`, `proxy-groups`, `proxy-providers` | Исходящие прокси, группы выбора и удалённые наборы прокси; группы `type: chain` для каскадов, см. [Цепочки](/Citrus/start/chains/). |
 | `rules`, `sub-rules`, `rule-providers` | Правила маршрутизации и удалённые наборы правил. |
-| `listeners`, `tunnels` | Дополнительные входящие, в том числе серверные протоколы. |
+| `listeners`, `tunnels` | Дополнительные входящие, в том числе серверные протоколы. TCP-листенеры могут слушать unix-сокет: `listen: unix:/путь`, права задаёт `unix-mode`. |
 | `geox-url`, `geo-auto-update` | Откуда и как часто обновлять geodata. |
 
 ## Правила во время работы

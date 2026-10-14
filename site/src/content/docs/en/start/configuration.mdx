@@ -14,18 +14,19 @@ The config format is shared with mihomo, so the [mihomo documentation](https://w
 | `mixed-port`, `port`, `socks-port`, `redir-port`, `tproxy-port` | Local proxy ports. |
 | `allow-lan`, `bind-address`, `authentication`, `lan-allowed-ips` | LAN access and authentication. |
 | `mode`, `log-level`, `ipv6`, `find-process-mode` | General behaviour. |
+| `log-format`, `log-timestamp-format` | Log format: `text` (the default) or `json`, one object per line for Loki and ELK. |
 | `tcp-concurrent`, `tcp-connect-timeout` | Outbound TCP dialing: race all resolved IPs; total connect budget in milliseconds (default 5000, range 100–600000). |
 | `external-controller`, `external-ui`, `secret` | The controller API and web UI; a network address needs a `secret`, see [Controller security](/Citrus/en/start/controller/). |
 | `user-stats` | Per-user traffic accounting for inbounds (on by default), see [User traffic](/Citrus/en/start/user-stats/). |
 | `user-limits` | Limits of inbound users: speed, connections, addresses, quota, expiry, see [User limits](/Citrus/en/start/user-limits/). |
 | `metrics`, `health-without-auth` | Prometheus metrics (`GET /metrics`) and the `/healthz`, `/readyz` probes, see [Metrics and health](/Citrus/en/start/metrics/). |
 | `tun` | The TUN device and network stack. |
-| `dns`, `hosts` | DNS servers, fake IP, policies for DNS queries. |
+| `dns`, `hosts` | DNS servers (DNSCrypt v2 `sdns://` stamps included), fake IP, policies for DNS queries. |
 | `dns.serve-expired`, `dns.serve-expired-ttl`, `dns.serve-expired-client-timeout` | Serving expired cache entries while they refresh (RFC 8767). By default an expired entry is answered at once and refreshed in the background, as before; a TTL and client timeout give RFC 8767 behaviour. |
-| `sniffer` | Domain detection from traffic (TLS, HTTP, QUIC). |
+| `sniffer` | Domain detection from traffic (TLS, HTTP, QUIC) and BitTorrent detection for the `PROTOCOL` rule; `skip-threshold` sets after how many failures a destination is no longer sniffed. |
 | `proxies`, `proxy-groups`, `proxy-providers` | Outbound proxies, selection groups and remote proxy sets; `type: chain` groups for cascades, see [Chains](/Citrus/en/start/chains/). |
 | `rules`, `sub-rules`, `rule-providers` | Routing rules and remote rule sets. |
-| `listeners`, `tunnels` | Extra inbounds, including server protocols. |
+| `listeners`, `tunnels` | Extra inbounds, including server protocols. TCP listeners can listen on a unix socket: `listen: unix:/path`, with the mode set by `unix-mode`. |
 | `geox-url`, `geo-auto-update` | Where and how often to update geodata. |
 
 ## Rules at runtime
