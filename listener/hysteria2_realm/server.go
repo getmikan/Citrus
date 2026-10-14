@@ -49,15 +49,15 @@ func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunn
 	if err != nil {
 		return nil, fmt.Errorf("invalid realm name pattern %q: %v", config.RealmNamePattern, err)
 	}
-	// Without trusted-proxies the header is believed from any client, as
-	// before the option existed; set it to stop the per-IP realm limit from
-	// being dodged with a forged header.
-	realIP, err := httputils.NewRealIP(config.TrustedProxyHeader, config.TrustedProxies, true)
+	// The header is believed only from trusted-proxies, as on the vless and
+	// trojan listeners: from anybody else it is a free choice of the client
+	// and would let it dodge the per-IP realm limit.
+	realIP, err := httputils.NewRealIP(config.TrustedProxyHeader, config.TrustedProxies, false)
 	if err != nil {
 		return nil, err
 	}
 	if realIP.Header != "" && len(realIP.Trusted) == 0 {
-		log.Warnln("[RealmServer] %s: trusted-proxy-header %q is believed from any client, set trusted-proxies to the addresses of the reverse proxies", config.Listen, realIP.Header)
+		log.Warnln("[RealmServer] %s: trusted-proxy-header %q is ignored without trusted-proxies; set them to the addresses of the reverse proxies", config.Listen, realIP.Header)
 	}
 	s := newServer(serverConfig{
 		realmToken:     config.Token,
