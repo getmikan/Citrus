@@ -92,6 +92,31 @@ type Service struct {
 // A variable only so that tests can shorten it.
 var handshakeTimeout = 15 * time.Second
 
+// A client that vanishes without closing its connection (a phone that switched
+// networks or went into airplane mode) sends no FIN or RST. Before, an HTTP/2
+// conn with an open tunnel then stayed until TCP gave up retransmitting, about
+// 15 minutes, together with its upstream connection and user session. TCP
+// keepalive does not help while unacknowledged data is queued, and is absent on
+// a unix socket listener, so the server checks the peer itself.
+//
+// h2PingAfter is how long an HTTP/2 conn may go without receiving any frame
+// before the server sends a PING; h2PingTimeout is how long it then waits for
+// the ACK before it closes the conn. Any frame resets the clock, so a busy
+// upload never sees a ping, and a live client answers it even on an idle
+// tunnel; a dead one is dropped at most h2PingAfter+h2PingTimeout after it
+// last sent something. The timeout leaves room for an ACK delayed behind a
+// full downlink. Variables only so that tests can shorten them.
+var (
+	h2PingAfter   = 30 * time.Second
+	h2PingTimeout = 30 * time.Second
+)
+
+// quicKeepAlivePeriod makes the HTTP/3 server ping a quiet connection, so a
+// live client with an idle tunnel stays within DefaultQuicMaxIdleTimeout. A
+// dead client answers nothing and is dropped by that idle timeout, which QUIC
+// counts from the last packet received.
+const quicKeepAlivePeriod = 30 * time.Second
+
 const (
 	// fallbackIdleTimeout bounds how long a fallback request may go without any
 	// body bytes moving in either direction, like nginx's proxy_read_timeout.
@@ -321,6 +346,10 @@ func (s *Service) Start(tcpListener net.Listener, udpConn net.PacketConn, tlsCon
 			},
 			MaxHeaderBytes: maxHeaderBytes,
 			Protocols:      protocols,
+			HTTP2: &http.HTTP2Config{
+				SendPingTimeout: h2PingAfter,
+				PingTimeout:     h2PingTimeout,
+			},
 		}
 		listener := tcpListener
 		s.tcpListener = tcpListener

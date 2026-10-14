@@ -50,6 +50,7 @@ func (s *Service) configHTTP3Server(tlsConfig *tls.Config, udpConn net.PacketCon
 	quicListener, err := quic.ListenEarly(udpConn, tlsConfig, &quic.Config{
 		Versions:           []quic.Version{quic.Version1},
 		MaxIdleTimeout:     DefaultQuicMaxIdleTimeout,
+		KeepAlivePeriod:    quicKeepAlivePeriod,
 		MaxIncomingStreams: 1 << 60,
 		Allow0RTT:          true,
 	})
