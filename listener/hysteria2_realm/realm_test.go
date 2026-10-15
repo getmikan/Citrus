@@ -1,6 +1,7 @@
 package hysteria2_realm
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,6 +18,12 @@ import (
 
 func startRealm(t *testing.T, config LC.Hysteria2RealmServer) string {
 	t.Helper()
+	_, base := startRealmListener(t, config)
+	return base
+}
+
+func startRealmListener(t *testing.T, config LC.Hysteria2RealmServer) (*Listener, string) {
+	t.Helper()
 	config.Listen = "127.0.0.1:0"
 	config.Token = "realm-token"
 	if config.RealmNamePattern == "" {
@@ -25,7 +32,7 @@ func startRealm(t *testing.T, config LC.Hysteria2RealmServer) string {
 	l, err := New(config, inbound.NewListenConfig(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close() })
-	return "http://" + l.AddrList()[0].String()
+	return l, "http://" + l.AddrList()[0].String()
 }
 
 func realmCall(t *testing.T, method, url, bearer string, header http.Header, body string) (int, map[string]any) {
@@ -98,4 +105,80 @@ collect:
 	all := strings.Join(logged, "\n")
 	require.Contains(t, all, "registered realm=logged session="+sessionLogID(token))
 	require.NotContains(t, all, token)
+}
+
+func registerRealm(t *testing.T, base, id string) string {
+	t.Helper()
+	code, out := realmCall(t, http.MethodPost, base+"/v1/"+id, "realm-token", nil, realmBody)
+	require.Equal(t, http.StatusOK, code)
+	token, _ := out["session_id"].(string)
+	require.NotEmpty(t, token)
+	return token
+}
+
+// openEvents opens the events stream of the session and returns its body.
+func openEvents(t *testing.T, url, token string) io.ReadCloser {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{}).Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp.Body
+}
+
+// requireStreamEnds reads the stream to its end, failing if it is still
+// open after a few seconds.
+func requireStreamEnds(t *testing.T, body io.ReadCloser) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, body)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		_ = body.Close()
+		t.Fatal("events stream is still open")
+	}
+}
+
+// A session holds one events stream: a new one replaces the previous, so a
+// reconnecting client is not locked out and streams cannot pile up.
+func TestRealmEventsSecondStreamReplacesFirst(t *testing.T) {
+	base := startRealm(t, LC.Hysteria2RealmServer{})
+	token := registerRealm(t, base, "streams")
+
+	first := openEvents(t, base+"/v1/streams/events", token)
+	second := openEvents(t, base+"/v1/streams/events", token)
+	requireStreamEnds(t, first)
+
+	// The second stream is the live one: it gets the heartbeat ack.
+	code, _ := realmCall(t, http.MethodPost, base+"/v1/streams/heartbeat", token, nil, "")
+	require.Equal(t, http.StatusOK, code)
+	line := make(chan string, 1)
+	go func() {
+		r := bufio.NewReader(second)
+		s, _ := r.ReadString('\n')
+		line <- s
+	}()
+	select {
+	case s := <-line:
+		require.Equal(t, "event: heartbeat_ack\n", s)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no event on the second stream")
+	}
+}
+
+// Close ends the active events streams, not only the listeners.
+func TestRealmCloseEndsEventsStream(t *testing.T) {
+	l, base := startRealmListener(t, LC.Hysteria2RealmServer{})
+	token := registerRealm(t, base, "closing")
+
+	stream := openEvents(t, base+"/v1/closing/events", token)
+	require.NoError(t, l.Close())
+	requireStreamEnds(t, stream)
 }

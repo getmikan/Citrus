@@ -34,6 +34,7 @@ type session struct {
 	closed    bool
 	clientIP  string
 	pending   map[string]chan punchResponsePayload
+	stream    chan struct{} // closed to end the current events stream
 }
 
 type sessionEvent struct {
@@ -196,6 +197,33 @@ func (s *server) sendEvent(sess *session, ev sessionEvent) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// acquireStream makes the caller the only events stream of the session:
+// the stream it holds is closed, so a reconnecting client takes over from
+// a stale stream instead of being locked out. It returns the channel that
+// is closed when this stream is replaced, and false on a closed session.
+func (s *server) acquireStream(sess *session) (chan struct{}, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess.closed {
+		return nil, false
+	}
+	if sess.stream != nil {
+		close(sess.stream)
+	}
+	ch := make(chan struct{})
+	sess.stream = ch
+	return ch, true
+}
+
+// releaseStream drops the stream, unless a newer one has replaced it.
+func (s *server) releaseStream(sess *session, ch chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess.stream == ch {
+		sess.stream = nil
 	}
 }
 
