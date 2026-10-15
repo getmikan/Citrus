@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -80,7 +81,7 @@ func (hc *HealthCheck) setProxies(proxies []C.Proxy) {
 func (hc *HealthCheck) registerHealthCheckTask(url string, expectedStatus utils.IntRanges[uint16], filter string, interval uint) {
 	url = strings.TrimSpace(url)
 	if len(url) == 0 || url == hc.url {
-		log.Debugln("ignore invalid health check url: %s", url)
+		log.Debugln("ignore invalid health check url: %s", redactURLForLog(url))
 		return
 	}
 
@@ -103,7 +104,7 @@ func (hc *HealthCheck) registerHealthCheckTask(url string, expectedStatus utils.
 			splitAndAddFiltersToExtra(filter, hc.extra[url])
 		}
 
-		log.Debugln("health check url: %s exists", url)
+		log.Debugln("health check url: %s exists", redactURLForLog(url))
 		return
 	}
 
@@ -185,6 +186,7 @@ func (hc *HealthCheck) execute(b *errgroup.Group, url, uid string, option *extra
 		}
 	}
 
+	logURL := redactURLForLog(url)
 	for _, proxy := range hc.proxies {
 		// skip proxies that do not require health check
 		if filterReg != nil {
@@ -197,9 +199,9 @@ func (hc *HealthCheck) execute(b *errgroup.Group, url, uid string, option *extra
 		b.Go(func() error {
 			ctx, cancel := context.WithTimeout(hc.ctx, hc.timeout)
 			defer cancel()
-			log.Debugln("Health Checking, proxy: %s, url: %s, id: {%s}", p.Name(), url, uid)
+			log.Debugln("Health Checking, proxy: %s, url: %s, id: {%s}", p.Name(), logURL, uid)
 			_, _ = p.URLTest(ctx, url, expectedStatus)
-			log.Debugln("Health Checked, proxy: %s, url: %s, alive: %t, delay: %d ms uid: {%s}", p.Name(), url, p.AliveForTestUrl(url), p.LastDelayForTestUrl(url), uid)
+			log.Debugln("Health Checked, proxy: %s, url: %s, alive: %t, delay: %d ms uid: {%s}", p.Name(), logURL, p.AliveForTestUrl(url), p.LastDelayForTestUrl(url), uid)
 			return nil
 		})
 	}
@@ -231,4 +233,28 @@ func NewHealthCheck(proxies []C.Proxy, url string, timeout uint, interval uint, 
 		expectedStatus: expectedStatus,
 		singleDo:       singledo.NewSingle[struct{}](time.Second),
 	}
+}
+
+// redactURLForLog hides the secrets a health-check URL may carry, for logs
+// only: the userinfo password (as url.URL.Redacted does) and every query
+// value (the keys stay, the values become "xxxxx"). The URL used for the
+// check itself is not touched. A URL that does not parse is not logged.
+func redactURLForLog(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "<unparsable url>"
+	}
+	if u.RawQuery != "" {
+		parts := strings.Split(u.RawQuery, "&")
+		for i, part := range parts {
+			if key, _, ok := strings.Cut(part, "="); ok {
+				parts[i] = key + "=xxxxx"
+			}
+		}
+		u.RawQuery = strings.Join(parts, "&")
+	}
+	return u.Redacted()
 }
