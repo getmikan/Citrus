@@ -1,7 +1,3 @@
-//go:build go1.24
-
-// newSourceTunnel and dialSource live in trusted_proxy_test.go, built from Go 1.24.
-
 package inbound_test
 
 import (
