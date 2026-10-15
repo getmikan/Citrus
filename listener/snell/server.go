@@ -202,41 +202,38 @@ func (l *Listener) handleRequest(stream *snell.Snell, handshakeDone func(), tunn
 		return false, nil
 	}
 
-	clientID, err := readClientID(br)
-	if err != nil {
+	// The client ID is chosen by the client and proves nothing beyond the
+	// shared PSK, so it is read off the wire and dropped: it never names the
+	// user for IN-USER or per-user limits. Only an outer layer that verified a
+	// user (ShadowTLS, JLS) sets one.
+	if err := skipClientID(br); err != nil {
 		return false, err
 	}
 
 	switch command {
 	case snell.CommandConnect, snell.CommandConnectV2:
-		return l.handleTCP(stream, br, command == snell.CommandConnectV2, clientID, handshakeDone, tunnel, additions...)
+		return l.handleTCP(stream, br, command == snell.CommandConnectV2, handshakeDone, tunnel, additions...)
 	case snell.CommandUDP:
 		if !l.config.UDP {
 			return false, errors.New("snell UDP is disabled")
 		}
 		handshakeDone()
-		return false, l.handleUDP(stream, clientID, tunnel, additions...)
+		return false, l.handleUDP(stream, tunnel, additions...)
 	default:
 		return false, fmt.Errorf("snell unknown command: %d", command)
 	}
 }
 
-func readClientID(r *bufio.Reader) (string, error) {
+func skipClientID(r *bufio.Reader) error {
 	length, err := r.ReadByte()
 	if err != nil {
-		return "", err
+		return err
 	}
-	if length == 0 {
-		return "", nil
-	}
-	id := make([]byte, int(length))
-	if _, err := io.ReadFull(r, id); err != nil {
-		return "", err
-	}
-	return string(id), nil
+	_, err = r.Discard(int(length))
+	return err
 }
 
-func (l *Listener) handleTCP(stream *snell.Snell, br *bufio.Reader, reuse bool, clientID string, handshakeDone func(), tunnel C.Tunnel, additions ...inbound.Addition) (bool, error) {
+func (l *Listener) handleTCP(stream *snell.Snell, br *bufio.Reader, reuse bool, handshakeDone func(), tunnel C.Tunnel, additions ...inbound.Addition) (bool, error) {
 	hostLen, err := br.ReadByte()
 	if err != nil {
 		return false, err
@@ -255,7 +252,7 @@ func (l *Listener) handleTCP(stream *snell.Snell, br *bufio.Reader, reuse bool, 
 	}
 	handshakeDone()
 
-	metadata := l.metadata(C.TCP, string(hostBytes), binary.BigEndian.Uint16(portBytes[:]), stream, clientID, additions...)
+	metadata := l.metadata(C.TCP, string(hostBytes), binary.BigEndian.Uint16(portBytes[:]), stream, additions...)
 	conn := &tcpRequestConn{
 		Conn:   stream,
 		reader: br,
@@ -268,7 +265,7 @@ func (l *Listener) handleTCP(stream *snell.Snell, br *bufio.Reader, reuse bool, 
 	return true, nil
 }
 
-func (l *Listener) handleUDP(stream *snell.Snell, clientID string, tunnel C.Tunnel, additions ...inbound.Addition) error {
+func (l *Listener) handleUDP(stream *snell.Snell, tunnel C.Tunnel, additions ...inbound.Addition) error {
 	if _, err := stream.Write([]byte{snell.CommandTunnel}); err != nil {
 		return err
 	}
@@ -289,7 +286,7 @@ func (l *Listener) handleUDP(stream *snell.Snell, clientID string, tunnel C.Tunn
 		if err != nil {
 			return err
 		}
-		metadata := l.metadata(C.UDP, request.Host, request.Port, stream, clientID, additions...)
+		metadata := l.metadata(C.UDP, request.Host, request.Port, stream, additions...)
 		if request.Ip.IsValid() {
 			metadata.Host = ""
 			metadata.DstIP = request.Ip
@@ -307,7 +304,7 @@ func (l *Listener) handleUDP(stream *snell.Snell, clientID string, tunnel C.Tunn
 	}
 }
 
-func (l *Listener) metadata(network C.NetWork, host string, port uint16, conn net.Conn, clientID string, additions ...inbound.Addition) *C.Metadata {
+func (l *Listener) metadata(network C.NetWork, host string, port uint16, conn net.Conn, additions ...inbound.Addition) *C.Metadata {
 	metadata := &C.Metadata{
 		NetWork: network,
 		Type:    C.SNELL,
@@ -320,12 +317,6 @@ func (l *Listener) metadata(network C.NetWork, host string, port uint16, conn ne
 	}
 	inbound.ApplyAdditions(metadata, inbound.WithSrcAddr(conn.RemoteAddr()), inbound.WithInAddr(conn.LocalAddr()))
 	inbound.ApplyAdditions(metadata, additions...)
-	// The client ID is whatever the client says: it names the user only when
-	// no outer layer (ShadowTLS, JLS) authenticated one, and never replaces
-	// the user that layer verified.
-	if clientID != "" && metadata.InUser == "" {
-		inbound.ApplyAdditions(metadata, inbound.WithInUser(clientID))
-	}
 	return metadata
 }
 
