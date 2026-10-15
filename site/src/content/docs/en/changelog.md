@@ -3,7 +3,9 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (95 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (106 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+
+The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` as described on this page.
 
 What changes behaviour for existing configs is collected on [Migrating from mihomo](/Citrus/en/migration/).
 
@@ -18,6 +20,9 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#25](https://github.com/getmikan/Citrus/pull/25) Interop suite against Xray-core (REALITY PQ, XHTTP, ECH) and its CI job.
 - [#51](https://github.com/getmikan/Citrus/pull/51) Load and benchmark harness and a first baseline.
 - [#74](https://github.com/getmikan/Citrus/pull/74) Interop suite: mihomo v1.19.31 and v1.19.32 clients against a Citrus server.
+- [#98](https://github.com/getmikan/Citrus/pull/98) Site pages: roadmap, changelog, compatibility, migrating from mihomo and security; landing refresh.
+- [#99](https://github.com/getmikan/Citrus/pull/99) CI: site- and docs-only PRs skip the Go checks; the site is built on site PRs.
+- [#101](https://github.com/getmikan/Citrus/pull/101) Server comparison of Xray-core, mihomo and Citrus: throughput, CPU per GB, new connections.
 
 ## Removed legacy
 
@@ -94,9 +99,15 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#91](https://github.com/getmikan/Citrus/pull/91) QUIC: bounded stream limits for TUIC, ShadowQUIC and TrustTunnel; TUIC pre-auth budget.
 - [#92](https://github.com/getmikan/Citrus/pull/92) QUIC: bounded TUIC fragment reassembly and ShadowQUIC unbound association state.
 - [#93](https://github.com/getmikan/Citrus/pull/93) UDP sessions keyed by inbound and user, not only by source.
+- [#94](https://github.com/getmikan/Citrus/pull/94) Keys and credentials kept out of logs; `age decrypt` writes its file with mode 0600.
 - [#95](https://github.com/getmikan/Citrus/pull/95) Snell: the user verified by ShadowTLS/JLS wins over the client ID.
 - [#96](https://github.com/getmikan/Citrus/pull/96) Hysteria2 Realm: IP header only from `trusted-proxies`; session tokens kept out of logs.
 - [#97](https://github.com/getmikan/Citrus/pull/97) XHTTP: sessions stay in the pre-auth limits until VLESS authenticates them.
+- [#102](https://github.com/getmikan/Citrus/pull/102) Snell: the client ID no longer becomes the user; without ShadowTLS or JLS the inbound has no user.
+- [#103](https://github.com/getmikan/Citrus/pull/103) DNS listener: in-flight queries capped, each with a deadline.
+- [#104](https://github.com/getmikan/Citrus/pull/104) Hysteria2 Realm: one events stream per session; `Close` ends the active connections.
+- [#105](https://github.com/getmikan/Citrus/pull/105) Providers: the health-check URL is logged without its password and query values.
+- [#107](https://github.com/getmikan/Citrus/pull/107) CI: the remaining actions and fpm pinned; Go toolchains checked against SHA-256.
 
 ## Ported from mihomo and the community
 
@@ -128,6 +139,8 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#67](https://github.com/getmikan/Citrus/pull/67) SOCKS tests: Windows UDP port flake.
 - [#69](https://github.com/getmikan/Citrus/pull/69) TrustTunnel server drops sessions of clients that vanished.
 - [#72](https://github.com/getmikan/Citrus/pull/72) XHTTP: a passed deadline no longer tears down an idle conn; early user expiry; test races.
+- [#100](https://github.com/getmikan/Citrus/pull/100) Flaky Trojan mux cap, TUIC pre-auth budget and TrustTunnel upload tests.
+- [#106](https://github.com/getmikan/Citrus/pull/106) VLESS link redaction test skips unrelated log lines.
 
 ## Forks
 
