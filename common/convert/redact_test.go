@@ -17,17 +17,22 @@ func TestBadVlessLinkIsNotLoggedWithCredentials(t *testing.T) {
 	link := "vless://11111111-2222-3333-4444-555555555555@example.com?security=reality&pbk=SECRETPUBLICKEY&sid=abcd#bad-node"
 	go func() { _, _ = ConvertsV2Ray([]byte(link)) }()
 
-	select {
-	case event := <-sub:
-		for _, secret := range []string{"11111111-2222", "SECRETPUBLICKEY", "sid=abcd"} {
-			if strings.Contains(event.Payload, secret) {
-				t.Fatalf("log line leaks %q: %s", secret, event.Payload)
+	// Other code in the process may log at the same time, so skip lines
+	// until the one about this link, but check every line for the secrets.
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case event := <-sub:
+			for _, secret := range []string{"11111111-2222", "SECRETPUBLICKEY", "sid=abcd"} {
+				if strings.Contains(event.Payload, secret) {
+					t.Fatalf("log line leaks %q: %s", secret, event.Payload)
+				}
 			}
+			if strings.Contains(event.Payload, "example.com") && strings.Contains(event.Payload, "bad-node") {
+				return
+			}
+		case <-timeout:
+			t.Fatal("no log line naming the server and the node")
 		}
-		if !strings.Contains(event.Payload, "example.com") || !strings.Contains(event.Payload, "bad-node") {
-			t.Fatalf("log line lost the server or name: %s", event.Payload)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("no log line")
 	}
 }
