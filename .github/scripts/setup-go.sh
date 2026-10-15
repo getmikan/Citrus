@@ -2,7 +2,7 @@
 # Installs a pinned Go toolchain on a linux/amd64 runner and checks it
 # against .github/go-toolchains.txt before anything runs it.
 #
-# Usage: setup-go.sh <key>     key is a manifest entry: 1.26, 1.20, loong64-abi1, ...
+# Usage: setup-go.sh <key>     key is a manifest entry: 1.26, loong64-abi1, ...
 #
 # The manifest line gives the exact Go version, the tarball URL and its
 # SHA-256. A tarball that does not match, or holds another Go version, is

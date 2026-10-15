@@ -9,7 +9,7 @@ description: Что поменять в конфиге mihomo при перех�
 citrus -t -f config.yaml
 ```
 
-Для тех, кто встраивает ядро как библиотеку: путь Go-модуля остался `github.com/metacubex/mihomo`, подключайте Citrus через `replace`. Сам Citrus тоже подменяет через `replace` модули `github.com/metacubex/utls`, `github.com/metacubex/tls` и `github.com/metacubex/http` на свои форки; эти строки нужно перенести в `go.mod` встраивающего проекта.
+Для тех, кто встраивает ядро как библиотеку: путь Go-модуля остался `github.com/metacubex/mihomo`, подключайте Citrus через `replace`. Сам Citrus тоже подменяет через `replace` модули `github.com/metacubex/utls`, `github.com/metacubex/tls` и `github.com/metacubex/http` на свои форки; эти строки нужно перенести в `go.mod` встраивающего проекта. Модулю нужен Go 1.26 или новее.
 
 ## Удалённые протоколы
 
@@ -76,3 +76,10 @@ VMess (вместе с mKCP, mekya и TLSMirror), ShadowsocksR, Hysteria v1, TUI
 ## Обновление ядра
 
 `/upgrade` сверяет пакет с `checksums.txt` того же релиза. Релиз без этого файла или без строки для пакета не установится; сборки Citrus публикуют его всегда. `version.txt` проверяется, имена файлов внутри архива игнорируются, zip должен содержать ровно один файл.
+
+## Платформы и сборки
+
+Для сборки Citrus нужен Go 1.26 или новее. mihomo публикует ещё и сборки на старых версиях Go (файлы с окончанием `-go120`, `-go122`, `-go123`, `-go124`, `-go125`); у Citrus их нет.
+
+- **Windows 7/8 и старые macOS:** релизы для Windows и macOS собираются пропатченным [тулчейном Go от MetaCubeX](https://github.com/MetaCubeX/go), который сохраняет работу на этих системах. Отдельно в Citrus они не тестируются.
+- **Ядра Linux старше 3.2** не поддерживаются: Go 1.24 и новее требуют ядро 3.2.

@@ -9,7 +9,7 @@ Citrus uses the same configuration format as mihomo, and most configs run unchan
 citrus -t -f config.yaml
 ```
 
-For projects that embed the core as a library: the Go module path is still `github.com/metacubex/mihomo`, so pull Citrus in with a `replace`. Citrus itself replaces `github.com/metacubex/utls`, `github.com/metacubex/tls` and `github.com/metacubex/http` with its forks; copy those lines into the embedding project's `go.mod` too.
+For projects that embed the core as a library: the Go module path is still `github.com/metacubex/mihomo`, so pull Citrus in with a `replace`. Citrus itself replaces `github.com/metacubex/utls`, `github.com/metacubex/tls` and `github.com/metacubex/http` with its forks; copy those lines into the embedding project's `go.mod` too. The module needs Go 1.26 or newer.
 
 ## Removed protocols
 
@@ -76,3 +76,10 @@ Details are on the [Controller security](/Citrus/en/start/controller/) page.
 ## Core updates
 
 `/upgrade` checks the package against `checksums.txt` from the same release. A release without that file, or without a line for the package, will not install; Citrus builds always publish it. `version.txt` is validated, file names inside the archive are ignored, and a zip must hold exactly one file.
+
+## Platforms and builds
+
+Citrus needs Go 1.26 or newer to build. mihomo also publishes builds on old Go versions (files ending in `-go120`, `-go122`, `-go123`, `-go124`, `-go125`); Citrus does not.
+
+- **Windows 7/8 and older macOS:** Windows and macOS releases are built with the patched [MetaCubeX Go toolchain](https://github.com/MetaCubeX/go), which keeps these systems working. Citrus does not test them separately.
+- **Linux kernels older than 3.2** are not supported: Go 1.24 and newer require kernel 3.2.

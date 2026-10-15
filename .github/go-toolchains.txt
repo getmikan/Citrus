@@ -9,11 +9,5 @@
 #
 # loong64-abi1 is the Go 1.26.0 toolchain that builds for the old LoongArch
 # ABI (the loong64-abi1 release target).
-1.20 go1.20.14 https://github.com/MetaCubeX/go/releases/download/build/go1.20.linux-amd64.tar.gz 38db9b58901c96cdde579f9fd145f893c078775376799e9fd5049a10e5a4635c
-1.21 go1.21.13 https://github.com/MetaCubeX/go/releases/download/build/go1.21.linux-amd64.tar.gz 91bf83b8864bb261783809e22141ac0597cff6537429a23870045f51b32d90b5
-1.22 go1.22.12 https://github.com/MetaCubeX/go/releases/download/build/go1.22.linux-amd64.tar.gz 245c5d32ca17d85f2508d0d777ae681756959ca3d469cd81831716fd0c6b5f77
-1.23 go1.23.12 https://github.com/MetaCubeX/go/releases/download/build/go1.23.linux-amd64.tar.gz 85efd731c9a88345d3826189ce50d0659d93c2767430d1758181162d3e26531c
-1.24 go1.24.13 https://github.com/MetaCubeX/go/releases/download/build/go1.24.linux-amd64.tar.gz 2ac365affb75efd897f6675a03e5a7d75e43e78d628989806a09258ec7ac97ec
-1.25 go1.25.14 https://github.com/MetaCubeX/go/releases/download/build/go1.25.linux-amd64.tar.gz 88a132186a538df9a7bb2fb55237dc971576f0eaf8920748f65bc6319f4a0da6
 1.26 go1.26.9 https://github.com/MetaCubeX/go/releases/download/build/go1.26.linux-amd64.tar.gz 81e2e9465f2a248375afdd925a217e8b58eee84fcbc11776642a2e76415b2b3a
 loong64-abi1 go1.26.0 https://github.com/MetaCubeX/loongarch64-golang/releases/download/1.26.0/go1.26.0.linux-amd64.tar.gz 46af28946a57d4a33fe7b478728267f0fb734d893b2d857dbcd485aa7cb08974
