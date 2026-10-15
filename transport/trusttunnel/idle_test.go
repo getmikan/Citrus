@@ -178,8 +178,10 @@ func TestTunnelOfSilentClientIsClosed(t *testing.T) {
 }
 
 // A live client that answers PINGs keeps an idle tunnel well past the bound.
+// The PING timeout is generous, as the answer of a client stalled by a busy
+// machine is merely late.
 func TestIdleTunnelOfLiveClientSurvives(t *testing.T) {
-	address, handler := startIdleTestServer(t, 100*time.Millisecond, 100*time.Millisecond)
+	address, handler := startIdleTestServer(t, 100*time.Millisecond, time.Second)
 	conn, framer := openTunnel(t, address)
 	pings := serveFrames(framer, true)
 	expectTunnelOpen(t, handler, 1500*time.Millisecond)
@@ -191,12 +193,23 @@ func TestIdleTunnelOfLiveClientSurvives(t *testing.T) {
 
 // A client that keeps uploading is not pinged at all, as every DATA frame
 // resets the clock, so even a client whose ACKs would be late keeps its tunnel.
+//
+// The clock is the server's wall clock, so this cannot be synchronized on
+// events: the server pings whenever its serve loop goes pingAfter without
+// processing a frame, and a stall of the client's write loop or of the server
+// (a busy CI runner) counts too. pingAfter is therefore 100 times the upload
+// interval, while the upload still lasts long enough (past pingAfter plus
+// pingTimeout) for a server that ignored DATA frames to ping, and then close.
 func TestBusyUploadTunnelSurvives(t *testing.T) {
-	address, handler := startIdleTestServer(t, 100*time.Millisecond, 100*time.Millisecond)
+	const (
+		pingAfter = time.Second
+		interval  = 10 * time.Millisecond
+	)
+	address, handler := startIdleTestServer(t, pingAfter, 500*time.Millisecond)
 	conn, framer := openTunnel(t, address)
 	pings := serveFrames(framer, false) // never answers a PING
 	chunk := make([]byte, 512)
-	deadline := time.Now().Add(1500 * time.Millisecond)
+	deadline := time.Now().Add(2500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if err := framer.WriteData(1, false, chunk); err != nil {
 			t.Fatalf("upload failed: %v", err)
@@ -204,7 +217,7 @@ func TestBusyUploadTunnelSurvives(t *testing.T) {
 		select {
 		case <-handler.done:
 			t.Fatal("server closed a tunnel that was uploading")
-		case <-time.After(20 * time.Millisecond):
+		case <-time.After(interval):
 		}
 	}
 	_ = conn.Close()
