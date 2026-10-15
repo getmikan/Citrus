@@ -316,8 +316,8 @@ func (s *Session) recvLoop() error {
 							}
 						}
 						// check client's version
-						if v, err := strconv.Atoi(m["v"]); err == nil && v >= 2 {
-							s.peerVersion.Store(uint32(v))
+						if v, ok := parsePeerVersion(m["v"]); ok && v >= 2 {
+							s.peerVersion.Store(v)
 							// send cmdServerSettings
 							f := newFrame(cmdServerSettings, 0)
 							f.data = util.StringMap{
@@ -377,8 +377,8 @@ func (s *Session) recvLoop() error {
 					if s.isClient {
 						// check server's version
 						m := util.StringMapFromBytes(buffer)
-						if v, err := strconv.Atoi(m["v"]); err == nil {
-							s.peerVersion.Store(uint32(v))
+						if v, ok := parsePeerVersion(m["v"]); ok {
+							s.peerVersion.Store(v)
 						}
 					}
 					pool.Put(buffer)
@@ -549,4 +549,15 @@ func (s *Session) writeConn(b []byte) (n int, err error) {
 	}
 
 	return s.conn.Write(b)
+}
+
+// parsePeerVersion reads the "v" field of the peer's settings. It comes off the
+// wire, so a negative or oversized value is rejected rather than wrapped into a
+// uint32 (a "-1" would otherwise read as a huge version and turn on v2 features).
+func parsePeerVersion(s string) (uint32, bool) {
+	v, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(v), true
 }
