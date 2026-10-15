@@ -3,7 +3,9 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (95 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (106 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+
+Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` в том состоянии, что описано на этой странице.
 
 Что из этого меняет поведение для существующих конфигов, собрано на странице [Переход с mihomo](/Citrus/migration/).
 
@@ -18,6 +20,9 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#25](https://github.com/getmikan/Citrus/pull/25) Интеграционные тесты против Xray-core (REALITY PQ, XHTTP, ECH) и задача в CI.
 - [#51](https://github.com/getmikan/Citrus/pull/51) Нагрузочный стенд и первые замеры производительности.
 - [#74](https://github.com/getmikan/Citrus/pull/74) Интеграционные тесты: клиенты mihomo v1.19.31 и v1.19.32 против сервера Citrus.
+- [#98](https://github.com/getmikan/Citrus/pull/98) Страницы сайта: дорожная карта, журнал изменений, совместимость, переход с mihomo и безопасность; обновлённая главная.
+- [#99](https://github.com/getmikan/Citrus/pull/99) CI: PR только с сайтом и документацией не запускают проверки Go, сайт собирается на PR с изменениями сайта.
+- [#101](https://github.com/getmikan/Citrus/pull/101) Сравнение серверов Xray-core, mihomo и Citrus: пропускная способность, CPU на гигабайт, новые соединения.
 
 ## Удалённое наследие
 
@@ -94,9 +99,15 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#91](https://github.com/getmikan/Citrus/pull/91) QUIC: ограничены потоки TUIC, ShadowQUIC и TrustTunnel; бюджет TUIC до авторизации.
 - [#92](https://github.com/getmikan/Citrus/pull/92) QUIC: ограничены сборка фрагментов TUIC и непривязанные ассоциации ShadowQUIC.
 - [#93](https://github.com/getmikan/Citrus/pull/93) UDP-сессии разделены по входящему и пользователю.
+- [#94](https://github.com/getmikan/Citrus/pull/94) Ключи и учётные данные не попадают в логи; `age decrypt` пишет файл с правами 0600.
 - [#95](https://github.com/getmikan/Citrus/pull/95) Snell: пользователь, проверенный ShadowTLS или JLS, важнее ID клиента.
 - [#96](https://github.com/getmikan/Citrus/pull/96) Hysteria2 Realm: заголовок с IP только от `trusted-proxies`; токены сессий не попадают в логи.
 - [#97](https://github.com/getmikan/Citrus/pull/97) XHTTP: сессия остаётся в лимитах до авторизации, пока VLESS её не проверит.
+- [#102](https://github.com/getmikan/Citrus/pull/102) Snell: ID клиента больше не становится пользователем; без ShadowTLS или JLS у входящего нет пользователя.
+- [#103](https://github.com/getmikan/Citrus/pull/103) DNS-листенер: ограничено число запросов в работе, у каждого свой срок.
+- [#104](https://github.com/getmikan/Citrus/pull/104) Hysteria2 Realm: один поток событий на сессию, `Close` закрывает активные соединения.
+- [#105](https://github.com/getmikan/Citrus/pull/105) Провайдеры: адрес health-check в отладочных логах без пароля и значений query.
+- [#107](https://github.com/getmikan/Citrus/pull/107) CI: закреплены оставшиеся actions и fpm, тулчейны Go проверяются по SHA-256.
 
 ## Перенесено из mihomo и сообщества
 
@@ -128,6 +139,8 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#67](https://github.com/getmikan/Citrus/pull/67) Тесты SOCKS: нестабильные порты UDP на Windows.
 - [#69](https://github.com/getmikan/Citrus/pull/69) Сервер TrustTunnel закрывает сессии исчезнувших клиентов.
 - [#72](https://github.com/getmikan/Citrus/pull/72) XHTTP: истёкший срок не закрывает простаивающее соединение; ранний срок пользователя; гонки в тестах.
+- [#100](https://github.com/getmikan/Citrus/pull/100) Нестабильные тесты лимита mux в Trojan, бюджета TUIC до авторизации и загрузки TrustTunnel.
+- [#106](https://github.com/getmikan/Citrus/pull/106) Тест скрытия ссылки VLESS пропускает посторонние строки лога.
 
 ## Форки
 
