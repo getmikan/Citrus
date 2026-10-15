@@ -1,13 +1,18 @@
 name: Pages
 
 # The site (site/) on GitHub Pages: getmikan.github.io/Citrus. It is built from dev when
-# the site changes, or by hand. Settings → Pages → Source must be "GitHub Actions".
+# the site changes, or by hand; a pull request that changes the site only builds it. Settings → Pages → Source must be "GitHub Actions".
 #
 # Actions are pinned to a commit (the comment is the version it was), the same pins as the
 # Mikan site workflow.
 on:
   push:
     branches: [dev]
+    paths:
+      - site/**
+      - .github/workflows/pages.yml
+  pull_request:
+    branches: [dev, main]
     paths:
       - site/**
       - .github/workflows/pages.yml
@@ -18,8 +23,8 @@ permissions:
 
 # One deployment at a time; a newer push waits instead of cancelling one in progress.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -41,11 +46,13 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm build
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site/dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-24.04
     permissions:

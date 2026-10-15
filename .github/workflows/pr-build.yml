@@ -7,6 +7,12 @@ on:
     branches:
       - main
       - dev
+    paths-ignore:
+      - "site/**"
+      - "docs/**"
+      - "**.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/workflows/pages.yml"
 
 permissions:
   contents: read
