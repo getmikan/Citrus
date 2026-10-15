@@ -1,0 +1,46 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": {
+        "udp": false
+      }
+    }
+  ],
+  "log": {
+    "access": "none",
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "10.77.0.10",
+            "port": 443,
+            "users": [
+              {
+                "encryption": "none",
+                "flow": "xtls-rprx-vision",
+                "id": "<redacted>"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "raw",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "password": "<redacted>",
+          "serverName": "bench.test",
+          "shortId": "<redacted>"
+        },
+        "security": "reality"
+      }
+    }
+  ]
+}

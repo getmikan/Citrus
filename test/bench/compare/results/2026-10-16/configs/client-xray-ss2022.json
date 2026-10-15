@@ -1,0 +1,31 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": {
+        "udp": false
+      }
+    }
+  ],
+  "log": {
+    "access": "none",
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "shadowsocks",
+      "settings": {
+        "servers": [
+          {
+            "address": "10.77.0.10",
+            "method": "2022-blake3-aes-128-gcm",
+            "password": "<redacted>",
+            "port": 443
+          }
+        ]
+      }
+    }
+  ]
+}
