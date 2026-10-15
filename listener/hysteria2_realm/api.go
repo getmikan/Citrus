@@ -209,12 +209,19 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, errInvalidToken, "invalid session token")
 		return
 	}
-	debugf("events connected realm=%s session=%s remote=%s", id, sess.logID, remote)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeErr(w, http.StatusInternalServerError, errBadRequest, "streaming not supported")
 		return
 	}
+	// One events stream per session: a new one replaces the previous.
+	replaced, ok := s.acquireStream(sess)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, errInvalidToken, "invalid session token")
+		return
+	}
+	defer s.releaseStream(sess, replaced)
+	debugf("events connected realm=%s session=%s remote=%s", id, sess.logID, remote)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -229,6 +236,9 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-sess.done:
 			debugf("events closed realm=%s session=%s remote=%s", id, sess.logID, remote)
+			return
+		case <-replaced:
+			debugf("events replaced realm=%s session=%s remote=%s", id, sess.logID, remote)
 			return
 		case ev := <-sess.events:
 			data, _ := json.Marshal(ev.data)

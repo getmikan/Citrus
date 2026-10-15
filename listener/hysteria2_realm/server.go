@@ -2,6 +2,7 @@ package hysteria2_realm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"regexp"
@@ -25,6 +26,7 @@ type Listener struct {
 	closed    bool
 	config    LC.Hysteria2RealmServer
 	listeners []net.Listener
+	servers   []*http.Server
 	server    *server
 	cancel    func()
 }
@@ -118,6 +120,7 @@ func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunn
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 
+		sl.servers = append(sl.servers, srv)
 		go srv.Serve(l)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -130,9 +133,17 @@ func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunn
 func (l *Listener) Close() error {
 	l.closed = true
 	var retErr error
+	// Close the servers too: closing the listeners alone leaves the
+	// accepted connections (events streams, keep-alive) running.
+	for _, srv := range l.servers {
+		if err := srv.Close(); err != nil {
+			retErr = err
+		}
+	}
 	for _, lis := range l.listeners {
+		// srv.Close has closed the listeners it serves already.
 		err := lis.Close()
-		if err != nil {
+		if err != nil && !errors.Is(err, net.ErrClosed) {
 			retErr = err
 		}
 	}
