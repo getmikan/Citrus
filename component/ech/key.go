@@ -1,6 +1,7 @@
 package ech
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
@@ -9,8 +10,10 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 
+	"github.com/metacubex/mihomo/component/ech/echparser"
 	C "github.com/metacubex/mihomo/constant"
 
 	"github.com/metacubex/fswatch"
@@ -158,14 +161,54 @@ func LoadECHKey(key string, tlsConfig *tls.Config) error {
 	return nil
 }
 
+// loadECHKey parses ECH server keys in one of the formats:
+//   - PEM with one "ECH KEYS" block (citrus generate ech-keypair, xray tls ech --pem);
+//     other blocks, such as the "ECH CONFIGS" one xray prints next to it, are ignored
+//   - Xray echServerKeys: the same binary as plain base64 (xray tls ech), which may
+//     hold several keys one after another
 func loadECHKey(echKey []byte) ([]tls.EncryptedClientHelloKey, error) {
-	block, rest := pem.Decode(echKey)
-	if block == nil || block.Type != "ECH KEYS" || len(rest) > 0 {
-		return nil, errors.New("invalid ECH keys pem")
+	var raw []byte
+	if bytes.Contains(echKey, []byte("-----BEGIN")) {
+		rest := echKey
+		for {
+			var block *pem.Block
+			block, rest = pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			if block.Type == "ECH KEYS" {
+				if raw != nil {
+					return nil, errors.New("invalid ECH keys pem: more than one ECH KEYS block")
+				}
+				raw = block.Bytes
+			}
+		}
+		if raw == nil || len(bytes.TrimSpace(rest)) > 0 {
+			return nil, errors.New("invalid ECH keys pem")
+		}
+	} else {
+		text := strings.Join(strings.Fields(string(echKey)), "") // a long base64 string may be wrapped
+		if text == "" {
+			return nil, errors.New("empty ECH keys")
+		}
+		var err error
+		if raw, err = base64.StdEncoding.DecodeString(text); err != nil {
+			if raw, err = base64.RawStdEncoding.DecodeString(text); err != nil {
+				return nil, errors.New("invalid ECH keys: neither pem nor base64")
+			}
+		}
 	}
-	echKeys, err := UnmarshalECHKeys(block.Bytes)
+	echKeys, err := UnmarshalECHKeys(raw)
 	if err != nil {
 		return nil, fmt.Errorf("parse ECH keys: %w", err)
 	}
-	return echKeys, err
+	for i, key := range echKeys {
+		if len(key.PrivateKey) == 0 {
+			return nil, fmt.Errorf("parse ECH keys: key %d: empty private key", i)
+		}
+		if _, _, err = echparser.ParseECHConfig(key.Config); err != nil {
+			return nil, fmt.Errorf("parse ECH keys: key %d: %w", i, err)
+		}
+	}
+	return echKeys, nil
 }

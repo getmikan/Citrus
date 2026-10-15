@@ -7,8 +7,13 @@ import (
 )
 
 // NewNameCertVerifier returns a verifier for a certificate chain and an explicit DNSName.
+// Like Xray's `verifyPeerCertByName`, dnsName can be a comma-separated list, any of them matching is enough.
 func NewNameCertVerifier(dnsName string, roots *x509.CertPool, now func() time.Time) func([]*x509.Certificate) error {
-	return func(certificates []*x509.Certificate) error {
+	dnsNames := splitList(dnsName)
+	if len(dnsNames) == 0 {
+		dnsNames = []string{dnsName}
+	}
+	return func(certificates []*x509.Certificate) (err error) {
 		if len(certificates) == 0 {
 			return errors.New("tls: no peer certificates")
 		}
@@ -20,12 +25,15 @@ func NewNameCertVerifier(dnsName string, roots *x509.CertPool, now func() time.T
 		verifyOptions := x509.VerifyOptions{
 			Roots:         roots,
 			Intermediates: intermediates,
-			DNSName:       dnsName,
 		}
 		if now != nil {
 			verifyOptions.CurrentTime = now()
 		}
-		_, err := certificates[0].Verify(verifyOptions)
+		for _, verifyOptions.DNSName = range dnsNames {
+			if _, err = certificates[0].Verify(verifyOptions); err == nil {
+				return nil
+			}
+		}
 		return err
 	}
 }

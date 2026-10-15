@@ -157,13 +157,8 @@ func NewTailscale(option TailscaleOption) (*Tailscale, error) {
 			log.Debugln("[Tailscale](%s) SystemDialer: finish dial %s %s, err: %v", option.Name, network, address, err)
 			return conn, err
 		},
-		SystemPacketListener: func(ctx context.Context, network, address string) (net.PacketConn, error) {
-			log.Debugln("[Tailscale](%s) SystemPacketListener: start listen %s %s", option.Name, network, address)
-			pc, err := outbound.dialer.ListenPacket(ctx, network, address, netip.AddrPort{})
-			log.Debugln("[Tailscale](%s) SystemPacketListener: finish listen %s %s, err: %v", option.Name, network, address, err)
-			return pc, err
-		},
-		ExtraRootCAs: ca.GetCertPool(),
+		SystemPacketListener: tailscalePacketListener(option.Name, tailscaleUDPDisabled(option), outbound.dialer),
+		ExtraRootCAs:         ca.GetCertPool(),
 		LookupHook: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			log.Debugln("[Tailscale](%s) LookupHook: start lookup %s", option.Name, host)
 			ips, err := resolver.LookupIPWithResolver(ctx, host, resolver.ProxyServerHostResolver)
@@ -182,6 +177,89 @@ func NewTailscale(option TailscaleOption) (*Tailscale, error) {
 	outbound.unregisterDNSResolver = dns.RegisterTailscaleDnsClient(option.Name, dnsTransport)
 	return outbound, nil
 }
+
+// tailscaleUDPDisabled reports whether tsnet must not open UDP sockets: with a
+// dialer-proxy everything tsnet sends has to go through that proxy, and a proxy
+// dialer cannot open a UDP socket without a destination (tsnet asks for a local
+// socket that talks to many peers, STUN servers and the gateway).
+func tailscaleUDPDisabled(option TailscaleOption) bool {
+	return option.DialerForAPI == nil && option.DialerProxy != ""
+}
+
+// tailscalePacketListener opens the UDP sockets of tsnet (magicsock, netcheck,
+// port mapping, DNS forwarding, ICMP probes). With noUDP it never calls the
+// dialer and returns a socket that sends and receives nothing, the way tsnet
+// itself disables UDP for TS_DEBUG_ALWAYS_USE_DERP: direct paths and STUN fail,
+// so peers are reached over DERP, which is TCP/HTTPS through SystemDialer and
+// therefore through the dialer-proxy. Nothing goes around the proxy.
+func tailscalePacketListener(name string, noUDP bool, d C.Dialer) func(ctx context.Context, network, address string) (net.PacketConn, error) {
+	return func(ctx context.Context, network, address string) (net.PacketConn, error) {
+		if noUDP {
+			log.Debugln("[Tailscale](%s) SystemPacketListener: UDP is disabled by dialer-proxy, %s %s goes nowhere", name, network, address)
+			return newTailscaleNoUDPConn(), nil
+		}
+		log.Debugln("[Tailscale](%s) SystemPacketListener: start listen %s %s", name, network, address)
+		pc, err := d.ListenPacket(ctx, network, address, netip.AddrPort{})
+		log.Debugln("[Tailscale](%s) SystemPacketListener: finish listen %s %s, err: %v", name, network, address, err)
+		return pc, err
+	}
+}
+
+var errTailscaleNoUDPDeadline = errors.New("tailscale: deadlines are not supported without UDP")
+
+// tailscaleNoUDPConn is a packet socket that drops what is written to it and
+// whose reads block until it is closed.
+type tailscaleNoUDPConn struct {
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+func newTailscaleNoUDPConn() *tailscaleNoUDPConn {
+	return &tailscaleNoUDPConn{closed: make(chan struct{})}
+}
+
+func (c *tailscaleNoUDPConn) ReadFromUDPAddrPort(p []byte) (int, netip.AddrPort, error) {
+	<-c.closed
+	return 0, netip.AddrPort{}, net.ErrClosed
+}
+
+func (c *tailscaleNoUDPConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	<-c.closed
+	return 0, nil, net.ErrClosed
+}
+
+func (c *tailscaleNoUDPConn) WriteToUDPAddrPort(p []byte, addr netip.AddrPort) (int, error) {
+	return c.drop(p)
+}
+
+func (c *tailscaleNoUDPConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	return c.drop(p)
+}
+
+func (c *tailscaleNoUDPConn) drop(p []byte) (int, error) {
+	select {
+	case <-c.closed:
+		return 0, net.ErrClosed
+	default:
+		return len(p), nil
+	}
+}
+
+func (c *tailscaleNoUDPConn) Close() error {
+	err := net.ErrClosed
+	c.closeOnce.Do(func() {
+		close(c.closed)
+		err = nil
+	})
+	return err
+}
+
+// LocalAddr returns a *net.UDPAddr, which tsnet code assumes.
+func (c *tailscaleNoUDPConn) LocalAddr() net.Addr { return &net.UDPAddr{} }
+
+func (c *tailscaleNoUDPConn) SetDeadline(time.Time) error      { return errTailscaleNoUDPDeadline }
+func (c *tailscaleNoUDPConn) SetReadDeadline(time.Time) error  { return errTailscaleNoUDPDeadline }
+func (c *tailscaleNoUDPConn) SetWriteDeadline(time.Time) error { return errTailscaleNoUDPDeadline }
 
 func (t *Tailscale) start() error {
 	t.startOnce.Do(func() {

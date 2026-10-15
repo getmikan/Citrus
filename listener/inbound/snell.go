@@ -38,7 +38,7 @@ type Snell struct {
 }
 
 func NewSnell(options *SnellOption) (*Snell, error) {
-	base, err := NewBase(&options.BaseOption)
+	base, err := newStreamBase(&options.BaseOption)
 	if err != nil {
 		return nil, err
 	}

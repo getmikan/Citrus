@@ -3,6 +3,7 @@ package common
 import (
 	"strings"
 
+	"github.com/metacubex/mihomo/common/regexp2x"
 	"github.com/metacubex/mihomo/component/wildcard"
 	C "github.com/metacubex/mihomo/constant"
 
@@ -43,7 +44,7 @@ func (ps *Process) Match(metadata *C.Metadata, helper C.RuleMatchHelper) (bool, 
 
 	switch ps.ruleType {
 	case C.ProcessNameRegex, C.ProcessPathRegex:
-		match, _ := ps.regexp.MatchString(target)
+		match := regexp2x.MatchString(ps.regexp, target)
 		return match, ps.adapter
 	case C.ProcessNameWildcard, C.ProcessPathWildcard:
 		return wildcard.Match(strings.ToLower(ps.pattern), strings.ToLower(target)), ps.adapter
@@ -61,7 +62,7 @@ func NewProcess(pattern string, adapter string, ruleType C.RuleType) (*Process, 
 	}
 	switch ps.ruleType {
 	case C.ProcessNameRegex, C.ProcessPathRegex:
-		r, err := regexp2.Compile(pattern, regexp2.IgnoreCase)
+		r, err := regexp2x.Compile(pattern, regexp2.IgnoreCase)
 		if err != nil {
 			return nil, err
 		}

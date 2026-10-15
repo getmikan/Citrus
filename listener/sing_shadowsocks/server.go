@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/sockopt"
 	C "github.com/metacubex/mihomo/constant"
+	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/jls"
 	"github.com/metacubex/mihomo/listener/restls"
 	embedSS "github.com/metacubex/mihomo/listener/shadowsocks"
@@ -32,12 +36,29 @@ import (
 )
 
 type Listener struct {
-	closed       bool
+	closed       atomic.Bool
 	config       LC.ShadowsocksServer
 	listeners    []net.Listener
 	udpListeners []net.PacketConn
-	service      shadowsocks.Service
+	service      atomic.Pointer[serviceBox] // swapped by ReplaceUsers
 	simpleObfs   func(net.Conn) net.Conn
+
+	// multi-user mode (Shadowsocks 2022 with EIH)
+	users      *inbounduser.Set[string]
+	usersMu    sync.Mutex
+	handler    *sing.ListenerHandler
+	udpTimeout int64
+}
+
+type serviceBox struct {
+	shadowsocks.Service
+}
+
+func (l *Listener) currentService() shadowsocks.Service {
+	if box := l.service.Load(); box != nil {
+		return box.Service
+	}
+	return nil
 }
 
 var _listener *Listener
@@ -70,13 +91,34 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 	sl = &Listener{}
 	sl.config = config
 
+	if err = ValidateUsers(config.Cipher, config.Password, config.Users); err != nil {
+		return nil, err
+	}
+
 	switch {
+	case len(config.Users) > 0:
+		// Shadowsocks 2022 with EIH: the multi service puts the user name in
+		// the context (auth.ContextWithUser) for TCP and UDP, which the sing
+		// listener handler turns into metadata.InUser.
+		sl.handler, sl.udpTimeout = h, udpTimeout
+		users := make([]C.InboundUser, len(config.Users))
+		for i, user := range config.Users {
+			users[i] = C.InboundUser{Name: user.Name, Secret: user.Password}
+		}
+		sl.users, err = inbounduser.New(userKey, users)
+		if err == nil {
+			err = sl.swapMultiService()
+		}
 	case config.Cipher == shadowsocks.MethodNone:
-		sl.service = shadowsocks.NewNoneService(udpTimeout, h)
+		sl.service.Store(&serviceBox{shadowsocks.NewNoneService(udpTimeout, handshakeDone{h})})
 	case common.Contains(shadowaead.List, config.Cipher):
-		sl.service, err = shadowaead.NewService(config.Cipher, nil, config.Password, udpTimeout, h)
+		var service shadowsocks.Service
+		service, err = shadowaead.NewService(config.Cipher, nil, config.Password, udpTimeout, handshakeDone{h})
+		sl.service.Store(&serviceBox{service})
 	case common.Contains(shadowaead_2022.List, config.Cipher):
-		sl.service, err = shadowaead_2022.NewServiceWithPassword(config.Cipher, config.Password, udpTimeout, h, ntp.Now)
+		var service shadowsocks.Service
+		service, err = shadowaead_2022.NewServiceWithPassword(config.Cipher, config.Password, udpTimeout, handshakeDone{h}, ntp.Now)
+		sl.service.Store(&serviceBox{service})
 	default:
 		err = fmt.Errorf("shadowsocks: unsupported method: %s", config.Cipher)
 		return embedSS.New(config, lc, tunnel, additions...)
@@ -163,7 +205,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 
 			go func() {
 				conn := bufio.NewPacketConn(ul)
-				rwOptions := network.NewReadWaitOptions(conn, sl.service)
+				rwOptions := network.NewReadWaitOptions(conn, sl.currentService())
 				readWaiter, isReadWaiter := bufio.CreatePacketReadWaiter(conn)
 				if isReadWaiter {
 					readWaiter.InitializeReadWaiter(rwOptions)
@@ -186,14 +228,14 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 					}
 					if err != nil {
 						buff.Release()
-						if sl.closed {
+						if sl.closed.Load() {
 							break
 						}
 						continue
 					}
 					ctx := context.TODO()
 					ctx = sing.WithInAddr(ctx, ul.LocalAddr())
-					_ = sl.service.NewPacket(ctx, conn, buff, M.Metadata{
+					_ = sl.currentService().NewPacket(ctx, conn, buff, M.Metadata{
 						Protocol: "shadowsocks",
 						Source:   dest,
 					})
@@ -219,7 +261,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 			for {
 				c, err := l.Accept()
 				if err != nil {
-					if sl.closed {
+					if sl.closed.Load() {
 						break
 					}
 					continue
@@ -234,7 +276,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, lis := range l.listeners {
 		err := lis.Close()
@@ -270,14 +312,19 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 	if jlsUser, jlsLoaded := jls.UserFromConn(conn); jlsLoaded {
 		user, loaded = jlsUser, true
 	}
+	// The service reads the salt, authenticates and reads the target before
+	// it hands the conn to the handler; until then the client is cut at the
+	// handshake deadline. handshakeDone lifts it.
+	authStore.SetHandshakeDeadline(conn)
 	if l.simpleObfs != nil {
 		conn = l.simpleObfs(conn)
 	}
 	ctx := sing.WithAdditions(context.TODO(), additions...)
+	ctx = withRawConn(ctx, conn)
 	if loaded {
 		ctx = auth.ContextWithUser(ctx, user)
 	}
-	err := l.service.NewConnection(ctx, conn, M.Metadata{
+	err := l.currentService().NewConnection(ctx, conn, M.Metadata{
 		Protocol: "shadowsocks",
 		Source:   M.SocksaddrFromNet(conn.RemoteAddr()),
 	})
@@ -288,7 +335,7 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 }
 
 func HandleShadowSocks(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) bool {
-	if _listener != nil && _listener.service != nil {
+	if _listener != nil && _listener.currentService() != nil {
 		go _listener.HandleConn(conn, tunnel, additions...)
 		return true
 	}

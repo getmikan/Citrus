@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
@@ -25,7 +26,7 @@ import (
 type Listener struct {
 	listener net.Listener
 	addr     string
-	closed   bool
+	closed   atomic.Bool
 }
 
 // RawAddress implements C.Listener
@@ -40,7 +41,7 @@ func (l *Listener) Address() string {
 
 // Close implements C.Listener
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	return l.listener.Close()
 }
 
@@ -67,7 +68,7 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		return nil, err
 	}
 
-	tlsConfig := &tls.Config{Time: ntp.Now}
+	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
 	var realityBuilder *reality.Builder
 
 	if config.Certificate != "" && config.PrivateKey != "" {
@@ -126,7 +127,7 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		for {
 			c, err := l.Accept()
 			if err != nil {
-				if sl.closed {
+				if sl.closed.Load() {
 					break
 				}
 				continue
@@ -150,6 +151,7 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 
 func handleSocks(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, additions ...inbound.Addition) {
 	bufConn := N.NewBufferedConn(conn)
+	authStore.SetHandshakeDeadline(conn)
 	head, err := bufConn.Peek(1)
 	if err != nil {
 		conn.Close()
@@ -168,23 +170,44 @@ func handleSocks(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, additions
 
 func HandleSocks4(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, additions ...inbound.Addition) {
 	authenticator := store.Authenticator()
+	authStore.SetHandshakeDeadline(conn)
 	addr, _, user, err := socks4.ServerHandshake(conn, authenticator)
 	if err != nil {
 		conn.Close()
 		return
 	}
+	authStore.ClearHandshakeDeadline(conn)
+	release, ok := authStore.BindSession(store, authenticator, user, conn)
+	if !ok {
+		conn.Close()
+		return
+	}
+	defer release()
 	additions = append(additions, inbound.WithInUser(user))
 	tunnel.HandleTCPConn(inbound.NewSocket(socks5.ParseAddr(addr), conn, C.SOCKS4, additions...))
 }
 
 func HandleSocks5(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, additions ...inbound.Addition) {
 	authenticator := store.Authenticator()
+	authStore.SetHandshakeDeadline(conn)
 	target, command, user, err := socks5.ServerHandshake(conn, authenticator)
 	if err != nil {
 		conn.Close()
 		return
 	}
+	authStore.ClearHandshakeDeadline(conn)
+	// the session dies with the user when its users can change at runtime
+	release, ok := authStore.BindSession(store, authenticator, user, conn)
+	if !ok {
+		conn.Close()
+		return
+	}
+	defer release()
 	if command == socks5.CmdUDPAssociate {
+		// The association lives as long as this control connection (RFC 1928 §7);
+		// the UDP listener only relays for clients that hold one when auth is on.
+		release := addAssociation(conn.LocalAddr(), conn.RemoteAddr(), user, target.UDPAddr())
+		defer release()
 		defer conn.Close()
 		io.Copy(io.Discard, conn)
 		return

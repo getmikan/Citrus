@@ -16,7 +16,7 @@ import (
 	"github.com/metacubex/mihomo/common/once"
 	"github.com/metacubex/mihomo/component/dialer"
 	C "github.com/metacubex/mihomo/constant"
-	"github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 
 	"github.com/metacubex/http"
 	"github.com/metacubex/http/httptrace"
@@ -25,13 +25,32 @@ import (
 
 type DialOptionsFunc func() []dialer.Option
 
+// Default session timers, used when ClientOptions leaves them zero.
+//
+// A session that receives nothing for DefaultSessionPingInterval is pinged and
+// closed if the ping is not answered within DefaultSessionPingTimeout, so a
+// dead session is closed about 30 seconds after its last incoming frame. Open
+// streams on it fail; redialing them is up to the caller. The timeout leaves
+// room for a PING ACK queued behind DATA on a busy uplink.
+//
+// DefaultSessionHandshakeTimeout bounds the TCP dial and the TLS handshake
+// together: with one connection per client every stream of a cold client
+// waits for that dial.
+//
+// The timers apply to HTTP/2 sessions only; the HTTP/3 client is unchanged.
+const (
+	DefaultSessionPingInterval     = 15 * time.Second
+	DefaultSessionPingTimeout      = 15 * time.Second
+	DefaultSessionHandshakeTimeout = C.DefaultTLSTimeout
+)
+
 type ClientOptions struct {
 	Dialer                C.Dialer
 	DialOptions           DialOptionsFunc // for quic
 	Server                string
 	Username              string
 	Password              string
-	TLSConfig             *vmess.TLSConfig
+	TLSConfig             *v2ray.TLSConfig
 	QUIC                  bool
 	QUICCongestionControl string
 	QUICCwnd              int
@@ -40,6 +59,35 @@ type ClientOptions struct {
 	MaxConnections        int
 	MinStreams            int
 	MaxStreams            int
+	// HTTP/2 session timers. Zero means the default. A negative PingInterval
+	// disables pings; negative timeouts are rejected.
+	PingInterval     time.Duration
+	PingTimeout      time.Duration
+	HandshakeTimeout time.Duration
+}
+
+// sessionTimers resolves the HTTP/2 session timers of options.
+func (options *ClientOptions) sessionTimers() (pingInterval, pingTimeout, handshakeTimeout time.Duration, err error) {
+	pingInterval, pingTimeout, handshakeTimeout = options.PingInterval, options.PingTimeout, options.HandshakeTimeout
+	if pingTimeout < 0 {
+		return 0, 0, 0, fmt.Errorf("trusttunnel: ping timeout must not be negative, got %v", pingTimeout)
+	}
+	if handshakeTimeout < 0 {
+		return 0, 0, 0, fmt.Errorf("trusttunnel: handshake timeout must not be negative, got %v", handshakeTimeout)
+	}
+	switch {
+	case pingInterval == 0:
+		pingInterval = DefaultSessionPingInterval
+	case pingInterval < 0:
+		pingInterval = 0 // HTTP2Config.SendPingTimeout 0 sends no pings
+	}
+	if pingTimeout == 0 {
+		pingTimeout = DefaultSessionPingTimeout
+	}
+	if handshakeTimeout == 0 {
+		handshakeTimeout = DefaultSessionHandshakeTimeout
+	}
+	return pingInterval, pingTimeout, handshakeTimeout, nil
 }
 
 type Client struct {
@@ -53,15 +101,26 @@ type Client struct {
 	healthCheck      bool
 	healthCheckTimer *time.Timer
 	count            atomic.Int64
+
+	pingInterval     time.Duration // 0: no pings
+	pingTimeout      time.Duration
+	handshakeTimeout time.Duration
 }
 
 func NewClient(ctx context.Context, options ClientOptions) (client *Client, err error) {
+	pingInterval, pingTimeout, handshakeTimeout, err := options.sessionTimers()
+	if err != nil {
+		return nil, err
+	}
 	client = &Client{
-		ctx:         ctx,
-		dialer:      options.Dialer,
-		dialOptions: options.DialOptions,
-		server:      options.Server,
-		auth:        buildAuth(options.Username, options.Password),
+		pingInterval:     pingInterval,
+		pingTimeout:      pingTimeout,
+		handshakeTimeout: handshakeTimeout,
+		ctx:              ctx,
+		dialer:           options.Dialer,
+		dialOptions:      options.DialOptions,
+		server:           options.Server,
+		auth:             buildAuth(options.Username, options.Password),
 	}
 	if options.QUIC {
 		if len(options.TLSConfig.NextProtos) == 0 {
@@ -87,7 +146,7 @@ func NewClient(ctx context.Context, options ClientOptions) (client *Client, err 
 	return client, nil
 }
 
-func (c *Client) h2RoundTripper(tlsConfig *vmess.TLSConfig) {
+func (c *Client) h2RoundTripper(tlsConfig *v2ray.TLSConfig) {
 	// use h2c mode to disallow the net/http fallback to http1.1
 	//
 	// Note that this usage is only applicable to our own net/http fork.
@@ -97,11 +156,13 @@ func (c *Client) h2RoundTripper(tlsConfig *vmess.TLSConfig) {
 	protocols.SetUnencryptedHTTP2(true)
 	c.roundTripper = &http.Transport{
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			ctx, cancel := context.WithTimeout(ctx, c.handshakeTimeout)
+			defer cancel()
 			conn, err := c.dialer.DialContext(ctx, network, c.server)
 			if err != nil {
 				return nil, err
 			}
-			tlsConn, err := vmess.StreamTLSConn(ctx, conn, tlsConfig)
+			tlsConn, err := v2ray.StreamTLSConn(ctx, conn, tlsConfig)
 			if err != nil {
 				_ = conn.Close()
 				return nil, err
@@ -110,6 +171,17 @@ func (c *Client) h2RoundTripper(tlsConfig *vmess.TLSConfig) {
 		},
 		Protocols:       protocols,
 		IdleConnTimeout: DefaultSessionTimeout,
+		// One Client is one connection: the pool adds Clients for more.
+		// Without the limit, streams opened before the first HTTP/2 session
+		// is ready each dial their own TLS connection.
+		MaxConnsPerHost: 1,
+		// Ping a session that has gone quiet and close it if the ping is
+		// not answered, so its streams fail and get redialed instead of
+		// hanging until TCP gives up.
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: c.pingInterval,
+			PingTimeout:     c.pingTimeout,
+		},
 	}
 }
 

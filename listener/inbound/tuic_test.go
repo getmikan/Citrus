@@ -15,19 +15,11 @@ var tuicCCs = []string{"cubic", "new_reno", "bbr"}
 func testInboundTuic(t *testing.T, inboundOptions inbound.TuicOption, outboundOptions outbound.TuicOption) {
 	t.Parallel()
 	inboundOptions.Users = map[string]string{userUUID: userUUID}
-	inboundOptions.Token = []string{userUUID}
 
 	for _, tuicCC := range tuicCCs {
 		tuicCC := tuicCC
 		t.Run(tuicCC, func(t *testing.T) {
 			t.Parallel()
-			t.Run("v4", func(t *testing.T) {
-				inboundOptions, outboundOptions := inboundOptions, outboundOptions // don't modify outside options value
-				outboundOptions.Token = userUUID
-				outboundOptions.CongestionController = tuicCC
-				inboundOptions.CongestionController = tuicCC
-				testInboundTuic0(t, inboundOptions, outboundOptions)
-			})
 			t.Run("v5", func(t *testing.T) {
 				inboundOptions, outboundOptions := inboundOptions, outboundOptions // don't modify outside options value
 				outboundOptions.UUID = userUUID
@@ -125,4 +117,35 @@ func TestInboundTuic_TLS(t *testing.T) {
 		}
 		testInboundTuic(t, inboundOptions, outboundOptions)
 	})
+}
+
+func TestInboundTuic_V4TokenRejected(t *testing.T) {
+	_, err := outbound.NewTuic(outbound.TuicOption{
+		Name:   "tuic_v4_outbound",
+		Server: "127.0.0.1",
+		Port:   443,
+		Token:  userUUID,
+	})
+	assert.ErrorContains(t, err, "TUIC v4 is no longer supported")
+
+	in, err := inbound.NewTuic(&inbound.TuicOption{
+		BaseOption: inbound.BaseOption{
+			NameStr: "tuic_v4_inbound",
+			Listen:  "127.0.0.1",
+			Port:    "0",
+		},
+		Token:       []string{userUUID},
+		Certificate: tlsCertificate,
+		PrivateKey:  tlsPrivateKey,
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+	tunnel := NewHttpTestTunnel()
+	defer tunnel.Close()
+	err = in.Listen(tunnel)
+	if err == nil {
+		_ = in.Close()
+	}
+	assert.ErrorContains(t, err, "TUIC v4 is no longer supported")
 }

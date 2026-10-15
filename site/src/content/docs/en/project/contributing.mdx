@@ -1,0 +1,46 @@
+---
+title: Contributing
+description: Branches, pull requests, tests and syncing with mihomo.
+---
+
+## Branches
+
+| Branch | What goes there |
+| --- | --- |
+| `dev` | All pull requests. Tested on every push, not packaged. |
+| `main` | Only merges from `dev`, done by maintainers. Builds as `Prerelease-main` and releases. |
+
+**Open every pull request against `dev`.** A PR against `main` will be asked to change its base. Both branches are protected: no direct pushes and no force pushes.
+
+## Pull requests
+
+1. Branch from `dev`: `feat/...`, `fix/...`, `chore/...`, `ci/...`, `docs/...`.
+2. One change per PR. Say what was wrong, what changed and how you tested it.
+3. Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `feat(xhttp): ...`, `fix(reality): ...`.
+4. Add or update tests for the behaviour you change, and run them locally:
+
+   ```bash
+   SKIP_INTEROP_TEST=1 go test ./...
+   go vet ./...
+   gofmt -l <the files you changed>
+   ```
+
+5. CI must be green.
+
+## Upstream
+
+Citrus follows mihomo's `Alpha` branch. Upstream syncs come in as their own PRs to `dev`, so keep unrelated reformatting of upstream files out of your change: it turns every later sync into a conflict.
+
+The Go module path stays `github.com/metacubex/mihomo`: Mikan imports Citrus through a `replace` directive and depends on that path.
+
+## Protocols
+
+Citrus has dropped legacy protocols such as VMess. New protocol or transport work should target VLESS, Trojan, Hysteria2, TUIC v5, AnyTLS, TrustTunnel and the other protocols Mikan ships. Ask in an [issue](https://github.com/getmikan/Citrus/issues) before starting larger work.
+
+## Security issues
+
+Do not open public issues for vulnerabilities. Report them privately through [GitHub Security Advisories](https://github.com/getmikan/Citrus/security/advisories/new).
+
+## License
+
+By contributing you agree that your work is released under the [GPL-3.0](https://github.com/getmikan/Citrus/blob/main/LICENSE) license of this repository.

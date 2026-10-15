@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/url"
 	"strings"
@@ -21,7 +22,7 @@ import (
 	"github.com/metacubex/mihomo/common/pool"
 	tlsC "github.com/metacubex/mihomo/component/tls"
 	C "github.com/metacubex/mihomo/constant"
-	"github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 
 	"github.com/metacubex/http"
 )
@@ -102,33 +103,39 @@ func (g *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (g *Conn) read(b []byte) (n int, err error) {
-	if g.remain > 0 {
-		size := g.remain
-		if len(b) < size {
-			size = len(b)
+	// A loop, not a recursive call per frame header: a peer sending empty
+	// frames must not grow the stack (before authentication, as the inner
+	// VLESS/Trojan handshake has not been read yet), it only costs reads.
+	for g.remain <= 0 {
+		// 0x00 grpclength(uint32) 0x0A uleb128 payload
+		var header [6]byte
+		_, err = io.ReadFull(g.reader, header[:])
+		if err != nil {
+			if err == io.ErrUnexpectedEOF {
+				err = io.EOF
+			}
+			return 0, err
 		}
 
-		n, err = g.reader.Read(b[:size])
-		g.remain -= n
-		return
-	}
-
-	// 0x00 grpclength(uint32) 0x0A uleb128 payload
-	var discard [6]byte
-	_, err = io.ReadFull(g.reader, discard[:])
-	if err != nil {
-		if err == io.ErrUnexpectedEOF {
-			err = io.EOF
+		protobufPayloadLen, err := ReadUVariant(g.reader)
+		if err != nil {
+			return 0, ErrInvalidLength
 		}
-		return 0, err
+		// the payload is a part of the gRPC message, whose length is a uint32
+		if grpcLen := binary.BigEndian.Uint32(header[1:5]); protobufPayloadLen > uint64(grpcLen) || protobufPayloadLen > math.MaxInt32 {
+			return 0, ErrInvalidLength
+		}
+		g.remain = int(protobufPayloadLen)
 	}
 
-	protobufPayloadLen, err := ReadUVariant(g.reader)
-	if err != nil {
-		return 0, ErrInvalidLength
+	size := g.remain
+	if len(b) < size {
+		size = len(b)
 	}
-	g.remain = int(protobufPayloadLen)
-	return g.read(b)
+
+	n, err = g.reader.Read(b[:size])
+	g.remain -= n
+	return
 }
 
 func (g *Conn) Write(b []byte) (n int, err error) {
@@ -260,7 +267,7 @@ func (t *Transport) Close() error {
 	return nil
 }
 
-func NewTransport(dialFn DialFn, tlsConfig *vmess.TLSConfig, gunCfg *Config) *Transport {
+func NewTransport(dialFn DialFn, tlsConfig *v2ray.TLSConfig, gunCfg *Config) *Transport {
 	dialFunc := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		ctx, cancel := context.WithTimeout(ctx, C.DefaultTLSTimeout)
 		defer cancel()
@@ -273,13 +280,13 @@ func NewTransport(dialFn DialFn, tlsConfig *vmess.TLSConfig, gunCfg *Config) *Tr
 			return pconn, nil
 		}
 
-		conn, err := vmess.StreamTLSConn(ctx, pconn, tlsConfig)
+		conn, err := v2ray.StreamTLSConn(ctx, pconn, tlsConfig)
 		if err != nil {
 			_ = pconn.Close()
 			return nil, err
 		}
 
-		if tlsConfig.ShadowTLS == nil && tlsConfig.Restls == nil && tlsConfig.Reality == nil && tlsConfig.TLSMirror == nil { // shadowtls, restls, reality and tlsmirror don't return the negotiated ALPN
+		if tlsConfig.ShadowTLS == nil && tlsConfig.Restls == nil && tlsConfig.Reality == nil { // shadowtls, restls and reality don't return the negotiated ALPN
 			state := tlsC.GetTLSConnectionState(conn)
 			if p := state.NegotiatedProtocol; p != Http2NextProtoTLS {
 				_ = conn.Close()
@@ -458,7 +465,7 @@ func (c *Client) newTransportLocked() *Transport {
 	return transport
 }
 
-func StreamGunWithConn(conn net.Conn, tlsConfig *vmess.TLSConfig, gunCfg *Config) (net.Conn, error) {
+func StreamGunWithConn(conn net.Conn, tlsConfig *v2ray.TLSConfig, gunCfg *Config) (net.Conn, error) {
 	dialFn := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return conn, nil
 	}

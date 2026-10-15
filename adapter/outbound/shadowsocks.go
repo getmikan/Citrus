@@ -14,14 +14,19 @@ import (
 	"github.com/metacubex/mihomo/transport/jls"
 	"github.com/metacubex/mihomo/transport/kcptun"
 	"github.com/metacubex/mihomo/transport/restls"
+	ssCore "github.com/metacubex/mihomo/transport/shadowsocks/core"
 	"github.com/metacubex/mihomo/transport/shadowtls"
 	obfs "github.com/metacubex/mihomo/transport/simple-obfs"
-	v2rayObfs "github.com/metacubex/mihomo/transport/v2ray-plugin"
 
-	shadowsocks "github.com/metacubex/sing-shadowsocks2"
+	// The cipher registry is used directly (not the sing-shadowsocks2 root package) so that
+	// the legacy shadowstream ciphers are never registered or linked in.
+	shadowsocks "github.com/metacubex/sing-shadowsocks2/cipher"
+	"github.com/metacubex/sing-shadowsocks2/shadowaead"
+	"github.com/metacubex/sing-shadowsocks2/shadowaead_2022"
 	"github.com/metacubex/sing/common/bufio"
 	M "github.com/metacubex/sing/common/metadata"
 	"github.com/metacubex/sing/common/uot"
+	"golang.org/x/exp/slices"
 )
 
 type ShadowSocks struct {
@@ -32,7 +37,6 @@ type ShadowSocks struct {
 	// obfs
 	obfsMode        string
 	obfsOption      *simpleObfsOption
-	v2rayOption     *v2rayObfs.Option
 	gostOption      *gost.Option
 	shadowTLSOption *shadowtls.ShadowTLSOption
 	restlsConfig    *restls.Config
@@ -58,23 +62,6 @@ type ShadowSocksOption struct {
 type simpleObfsOption struct {
 	Mode string `obfs:"mode,omitempty"`
 	Host string `obfs:"host,omitempty"`
-}
-
-type v2rayObfsOption struct {
-	Mode                     string            `obfs:"mode"`
-	Host                     string            `obfs:"host,omitempty"`
-	Path                     string            `obfs:"path,omitempty"`
-	TLS                      bool              `obfs:"tls,omitempty"`
-	ECHOpts                  ECHOptions        `obfs:"ech-opts,omitempty"`
-	Fingerprint              string            `obfs:"fingerprint,omitempty"`
-	Certificate              string            `obfs:"certificate,omitempty"`
-	PrivateKey               string            `obfs:"private-key,omitempty"`
-	Headers                  map[string]string `obfs:"headers,omitempty"`
-	SkipCertVerify           bool              `obfs:"skip-cert-verify,omitempty"`
-	NameCertVerify           string            `obfs:"name-cert-verify,omitempty"`
-	Mux                      bool              `obfs:"mux,omitempty"`
-	V2rayHttpUpgrade         bool              `obfs:"v2ray-http-upgrade,omitempty"`
-	V2rayHttpUpgradeFastOpen bool              `obfs:"v2ray-http-upgrade-fast-open,omitempty"`
 }
 
 type gostObfsOption struct {
@@ -160,9 +147,7 @@ func (ss *ShadowSocks) StreamConnContext(ctx context.Context, c net.Conn, metada
 		_, port, _ := net.SplitHostPort(ss.addr)
 		c = obfs.NewHTTPObfs(c, ss.obfsOption.Host, port)
 	case "websocket":
-		if ss.v2rayOption != nil {
-			c, err = v2rayObfs.NewV2rayObfs(ctx, c, ss.v2rayOption)
-		} else if ss.gostOption != nil {
+		if ss.gostOption != nil {
 			c, err = gost.NewGostWebsocket(ctx, c, ss.gostOption)
 		} else {
 			return nil, fmt.Errorf("plugin options is required")
@@ -300,6 +285,9 @@ func (ss *ShadowSocks) Close() error {
 
 func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
+	if err := checkShadowsocksCipher(option.Cipher); err != nil {
+		return nil, fmt.Errorf("ss %s cipher: %s initialize error: %w", addr, option.Cipher, err)
+	}
 	method, err := shadowsocks.CreateMethod(option.Cipher, shadowsocks.MethodOptions{
 		Password: option.Password,
 		TimeFunc: ntp.Now,
@@ -308,7 +296,6 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		return nil, fmt.Errorf("ss %s cipher: %s initialize error: %w", addr, option.Cipher, err)
 	}
 
-	var v2rayOption *v2rayObfs.Option
 	var gostOption *gost.Option
 	var obfsOption *simpleObfsOption
 	var shadowTLSOpt *shadowtls.ShadowTLSOption
@@ -330,38 +317,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		obfsMode = opts.Mode
 		obfsOption = &opts
 	} else if option.Plugin == "v2ray-plugin" {
-		opts := v2rayObfsOption{Host: "bing.com", Mux: true}
-		if err := decoder.Decode(option.PluginOpts, &opts); err != nil {
-			return nil, fmt.Errorf("ss %s initialize v2ray-plugin error: %w", addr, err)
-		}
-
-		if opts.Mode != "websocket" {
-			return nil, fmt.Errorf("ss %s obfs mode error: %s", addr, opts.Mode)
-		}
-		obfsMode = opts.Mode
-		v2rayOption = &v2rayObfs.Option{
-			Host:                     opts.Host,
-			Path:                     opts.Path,
-			Headers:                  opts.Headers,
-			Mux:                      opts.Mux,
-			V2rayHttpUpgrade:         opts.V2rayHttpUpgrade,
-			V2rayHttpUpgradeFastOpen: opts.V2rayHttpUpgradeFastOpen,
-		}
-
-		if opts.TLS {
-			v2rayOption.TLS = true
-			v2rayOption.SkipCertVerify = opts.SkipCertVerify
-			v2rayOption.NameCertVerify = opts.NameCertVerify
-			v2rayOption.Fingerprint = opts.Fingerprint
-			v2rayOption.Certificate = opts.Certificate
-			v2rayOption.PrivateKey = opts.PrivateKey
-
-			echConfig, err := opts.ECHOpts.Parse()
-			if err != nil {
-				return nil, fmt.Errorf("ss %s initialize v2ray-plugin error: %w", addr, err)
-			}
-			v2rayOption.ECHConfig = echConfig
-		}
+		return nil, fmt.Errorf("ss %s: %w: v2ray-plugin is no longer supported", addr, C.ErrRemovedProtocol)
 	} else if option.Plugin == "gost-plugin" {
 		opts := gostObfsOption{Host: "bing.com", Mux: true}
 		if err := decoder.Decode(option.PluginOpts, &opts); err != nil {
@@ -512,7 +468,6 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 
 		option:          &option,
 		obfsMode:        obfsMode,
-		v2rayOption:     v2rayOption,
 		gostOption:      gostOption,
 		obfsOption:      obfsOption,
 		shadowTLSOption: shadowTLSOpt,
@@ -522,4 +477,19 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 	}
 	outbound.dialer = option.NewDialer(outbound.DialOptions())
 	return outbound, nil
+}
+
+// checkShadowsocksCipher allows only "none", AEAD and AEAD-2022 ciphers;
+// legacy stream ciphers get a dedicated error.
+func checkShadowsocksCipher(cipher string) error {
+	switch {
+	case cipher == shadowsocks.MethodNone,
+		slices.Contains(shadowaead.MethodList, cipher),
+		slices.Contains(shadowaead_2022.MethodList, cipher):
+		return nil
+	case ssCore.IsStreamCipher(cipher):
+		return ssCore.ErrStreamCipherRemoved
+	default:
+		return fmt.Errorf("unsupported cipher %q", cipher)
+	}
 }

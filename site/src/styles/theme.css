@@ -1,0 +1,520 @@
+/*
+ * Citrus site theme, the same as the Mikan site (Citrus is its network core): the warm
+ * paper background, ink greys and the mandarin accent in light mode, the panel's "Midnight"
+ * theme in dark mode. The "leaf" tokens are lime, after the Citrus logo. Accent text uses
+ * the darker mandarin steps so it keeps AA contrast on the paper background.
+ */
+
+:root {
+	--sl-font: 'Onest Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--sl-font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+	--ct-font-display: 'Unbounded Variable', 'Onest Variable', system-ui, sans-serif;
+
+	--sl-text-h1: 2rem;
+	--sl-text-h2: 1.5rem;
+	--sl-text-h3: 1.1875rem;
+	--sl-text-h4: 1.0625rem;
+	--sl-line-height: 1.7;
+	--sl-content-width: 46rem;
+	--sl-nav-height: 4rem;
+
+	--ct-radius: 12px;
+	--ct-radius-lg: 20px;
+	--ct-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+	/* dark (Starlight's default scheme): the panel's Midnight theme */
+	--ct-bg: #10131a;
+	--ct-surface: #171b24;
+	--ct-surface-2: #1d222d;
+	--ct-hairline: rgba(255, 255, 255, 0.09);
+	--ct-hairline-strong: rgba(255, 255, 255, 0.16);
+	--ct-ink: #f4f7fb;
+	--ct-text: #c9d0da;
+	--ct-muted: #96a1b1;
+	--ct-accent: #ff843d;
+	--ct-accent-text: #ffa56b;
+	--ct-accent-soft: #3a2418;
+	--ct-fill: #ff843d;
+	--ct-on-fill: #161a24;
+	--ct-leaf: #b6e05a;
+	--ct-leaf-soft: #263214;
+	--ct-lagoon: #79d6e4;
+	--ct-lagoon-soft: #17343b;
+	--ct-honey: #ffd36b;
+	--ct-honey-soft: #3a3018;
+	--ct-berry: #ff8a84;
+	--ct-berry-soft: #3d2021;
+	--ct-shadow-lg: 0 32px 64px -24px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.3);
+	--ct-seg-on: #2f3644;
+	--ct-on-seg-on: #f4f7fb;
+	--ct-orange: #ff843d;
+	--ct-orange-hover: #ff9a5c;
+	--ct-on-orange: #161a24;
+	--ct-code-bg: #181c26;
+	--ct-code-line: rgba(255, 255, 255, 0.08);
+
+	--sl-color-accent-low: var(--ct-accent-soft);
+	--sl-color-accent: var(--ct-accent);
+	--sl-color-accent-high: var(--ct-accent-text);
+	--sl-color-white: var(--ct-ink);
+	--sl-color-gray-1: #e3e8ef;
+	--sl-color-gray-2: var(--ct-text);
+	--sl-color-gray-3: var(--ct-muted);
+	--sl-color-gray-4: #5d6878;
+	--sl-color-gray-5: #2c3340;
+	--sl-color-gray-6: var(--ct-surface);
+	--sl-color-black: var(--ct-bg);
+	--sl-color-text: var(--ct-text);
+	--sl-color-text-accent: var(--ct-accent-text);
+	--sl-color-text-invert: var(--ct-on-fill);
+	--sl-color-bg: var(--ct-bg);
+	--sl-color-bg-nav: var(--ct-bg);
+	--sl-color-bg-sidebar: var(--ct-bg);
+	--sl-color-bg-inline-code: var(--ct-surface-2);
+	--sl-color-bg-accent: var(--ct-fill);
+	--sl-color-hairline-light: var(--ct-hairline-strong);
+	--sl-color-hairline: var(--ct-hairline);
+	--sl-color-hairline-shade: rgba(0, 0, 0, 0.4);
+	--sl-color-backdrop-overlay: rgba(10, 12, 16, 0.7);
+}
+
+:root[data-theme='light'] {
+	--ct-bg: #fcf6f0;
+	--ct-surface: #ffffff;
+	--ct-surface-2: #f6ebe0;
+	--ct-hairline: rgba(22, 26, 36, 0.09);
+	--ct-hairline-strong: rgba(22, 26, 36, 0.16);
+	--ct-ink: #161a24;
+	--ct-text: #394050;
+	--ct-muted: #5c6474;
+	--ct-accent: #f07a2e;
+	--ct-accent-text: #a8460a;
+	--ct-accent-soft: #ffe9d9;
+	--ct-fill: #161a24;
+	--ct-on-fill: #ffffff;
+	--ct-leaf: #4a7413;
+	--ct-leaf-soft: #eef6dc;
+	--ct-lagoon: #1d6876;
+	--ct-lagoon-soft: #e0f1f4;
+	--ct-honey: #7d5205;
+	--ct-honey-soft: #fcf1da;
+	--ct-berry: #a8322a;
+	--ct-berry-soft: #fce7e4;
+	--ct-shadow-lg: 0 2px 8px rgba(22, 26, 36, 0.06), 0 32px 64px -24px rgba(22, 26, 36, 0.28);
+	--ct-seg-on: #161a24;
+	--ct-on-seg-on: #ffffff;
+	--ct-orange: #f07a2e;
+	--ct-orange-hover: #e26a1c;
+	--ct-on-orange: #1b1006;
+	--ct-code-bg: #161a24;
+	--ct-code-line: transparent;
+
+	--sl-color-gray-1: #252b38;
+	--sl-color-gray-4: #a6adb8;
+	--sl-color-gray-5: #e3d8cc;
+	--sl-color-gray-6: #f6ece2;
+	--sl-color-gray-7: #faf3ec;
+	--sl-color-hairline-shade: rgba(22, 26, 36, 0.12);
+	--sl-color-backdrop-overlay: rgba(22, 26, 36, 0.4);
+}
+
+/* ---------- base ---------- */
+
+body {
+	background: var(--ct-bg);
+	font-feature-settings: 'kern', 'liga';
+	text-rendering: optimizeLegibility;
+}
+
+::selection {
+	background: color-mix(in srgb, var(--ct-accent) 30%, transparent);
+}
+
+:focus-visible {
+	outline: 2px solid var(--ct-accent);
+	outline-offset: 2px;
+}
+
+/* ---------- header ---------- */
+
+/* The frame's <header>, not the row inside it (also .header), which stops short of the menu button. */
+header.header {
+	border-bottom: 1px solid var(--ct-hairline);
+}
+
+.site-title {
+	font-family: var(--ct-font-display);
+	font-weight: 600;
+	font-size: 1.25rem;
+	letter-spacing: -0.02em;
+	color: var(--ct-ink);
+	gap: 0.625rem;
+}
+
+.site-title img {
+	height: 2rem;
+	width: auto;
+}
+
+/* ---------- sidebar ---------- */
+
+.sidebar-pane {
+	border-inline-end: 1px solid var(--ct-hairline);
+}
+
+.sidebar-content .top-level > li > details > summary .group-label > span,
+.sidebar-content .group-label .large {
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--ct-muted);
+}
+
+.sidebar-content a {
+	border-radius: 8px;
+	padding-block: 0.3125rem;
+	color: var(--ct-text);
+	font-size: 0.9375rem;
+}
+
+.sidebar-content a:hover {
+	color: var(--ct-ink);
+	background: color-mix(in srgb, var(--ct-ink) 5%, transparent);
+}
+
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover {
+	background: var(--ct-accent-soft);
+	color: var(--ct-accent-text);
+	font-weight: 600;
+}
+
+/* ---------- headings ---------- */
+
+h1#_top,
+.sl-markdown-content h2 {
+	font-family: var(--ct-font-display);
+	letter-spacing: -0.02em;
+	font-weight: 600;
+}
+
+h1#_top {
+	font-size: clamp(1.75rem, 1.4rem + 1.6vw, 2.25rem);
+	line-height: 1.15;
+	color: var(--ct-ink);
+}
+
+.sl-markdown-content h2 {
+	font-size: var(--sl-text-h2);
+	margin-top: 2.75rem;
+	padding-top: 0.25rem;
+}
+
+.sl-markdown-content h3 {
+	font-weight: 650;
+	letter-spacing: -0.01em;
+}
+
+.sl-markdown-content :is(h2, h3, h4) {
+	color: var(--ct-ink);
+	text-wrap: balance;
+}
+
+.sl-markdown-content p,
+.sl-markdown-content li {
+	text-wrap: pretty;
+}
+
+/* ---------- links ---------- */
+
+.sl-markdown-content a:not(:where(.not-content *)) {
+	color: var(--ct-accent-text);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.2em;
+	text-decoration-color: color-mix(in srgb, var(--ct-accent-text) 45%, transparent);
+}
+
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+	text-decoration-color: currentColor;
+}
+
+/* ---------- inline code, kbd ---------- */
+
+.sl-markdown-content :not(pre) > code {
+	border-radius: 6px;
+	padding: 0.1em 0.375em;
+	font-size: 0.875em;
+	background: var(--ct-surface-2);
+	color: var(--ct-ink);
+	border: 1px solid var(--ct-hairline);
+	overflow-wrap: anywhere;
+}
+
+kbd {
+	font-family: var(--sl-font-mono);
+	font-size: 0.8125em;
+	padding: 0.1em 0.4em;
+	border: 1px solid var(--ct-hairline-strong);
+	border-bottom-width: 2px;
+	border-radius: 6px;
+	background: var(--ct-surface);
+}
+
+/* UI paths like «Настройки → Подписка» */
+.ui {
+	font-weight: 600;
+	color: var(--ct-ink);
+	white-space: nowrap;
+}
+
+/* ---------- tables ---------- */
+
+.sl-markdown-content table {
+	display: block;
+	overflow-x: auto;
+	border-collapse: collapse;
+	font-size: 0.9375rem;
+	border: 1px solid var(--ct-hairline);
+	border-radius: var(--ct-radius);
+}
+
+.sl-markdown-content :is(th, td) {
+	border: 0;
+	border-bottom: 1px solid var(--ct-hairline);
+	padding: 0.625rem 0.875rem;
+	vertical-align: top;
+}
+
+.sl-markdown-content tr:last-child td {
+	border-bottom: 0;
+}
+
+.sl-markdown-content th {
+	background: var(--ct-surface-2);
+	color: var(--ct-ink);
+	font-weight: 600;
+	text-align: start;
+}
+
+.sl-markdown-content td code {
+	white-space: nowrap;
+}
+
+/* ---------- asides: tinted panels with a hairline, no stripe ---------- */
+
+.starlight-aside {
+	border: 1px solid var(--ct-aside-line);
+	border-radius: var(--ct-radius);
+	background: var(--ct-aside-bg);
+	padding: 0.875rem 1rem;
+}
+
+.starlight-aside--note {
+	--ct-aside-bg: var(--ct-lagoon-soft);
+	--ct-aside-line: color-mix(in srgb, var(--ct-lagoon) 22%, transparent);
+	--sl-color-asides-text-accent: var(--ct-lagoon);
+}
+
+.starlight-aside--tip {
+	--ct-aside-bg: var(--ct-leaf-soft);
+	--ct-aside-line: color-mix(in srgb, var(--ct-leaf) 22%, transparent);
+	--sl-color-asides-text-accent: var(--ct-leaf);
+}
+
+.starlight-aside--caution {
+	--ct-aside-bg: var(--ct-honey-soft);
+	--ct-aside-line: color-mix(in srgb, var(--ct-honey) 25%, transparent);
+	--sl-color-asides-text-accent: var(--ct-honey);
+}
+
+.starlight-aside--danger {
+	--ct-aside-bg: var(--ct-berry-soft);
+	--ct-aside-line: color-mix(in srgb, var(--ct-berry) 25%, transparent);
+	--sl-color-asides-text-accent: var(--ct-berry);
+}
+
+.starlight-aside__title {
+	font-size: 0.9375rem;
+	font-weight: 650;
+}
+
+.starlight-aside__icon {
+	font-size: 1.125em;
+}
+
+.starlight-aside__content {
+	color: var(--ct-text);
+	font-size: 0.9375rem;
+}
+
+/* ---------- steps ---------- */
+
+.sl-steps {
+	--bullet-size: 1.75rem;
+}
+
+.sl-steps > li::before {
+	font-family: var(--sl-font-mono);
+	font-weight: 600;
+	background: var(--ct-surface-2) !important;
+	color: var(--ct-ink) !important;
+	box-shadow: inset 0 0 0 1px var(--ct-hairline-strong);
+}
+
+.sl-steps > li::after {
+	background: var(--ct-hairline-strong) !important;
+}
+
+/* ---------- cards & link cards ---------- */
+
+.sl-link-card {
+	border: 1px solid var(--ct-hairline);
+	border-radius: var(--ct-radius);
+	background: var(--ct-surface);
+	box-shadow: none;
+	transition: border-color 0.2s var(--ct-ease), transform 0.2s var(--ct-ease);
+}
+
+.sl-link-card:hover {
+	border-color: color-mix(in srgb, var(--ct-accent) 55%, transparent);
+	background: var(--ct-surface);
+}
+
+.sl-link-card .title {
+	font-weight: 650;
+	color: var(--ct-ink);
+}
+
+.sl-link-card .description {
+	color: var(--ct-muted);
+}
+
+/* ---------- tabs ---------- */
+
+starlight-tabs .tablist-wrapper {
+	border-bottom: 1px solid var(--ct-hairline);
+}
+
+starlight-tabs [role='tab'][aria-selected='true'] {
+	color: var(--ct-ink);
+	border-color: var(--ct-accent);
+}
+
+/* ---------- code ---------- */
+
+.expressive-code .frame {
+	box-shadow: none;
+}
+
+/* ---------- pagination & footer ---------- */
+
+.pagination-links a {
+	border: 1px solid var(--ct-hairline);
+	border-radius: var(--ct-radius);
+	box-shadow: none;
+	background: var(--ct-surface);
+}
+
+.pagination-links a:hover {
+	border-color: color-mix(in srgb, var(--ct-accent) 55%, transparent);
+}
+
+.pagination-links .link-title {
+	color: var(--ct-ink);
+	font-weight: 600;
+}
+
+/* ---------- phone menu button: the same 36px family as the header buttons ---------- */
+
+:root {
+	--sl-menu-button-size: 2.25rem;
+}
+
+button.sl-menu-button,
+[data-theme='light'] button.sl-menu-button {
+	border: 1px solid var(--ct-hairline-strong);
+	border-radius: 10px;
+	padding: 0.5rem;
+	background: var(--ct-surface);
+	color: var(--ct-ink);
+	box-shadow: none;
+}
+
+button.sl-menu-button:has(~ :popover-open),
+[data-theme='light'] button.sl-menu-button:has(~ :popover-open) {
+	background: var(--ct-seg-on);
+	color: var(--ct-on-seg-on);
+}
+
+button.sl-menu-button:focus-visible {
+	outline: 2px solid var(--ct-accent);
+	outline-offset: 2px;
+}
+
+/* ---------- header controls: segmented pills (theme, language) ---------- */
+
+.seg {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	box-sizing: border-box;
+	height: 2.25rem;
+	padding: 3px;
+	border: 1px solid var(--ct-hairline-strong);
+	border-radius: 10px;
+	background: var(--ct-surface);
+}
+
+.seg .seg-item {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	height: 100%;
+	min-width: 1.75rem;
+	padding: 0 0.375rem;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	color: var(--ct-muted);
+	font: 600 0.75rem/1 var(--sl-font-mono);
+	letter-spacing: 0.02em;
+	text-decoration: none;
+	cursor: pointer;
+	transition:
+		background-color 0.15s var(--ct-ease),
+		color 0.15s var(--ct-ease);
+}
+
+.seg .seg-item:hover {
+	color: var(--ct-ink);
+}
+
+.seg .seg-item:focus-visible {
+	outline: 2px solid var(--ct-accent);
+	outline-offset: 1px;
+}
+
+.seg .seg-item[aria-pressed='true'],
+.seg .seg-item[aria-current='page'] {
+	background: var(--ct-seg-on);
+	color: var(--ct-on-seg-on);
+}
+
+/* ---------- right TOC ---------- */
+
+starlight-toc a[aria-current='true'],
+starlight-toc a[aria-current='true']:hover {
+	color: var(--ct-accent-text);
+	font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation: none !important;
+		transition: none !important;
+	}
+}

@@ -3,10 +3,16 @@ package inbound_test
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/netip"
 	"os"
@@ -47,6 +53,35 @@ var realityPrivateKey, realityPublickey string
 var realityDest = "itunes.apple.com"
 var realityShortid = "10f897e26c4b9478"
 var realityRealDial = false
+
+// realityTLSConfig serves realityDest with a certificate chain as long as a real site's one
+// (a padding certificate follows the leaf): a REALITY server with mldsa65-seed has to fit
+// the ML-DSA-65 signature (3309 bytes) into the size of dest's Certificate message.
+var realityTLSConfig = func() *tls.Config {
+	cert := tlsConfigCert
+	cert.Certificate = append(append([][]byte{}, cert.Certificate...), newPaddingCertificate(4096))
+	return &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: tlsConfig.NextProtos}
+}()
+
+func newPaddingCertificate(size int) []byte {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:    big.NewInt(1),
+		Subject:         pkix.Name{CommonName: "padding"},
+		NotBefore:       time.Now().Add(-time.Hour),
+		NotAfter:        time.Now().Add(24 * time.Hour),
+		ExtraExtensions: []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 3, 9999, 1}, Value: make([]byte, size)}},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+	if err != nil {
+		panic(err)
+	}
+	return der
+}
+
 var echPublicSni = "public.sni"
 var echConfigBase64, echKeyPem, _ = ech.GenECHConfig(echPublicSni)
 var winGo120 = runtime.GOOS == "windows" && strings.HasPrefix(runtime.Version(), "go1.20")
@@ -332,6 +367,7 @@ func NewHttpTestTunnel() *TestTunnel {
 			if metadata.DstPort == 443 {
 				tlsConn := tls.Server(c, tlsConfig)
 				if metadata.Host == realityDest { // ignore the tls handshake error for realityDest
+					tlsConn = tls.Server(c, realityTLSConfig)
 					if realityRealDial {
 						rconn, err := dialer.DialContext(ctx, "tcp", metadata.RemoteAddress())
 						if err != nil {

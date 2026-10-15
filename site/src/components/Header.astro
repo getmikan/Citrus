@@ -1,0 +1,231 @@
+---
+// The site header: logo, search from the content column on, then one row of 36px controls:
+// theme, language, News, GitHub and Download. Phones keep those three as icon buttons; the
+// theme and language move to the menu (on the landing, which has no menu, a language link
+// stays in the header).
+import LanguageSelect from 'virtual:starlight/components/LanguageSelect';
+import Search from 'virtual:starlight/components/Search';
+import SiteTitle from 'virtual:starlight/components/SiteTitle';
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+import { Icon } from '@astrojs/starlight/components';
+import { links, page, strings } from '../landing';
+import { otherLocaleUrl } from '../locale';
+
+const { lang: routeLang, hasSidebar } = Astro.locals.starlightRoute;
+const lang = routeLang === 'en' ? 'en' : 'ru';
+const t = strings[lang].header;
+const other = lang === 'en' ? 'ru' : 'en';
+---
+
+<div class="header">
+	<div class="title-wrapper sl-flex">
+		<SiteTitle />
+	</div>
+	<div class="search sl-flex print:hidden">
+		<Search />
+	</div>
+	<div class="controls print:hidden">
+		<div class="prefs">
+			<ThemeSelect />
+			<LanguageSelect />
+		</div>
+		{
+			!hasSidebar && (
+				<a class="hbtn hbtn-ghost hbtn-lang" href={otherLocaleUrl(Astro.url.pathname, other)} hreflang={other} lang={other} aria-label={t.otherLanguage}>
+					{other.toUpperCase()}
+				</a>
+			)
+		}
+		<a class="hbtn hbtn-ghost hbtn-news" href={page(lang, 'news/')} aria-label={t.news}>
+			<Icon name="rss" size="1rem" />
+			<span class="hbtn-text">{t.news}</span>
+		</a>
+		<a class="hbtn hbtn-ghost hbtn-github" href={links.github} aria-label={t.githubLabel}>
+			<Icon name="github" size="1rem" />
+			<span class="hbtn-text">GitHub</span>
+		</a>
+		<a class="hbtn hbtn-accent hbtn-download" href={links.releases} aria-label={t.downloadLabel}>
+			<Icon name="download" size="1rem" />
+			<span class="hbtn-text">{t.download}</span>
+		</a>
+	</div>
+</div>
+
+<style>
+	.header {
+		display: flex;
+		gap: 0.5rem;
+		justify-content: space-between;
+		align-items: center;
+		height: 100%;
+	}
+
+	.title-wrapper {
+		overflow: clip;
+		padding: 0.25rem;
+		margin: -0.25rem;
+		min-width: 0;
+	}
+
+	.search {
+		margin-inline-start: auto;
+	}
+
+	.controls,
+	.prefs {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.prefs {
+		display: none;
+	}
+
+	/* One family of buttons: 36px, 10px radius, the same type. */
+	.hbtn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		box-sizing: border-box;
+		height: 2.25rem;
+		min-width: 2.25rem;
+		padding-inline: 0;
+		border: 1px solid transparent;
+		border-radius: 10px;
+		font-size: 0.875rem;
+		font-weight: 600;
+		line-height: 1;
+		text-decoration: none;
+		white-space: nowrap;
+		transition:
+			background-color 0.15s var(--ct-ease),
+			border-color 0.15s var(--ct-ease);
+	}
+
+	.hbtn :global(svg) {
+		flex: none;
+	}
+
+	.hbtn:focus-visible {
+		outline: 2px solid var(--ct-accent);
+		outline-offset: 2px;
+	}
+
+	.hbtn-text {
+		display: none;
+	}
+
+	.hbtn-ghost {
+		border-color: var(--ct-hairline-strong);
+		background: var(--ct-surface);
+		color: var(--ct-ink);
+	}
+
+	.hbtn-ghost:hover {
+		border-color: color-mix(in srgb, var(--ct-ink) 32%, transparent);
+	}
+
+	.hbtn-accent {
+		background: var(--ct-orange);
+		color: var(--ct-on-orange);
+	}
+
+	.hbtn-accent:hover {
+		background: var(--ct-orange-hover);
+	}
+
+	/* Phones: the search is an icon button of the same size. */
+	.search :global(button[data-open-modal]) {
+		box-sizing: border-box;
+		justify-content: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		border: 1px solid var(--ct-hairline-strong);
+		border-radius: 10px;
+		background: var(--ct-surface);
+		color: var(--ct-ink);
+		font-size: 1rem;
+	}
+
+	.hbtn-lang {
+		padding-inline: 0.5rem;
+		font-family: var(--sl-font-mono);
+		font-size: 0.8125rem;
+	}
+
+	@media (min-width: 50rem) {
+		/* Starlight's grid: the search starts where the content column starts. */
+		:global(:root[data-has-sidebar]) {
+			--__sidebar-pad: calc(2 * var(--sl-nav-pad-x));
+		}
+		:global(:root:not([data-has-toc])) {
+			--__toc-width: 0rem;
+		}
+		.header {
+			--__sidebar-width: max(0rem, var(--sl-content-inline-start, 0rem) - var(--sl-nav-pad-x));
+			--__main-column-fr: calc(
+				(
+						100% + var(--__sidebar-pad, 0rem) - var(--__toc-width, var(--sl-sidebar-width)) -
+							(2 * var(--__toc-width, var(--sl-nav-pad-x))) - var(--sl-content-inline-start, 0rem) -
+							var(--sl-content-width)
+					) / 2
+			);
+			display: grid;
+			grid-template-columns:
+				minmax(calc(var(--__sidebar-width) + max(0rem, var(--__main-column-fr) - var(--sl-nav-gap))), auto)
+				minmax(0, 1fr)
+				auto;
+			gap: var(--sl-nav-gap);
+			align-content: center;
+		}
+		.search {
+			margin-inline-start: 0;
+		}
+		/* The search starts at the content column and fills the room up to the controls. */
+		.search :global(button[data-open-modal]) {
+			justify-content: flex-start;
+			width: 100%;
+			max-width: none;
+			font-size: var(--sl-text-sm);
+			color: var(--ct-muted);
+			border-radius: 10px;
+			border-color: var(--ct-hairline-strong);
+			background: var(--ct-surface);
+		}
+		.prefs {
+			display: flex;
+		}
+		.hbtn-lang {
+			display: none;
+		}
+	}
+
+	/* Between tablet and a laptop the search needs the room: no shortcut hint. */
+	@media (min-width: 50rem) and (max-width: 63.99rem) {
+		.search :global(button[data-open-modal] kbd) {
+			display: none;
+		}
+	}
+
+	@media (min-width: 64rem) {
+		.hbtn-download {
+			padding-inline: 0.875rem;
+		}
+		.hbtn-download .hbtn-text {
+			display: inline;
+		}
+	}
+
+	@media (min-width: 72rem) {
+		.hbtn-github,
+		.hbtn-news {
+			padding-inline: 0.875rem;
+		}
+		.hbtn-github .hbtn-text,
+		.hbtn-news .hbtn-text {
+			display: inline;
+		}
+	}
+</style>

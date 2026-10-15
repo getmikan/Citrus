@@ -1759,7 +1759,10 @@ func (c *Client) tlsConfig() (*tls.Config, error) {
 			Intermediates: intermediates,
 			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		return c.config.checkServerIdentity(cs.PeerCertificates[0])
 	}
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,
@@ -1767,6 +1770,7 @@ func (c *Client) tlsConfig() (*tls.Config, error) {
 		// Allow the server to initiate TLS renegotiation (rekey). OpenVPN
 		// servers rekey the control channel at regular intervals (default 1h).
 		Renegotiation: tls.RenegotiateFreelyAsClient,
+		MinVersion:    c.config.tlsMinVersion,
 	}
 	certPEM := bytes.TrimSpace(c.config.Cert)
 	keyPEM := bytes.TrimSpace(c.config.Key)

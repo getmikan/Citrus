@@ -149,7 +149,7 @@ func (t *Tun) Equal(other Tun) bool {
 	if t.AutoRedirectIPRoute2FallbackRuleIndex != other.AutoRedirectIPRoute2FallbackRuleIndex {
 		return false
 	}
-	if !slices.Equal(t.RouteAddress, other.RouteAddress) {
+	if !slices.Equal(t.LoopbackAddress, other.LoopbackAddress) {
 		return false
 	}
 	if t.StrictRoute != other.StrictRoute {
@@ -183,6 +183,18 @@ func (t *Tun) Equal(other Tun) bool {
 		return false
 	}
 	if !slices.Equal(t.ExcludeUIDRange, other.ExcludeUIDRange) {
+		return false
+	}
+	if !slices.Equal(t.ExcludeSrcPort, other.ExcludeSrcPort) {
+		return false
+	}
+	if !slices.Equal(t.ExcludeSrcPortRange, other.ExcludeSrcPortRange) {
+		return false
+	}
+	if !slices.Equal(t.ExcludeDstPort, other.ExcludeDstPort) {
+		return false
+	}
+	if !slices.Equal(t.ExcludeDstPortRange, other.ExcludeDstPortRange) {
 		return false
 	}
 	if !slices.Equal(t.IncludeAndroidUser, other.IncludeAndroidUser) {

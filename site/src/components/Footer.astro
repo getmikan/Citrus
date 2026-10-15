@@ -1,0 +1,50 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro';
+import { links, strings } from '../landing';
+
+const lang = Astro.locals.starlightRoute.lang === 'en' ? 'en' : 'ru';
+const t = strings[lang].footer;
+---
+
+<Default />
+<div class="site-footer not-content">
+	<p>{t.license}</p>
+	<nav aria-label={t.label}>
+		<a href={links.github}>GitHub</a>
+		<a href={links.releases}>{t.releases}</a>
+		<a href={links.issues}>{t.issues}</a>
+		<a href={links.mikan}>{t.mikan}</a>
+	</nav>
+</div>
+
+<style>
+	.site-footer {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem 1.5rem;
+		align-items: center;
+		justify-content: space-between;
+		margin-top: 3rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--ct-hairline);
+		font-size: 0.875rem;
+		color: var(--ct-muted);
+	}
+	.site-footer p {
+		margin: 0;
+	}
+	nav {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 1.25rem;
+	}
+	a {
+		color: var(--ct-text);
+		text-decoration: none;
+	}
+	a:hover {
+		color: var(--ct-accent-text);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
+	}
+</style>

@@ -71,6 +71,7 @@ type MasqueOption struct {
 	CongestionController string `proxy:"congestion-controller,omitempty"`
 	CWND                 int    `proxy:"cwnd,omitempty"`
 	BBRProfile           string `proxy:"bbr-profile,omitempty"`
+	DisableMTUDiscovery  bool   `proxy:"disable-mtu-discovery,omitempty"`
 
 	IPStack IPStackOption `proxy:"ip-stack,omitempty"`
 
@@ -208,9 +209,10 @@ func NewMasque(option MasqueOption) (*Masque, error) {
 	}
 
 	outbound.quicConfig = &quic.Config{
-		EnableDatagrams:   true,
-		InitialPacketSize: 1242,
-		KeepAlivePeriod:   30 * time.Second,
+		EnableDatagrams:         true,
+		InitialPacketSize:       1242,
+		KeepAlivePeriod:         30 * time.Second,
+		DisablePathMTUDiscovery: option.DisableMTUDiscovery,
 	}
 
 	outbound.option = option

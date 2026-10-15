@@ -36,7 +36,7 @@ type AnyTLS struct {
 }
 
 func NewAnyTLS(options *AnyTLSOption) (*AnyTLS, error) {
-	base, err := NewBase(&options.BaseOption)
+	base, err := newStreamBase(&options.BaseOption)
 	if err != nil {
 		return nil, err
 	}
@@ -94,3 +94,25 @@ func (v *AnyTLS) Close() error {
 }
 
 var _ C.InboundListener = (*AnyTLS)(nil)
+
+// Users implements constant.InboundUserUpdater
+func (v *AnyTLS) Users() []C.InboundUser {
+	return listenerUsers(v.l, func() []C.InboundUser { return mapUsers(v.config.Users) })
+}
+
+// SetUsers implements constant.InboundUserUpdater
+func (v *AnyTLS) SetUsers(users []C.InboundUser) error {
+	return setListenerUsers(v.Name(), v.l, users)
+}
+
+// SameExceptUsers implements constant.InboundUserUpdater
+func (v *AnyTLS) SameExceptUsers(config C.InboundConfig) bool {
+	return equalExceptUsers(v.config, config)
+}
+
+var _ C.InboundUserUpdater = (*AnyTLS)(nil)
+
+// InboundUsers implements constant.InboundUserLister
+func (v *AnyTLS) InboundUsers() []string { return userNames(v.Users()) }
+
+var _ C.InboundUserLister = (*AnyTLS)(nil)

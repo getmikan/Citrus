@@ -1,0 +1,85 @@
+name: Load benchmark
+# Manual only: the numbers of a shared runner are noisy, so this is a smoke run
+# of the harness and a rough comparison, not a gate. See test/bench/README.md.
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Scenarios (comma-separated, or all)"
+        default: "all"
+      duration:
+        description: "Timed budget per scenario"
+        default: "8s"
+      idle:
+        description: "Idle connection steps"
+        default: "1000,5000"
+      pprof:
+        description: "Also save server profiles"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CGO_ENABLED: 0
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up Go
+        id: setup_go_0
+        continue-on-error: true
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
+          go-version: '1.26'
+
+      - name: Wait before retrying the Go download
+        if: ${{ steps.setup_go_0.outcome == 'failure' }}
+        run: sleep 30
+
+      - name: Set up Go (retry)
+        if: ${{ steps.setup_go_0.outcome == 'failure' }}
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
+          go-version: '1.26'
+
+      - name: Vet
+        working-directory: test/bench
+        run: go vet ./...
+
+      - name: Benchmark
+        working-directory: test/bench
+        env:
+          BENCH_HOST: gha-ubuntu
+          BENCH_COMMIT: ${{ github.sha }}
+          SCENARIO: ${{ inputs.scenario }}
+          DURATION: ${{ inputs.duration }}
+          IDLE: ${{ inputs.idle }}
+          PPROF: ${{ inputs.pprof }}
+        run: |
+          ulimit -n 1048576 || ulimit -n "$(ulimit -Hn)"
+          args=(-scenario "$SCENARIO" -duration "$DURATION" -idle "$IDLE" -server-procs 2 -out "$RUNNER_TEMP/bench")
+          if [ "$PPROF" = "true" ]; then
+            args+=(-pprof "$RUNNER_TEMP/bench/pprof")
+          fi
+          go run ./cmd/bench "${args[@]}"
+          cat "$RUNNER_TEMP"/bench/*.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-results
+          path: ${{ runner.temp }}/bench
+          if-no-files-found: ignore
+          retention-days: 30

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/metacubex/mihomo/common/callback"
@@ -20,6 +21,9 @@ type URLTestOption struct {
 
 type URLTest struct {
 	*GroupBase
+	// stateMux guards selected and fastNode: Set/ForceSet may run concurrently
+	// with fast(), and a Reset of fastSingle lets two fast() bodies overlap.
+	stateMux       sync.Mutex
 	selected       string
 	testUrl        string
 	expectedStatus string
@@ -49,8 +53,16 @@ func (u *URLTest) Set(name string) error {
 }
 
 func (u *URLTest) ForceSet(name string) {
+	u.stateMux.Lock()
 	u.selected = name
+	u.stateMux.Unlock()
 	u.fastSingle.Reset()
+}
+
+func (u *URLTest) getSelected() string {
+	u.stateMux.Lock()
+	defer u.stateMux.Unlock()
+	return u.selected
 }
 
 // DialContext implements C.ProxyAdapter
@@ -103,6 +115,10 @@ func (u *URLTest) healthCheck() {
 func (u *URLTest) fast(touch bool) C.Proxy {
 	elm, _, shared := u.fastSingle.Do(func() (C.Proxy, error) {
 		proxies := u.GetProxies(touch)
+
+		u.stateMux.Lock()
+		defer u.stateMux.Unlock()
+
 		if u.selected != "" {
 			for _, proxy := range proxies {
 				if !proxy.AliveForTestUrl(u.testUrl) {
@@ -119,8 +135,14 @@ func (u *URLTest) fast(touch bool) C.Proxy {
 		minDelay := fast.LastDelayForTestUrl(u.testUrl)
 		fastNotExist := true
 
-		for _, proxy := range proxies[1:] {
+		// Iterate over every proxy, including proxies[0]: the current node may
+		// sit at index 0 and must not be treated as missing.
+		for _, proxy := range proxies {
 			if u.fastNode != nil && proxy.Name() == u.fastNode.Name() {
+				// A provider update replaces proxy instances but keeps the
+				// names; rebind to the live instance so health checks on it
+				// are seen, rather than the stale detached one.
+				u.fastNode = proxy
 				fastNotExist = false
 			}
 
@@ -135,8 +157,10 @@ func (u *URLTest) fast(touch bool) C.Proxy {
 			}
 
 		}
-		// tolerance
-		if u.fastNode == nil || fastNotExist || !u.fastNode.AliveForTestUrl(u.testUrl) || u.fastNode.LastDelayForTestUrl(u.testUrl) > fast.LastDelayForTestUrl(u.testUrl)+u.tolerance {
+		// tolerance; widened to uint32 so that delay+tolerance cannot wrap
+		// around uint16 (e.g. an unmeasured 0xffff delay plus any tolerance).
+		if u.fastNode == nil || fastNotExist || !u.fastNode.AliveForTestUrl(u.testUrl) ||
+			uint32(u.fastNode.LastDelayForTestUrl(u.testUrl)) > uint32(minDelay)+uint32(u.tolerance) {
 			u.fastNode = fast
 		}
 		return u.fastNode, nil
@@ -173,7 +197,7 @@ func (u *URLTest) MarshalJSON() ([]byte, error) {
 		"all":            all,
 		"testUrl":        u.testUrl,
 		"expectedStatus": u.expectedStatus,
-		"fixed":          u.selected,
+		"fixed":          u.getSelected(),
 		"hidden":         u.Hidden(),
 		"icon":           u.Icon(),
 		"emptyFallback":  u.EmptyFallback().Name(),

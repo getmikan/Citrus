@@ -14,7 +14,7 @@ import (
 
 var (
 	initOnce     sync.Once
-	fileMode     os.FileMode = 0o666
+	fileMode     os.FileMode = 0o600
 	defaultCache *CacheFile
 
 	bucketSelected         = []byte("selected")

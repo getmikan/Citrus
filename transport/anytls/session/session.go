@@ -19,6 +19,15 @@ import (
 	"github.com/metacubex/mihomo/transport/anytls/util"
 )
 
+// MaxServerStreams caps the streams one client session may have open on a
+// server. Every stream costs a goroutine, which first waits for the stream's
+// destination, so without a cap one authenticated client could open streams
+// until the process runs out of memory. A SYN beyond it is answered with a
+// FIN. Clients open one stream per proxied connection, and reference clients
+// keep one stream per session, so 1024 is far above real use. A variable only
+// so that tests can lower it.
+var MaxServerStreams = 1024
+
 type Session struct {
 	conn     net.Conn
 	connLock sync.Mutex
@@ -39,7 +48,9 @@ type Session struct {
 	idleSince time.Time
 	padding   *atomic.Pointer[padding.PaddingFactory]
 
-	peerVersion byte
+	// peerVersion is written by recvLoop when the peer's settings arrive and
+	// read by OpenStream and the handshake reports on other goroutines.
+	peerVersion atomic.Uint32
 
 	// client
 	isClient       bool
@@ -131,16 +142,19 @@ func (s *Session) Close() error {
 	}
 }
 
-// OpenStream is used to create a new stream for CLIENT
-func (s *Session) OpenStream() (*Stream, error) {
+// OpenStream is used to create a new stream for CLIENT. dieHook, if not nil,
+// runs once when the stream dies; it is installed before the stream becomes
+// visible to the session, which may close it from recvLoop at any time.
+func (s *Session) OpenStream(dieHook func()) (*Stream, error) {
 	if s.IsClosed() {
 		return nil, io.ErrClosedPipe
 	}
 
 	sid := s.streamId.Add(1)
 	stream := newStream(sid, s)
+	stream.dieHook = dieHook
 
-	if sid >= 2 && s.peerVersion >= 2 {
+	if sid >= 2 && s.peerVersion.Load() >= 2 {
 		s.synDoneLock.Lock()
 		if s.synDone != nil {
 			s.synDone()
@@ -155,7 +169,9 @@ func (s *Session) OpenStream() (*Stream, error) {
 		return nil, err
 	}
 
+	s.connLock.Lock()
 	s.buffering = false // proxy Write it's SocksAddr to flush the buffer
+	s.connLock.Unlock()
 
 	s.streamLock.Lock()
 	defer s.streamLock.Unlock()
@@ -211,7 +227,9 @@ func (s *Session) recvLoop() error {
 					return nil
 				}
 				s.streamLock.Lock()
-				if _, ok := s.streams[sid]; !ok {
+				_, exists := s.streams[sid]
+				refuse := !exists && len(s.streams) >= MaxServerStreams
+				if !exists && !refuse {
 					stream := newStream(sid, s)
 					s.streams[sid] = stream
 					go func() {
@@ -223,6 +241,21 @@ func (s *Session) recvLoop() error {
 					}()
 				}
 				s.streamLock.Unlock()
+				if refuse {
+					// too many open streams: refuse this one without
+					// allocating anything for it, as a failed handshake (v2
+					// clients wait for a SYNACK) followed by a FIN
+					if s.peerVersion.Load() >= 2 {
+						f := newFrame(cmdSYNACK, sid)
+						f.data = []byte("too many streams")
+						if _, err := s.writeControlFrame(f); err != nil {
+							return err
+						}
+					}
+					if _, err := s.writeControlFrame(newFrame(cmdFIN, sid)); err != nil {
+						return err
+					}
+				}
 			case cmdSYNACK: // should be client only
 				s.synDoneLock.Lock()
 				if s.synDone != nil {
@@ -283,8 +316,8 @@ func (s *Session) recvLoop() error {
 							}
 						}
 						// check client's version
-						if v, err := strconv.Atoi(m["v"]); err == nil && v >= 2 {
-							s.peerVersion = byte(v)
+						if v, ok := parsePeerVersion(m["v"]); ok && v >= 2 {
+							s.peerVersion.Store(v)
 							// send cmdServerSettings
 							f := newFrame(cmdServerSettings, 0)
 							f.data = util.StringMap{
@@ -344,8 +377,8 @@ func (s *Session) recvLoop() error {
 					if s.isClient {
 						// check server's version
 						m := util.StringMapFromBytes(buffer)
-						if v, err := strconv.Atoi(m["v"]); err == nil {
-							s.peerVersion = byte(v)
+						if v, ok := parsePeerVersion(m["v"]); ok {
+							s.peerVersion.Store(v)
 						}
 					}
 					pool.Put(buffer)
@@ -516,4 +549,15 @@ func (s *Session) writeConn(b []byte) (n int, err error) {
 	}
 
 	return s.conn.Write(b)
+}
+
+// parsePeerVersion reads the "v" field of the peer's settings. It comes off the
+// wire, so a negative or oversized value is rejected rather than wrapped into a
+// uint32 (a "-1" would otherwise read as a huge version and turn on v2 features).
+func parsePeerVersion(s string) (uint32, bool) {
+	v, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(v), true
 }

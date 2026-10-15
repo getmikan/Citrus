@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,12 @@ import (
 	"github.com/metacubex/http"
 	"github.com/metacubex/randv2"
 )
+
+// maxHTTPObfsBody bounds the body of the obfs request. A client puts the data
+// of its first write there, which is one relay buffer at most.
+const maxHTTPObfsBody = 64 * 1024
+
+var errHTTPObfsBodyTooLarge = errors.New("simple-obfs: http request body too large")
 
 type HTTPObfsServer struct {
 	net.Conn
@@ -47,9 +54,17 @@ func (hos *HTTPObfsServer) Read(b []byte) (int, error) {
 			return 0, io.EOF
 		}
 
-		buf, err := io.ReadAll(req.Body)
+		// the body carries the client's first payload; bound it before the
+		// inner protocol has had a chance to check anything
+		if req.ContentLength > maxHTTPObfsBody {
+			return 0, errHTTPObfsBodyTooLarge
+		}
+		buf, err := io.ReadAll(io.LimitReader(req.Body, maxHTTPObfsBody+1))
 		if err != nil {
 			return 0, err
+		}
+		if len(buf) > maxHTTPObfsBody {
+			return 0, errHTTPObfsBodyTooLarge
 		}
 		n := copy(b, buf)
 		if n < len(buf) {

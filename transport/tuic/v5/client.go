@@ -61,6 +61,11 @@ func (t *clientImpl) SetLastVisited(last time.Time) {
 }
 
 func (t *clientImpl) getQuicConn(ctx context.Context) (*quic.Conn, error) {
+	// a closed client must not dial again: its streams may still drain on the old
+	// connection, but nothing new is opened and no fresh connection is made
+	if t.closed.Load() {
+		return nil, types.ClientClosed
+	}
 	t.connMutex.Lock()
 	defer t.connMutex.Unlock()
 	if t.quicConn != nil {

@@ -2,6 +2,9 @@ package inbound
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"net"
 	"net/netip"
 	"strconv"
@@ -18,9 +21,33 @@ type Base struct {
 	specialRules string
 	listenAddr   netip.Addr
 	ports        utils.IntRanges[uint16]
+	// unixPath is the socket path when the listener listens on a unix socket
+	unixPath string
+	unixMode fs.FileMode
 }
 
+// NewBase builds the base of a listener that cannot listen on a unix socket:
+// a "unix:" listen address is rejected.
 func NewBase(options *BaseOption) (*Base, error) {
+	return newBase(options, false)
+}
+
+// newStreamBase builds the base of a TCP stream listener, which may listen on
+// a unix socket instead of TCP ports ("listen: unix:/path").
+func newStreamBase(options *BaseOption) (*Base, error) {
+	return newBase(options, true)
+}
+
+func newBase(options *BaseOption, allowUnix bool) (*Base, error) {
+	if path, ok := strings.CutPrefix(options.Listen, inbound.UnixSocketPrefix); ok {
+		if !allowUnix {
+			return nil, fmt.Errorf("listen %s: this listener type cannot listen on a unix socket, only the TCP stream listeners can (%s)", options.Listen, unixListenerTypes)
+		}
+		return newUnixBase(options, path)
+	}
+	if options.UnixMode != 0 {
+		return nil, errors.New("unix-mode needs a unix socket listen address (listen: unix:/path)")
+	}
 	if options.Listen == "" {
 		options.Listen = "0.0.0.0"
 	}
@@ -63,6 +90,9 @@ func (b *Base) Name() string {
 
 // RawAddress implements constant.InboundListener
 func (b *Base) RawAddress() string {
+	if b.unixPath != "" {
+		return inbound.UnixSocketPrefix + b.unixPath
+	}
 	if len(b.ports) == 0 {
 		return net.JoinHostPort(b.listenAddr.String(), "0")
 	}
@@ -84,7 +114,15 @@ func (b *Base) Additions() []inbound.Addition {
 }
 
 func (b *Base) ListenConfig() C.InboundListenConfig {
+	if b.unixPath != "" {
+		return unixListenConfig{address: b.RawAddress(), path: b.unixPath, mode: b.unixMode}
+	}
 	return b.config.ListenConfig()
+}
+
+// IsUnix reports whether the listener listens on a unix socket.
+func (b *Base) IsUnix() bool {
+	return b.unixPath != ""
 }
 
 var _ C.InboundListener = (*Base)(nil)
@@ -96,6 +134,9 @@ type BaseOption struct {
 	SpecialRules string `inbound:"rule,omitempty"`
 	SpecialProxy string `inbound:"proxy,omitempty"`
 	RoutingMark  int    `inbound:"routing-mark,omitempty"`
+	// UnixMode is the permission mask of the socket of a "unix:" listen
+	// address, 0660 when unset.
+	UnixMode int `inbound:"unix-mode,omitempty"`
 
 	//
 	// The following parameters are used internally, assign value by the structure decoder are disallowed

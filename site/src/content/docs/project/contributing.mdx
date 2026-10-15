@@ -1,0 +1,46 @@
+---
+title: Как участвовать
+description: Ветки, pull request'ы, тесты и синхронизация с mihomo.
+---
+
+## Ветки
+
+| Ветка | Что туда попадает |
+| --- | --- |
+| `dev` | Все pull request'ы. Тестируется на каждый push, в пакеты не собирается. |
+| `main` | Только слияния из `dev`, их делают мейнтейнеры. Собирается в `Prerelease-main` и релизы. |
+
+**Открывайте pull request в `dev`.** PR в `main` попросят перенацелить. Обе ветки защищены: прямые и force-push'и запрещены.
+
+## Pull request
+
+1. Ветка от `dev`: `feat/...`, `fix/...`, `chore/...`, `ci/...`, `docs/...`.
+2. Одно изменение на PR. Напишите, что было не так, что поменялось и как проверяли.
+3. Сообщения коммитов по [Conventional Commits](https://www.conventionalcommits.org/): `feat(xhttp): ...`, `fix(reality): ...`.
+4. Добавьте или обновите тесты на поведение, которое меняете, и прогоните их локально:
+
+   ```bash
+   SKIP_INTEROP_TEST=1 go test ./...
+   go vet ./...
+   gofmt -l <изменённые файлы>
+   ```
+
+5. CI должен быть зелёным.
+
+## Upstream
+
+Citrus следует ветке `Alpha` в mihomo. Синхронизации приходят отдельными PR в `dev`, поэтому не переформатируйте файлы upstream без нужды: каждая следующая синхронизация превратится в конфликт.
+
+Путь Go-модуля остаётся `github.com/metacubex/mihomo`: Mikan подключает Citrus через `replace` и зависит от этого пути.
+
+## Протоколы
+
+Citrus убрал устаревшие протоколы, в том числе VMess. Новую работу над протоколами и транспортами направляйте на VLESS, Trojan, Hysteria2, TUIC v5, AnyTLS, TrustTunnel и другие протоколы, которые использует Mikan. Перед крупной задачей спросите в [issue](https://github.com/getmikan/Citrus/issues).
+
+## Уязвимости
+
+Не открывайте публичные issue об уязвимостях. Сообщайте приватно через [GitHub Security Advisories](https://github.com/getmikan/Citrus/security/advisories/new).
+
+## Лицензия
+
+Отправляя изменения, вы соглашаетесь, что они выходят под лицензией [GPL-3.0](https://github.com/getmikan/Citrus/blob/main/LICENSE) этого репозитория.

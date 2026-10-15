@@ -102,7 +102,7 @@ func (c *CommonConn) Read(b []byte) (int, error) {
 	if _, err := io.ReadFull(c.Conn, peerHeader[:]); err != nil {
 		return 0, err
 	}
-	l, err := DecodeHeader(peerHeader[:]) // l: 17~17000
+	l, err := DecodeHeader(peerHeader[:]) // l: 17~16640
 	if err != nil {
 		if c.Client != nil && errors.Is(err, ErrInvalidHeader) { // client's 0-RTT
 			c.Client.RWLock.Lock()
@@ -211,7 +211,7 @@ func DecodeHeader(h []byte) (l int, err error) {
 	if h[0] != 23 || h[1] != 3 || h[2] != 3 {
 		l = 0
 	}
-	if l < 17 || l > 17000 { // TODO: TLSv1.3 max length
+	if l < 17 || l > 16640 { // TLS 1.3 max record: 16384 + 256 (RFC 8446 §5.2)
 		err = fmt.Errorf("%w: %v", ErrInvalidHeader, h[:5]) // DO NOT CHANGE: relied by client's Read()
 	}
 	return

@@ -51,8 +51,11 @@ func (g GeoIPCache) Unmarshal(filename, code string) (*router.GeoIP, error) {
 	case errCodeNotFound:
 		return nil, fmt.Errorf("country code %s%s%s", code, " not found in ", filename)
 
-	case errFailedToReadBytes, errFailedToReadExpectedLenBytes,
-		errInvalidGeodataFile, errInvalidGeodataVarintLength:
+	// A record laid out differently (errInvalidGeodataFile) may still be
+	// valid protobuf, so it gets a full parse. A varint or length that no
+	// valid file can contain does not: reading the whole file again would
+	// only spend more memory on the same corrupt data.
+	case errFailedToReadBytes, errFailedToReadExpectedLenBytes, errInvalidGeodataFile:
 		log.Warnln("failed to decode geoip file: %s%s", filename, ", fallback to the original ReadFile method")
 		geoipBytes, err = os.ReadFile(asset)
 		if err != nil {
@@ -116,8 +119,11 @@ func (g GeoSiteCache) Unmarshal(filename, code string) (*router.GeoSite, error) 
 	case errCodeNotFound:
 		return nil, fmt.Errorf("list %s%s%s", code, " not found in ", filename)
 
-	case errFailedToReadBytes, errFailedToReadExpectedLenBytes,
-		errInvalidGeodataFile, errInvalidGeodataVarintLength:
+	// A record laid out differently (errInvalidGeodataFile) may still be
+	// valid protobuf, so it gets a full parse. A varint or length that no
+	// valid file can contain does not: reading the whole file again would
+	// only spend more memory on the same corrupt data.
+	case errFailedToReadBytes, errFailedToReadExpectedLenBytes, errInvalidGeodataFile:
 		log.Warnln("failed to decode geosite file: %s%s", filename, ", fallback to the original ReadFile method")
 		geositeBytes, err = os.ReadFile(asset)
 		if err != nil {

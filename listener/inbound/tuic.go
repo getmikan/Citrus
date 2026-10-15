@@ -102,3 +102,30 @@ func (t *Tuic) Close() error {
 }
 
 var _ C.InboundListener = (*Tuic)(nil)
+
+// Users implements constant.InboundUserUpdater
+func (t *Tuic) Users() []C.InboundUser {
+	if t.l != nil {
+		return t.l.Users()
+	}
+	return tuic.ConfigUsers(t.config.Users, false)
+}
+
+// SetUsers implements constant.InboundUserUpdater; the names are UUIDs.
+func (t *Tuic) SetUsers(users []C.InboundUser) error {
+	if t.l == nil {
+		return setListenerUsers(t.Name(), nil, users)
+	}
+	return setListenerUsers(t.Name(), t.l, users)
+}
+
+// SameExceptUsers implements constant.InboundUserUpdater
+func (t *Tuic) SameExceptUsers(config C.InboundConfig) bool {
+	return equalExceptUsers(t.config, config)
+}
+
+// InboundUsers implements constant.InboundUserLister
+func (t *Tuic) InboundUsers() []string { return userNames(t.Users()) }
+
+var _ C.InboundUserUpdater = (*Tuic)(nil)
+var _ C.InboundUserLister = (*Tuic)(nil)

@@ -1,0 +1,113 @@
+---
+title: Быстрый старт
+description: Скачать Citrus, положить конфиг и запустить ядро.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Скачать
+
+Сборки лежат в [релизах на GitHub](https://github.com/getmikan/Citrus/releases). Файлы называются `citrus-<os>-<arch>-<версия>`:
+
+| Канал | Тег | Что это |
+| --- | --- | --- |
+| release | `vX.Y.Z` ([последний](https://github.com/getmikan/Citrus/releases/latest)) | Стабильные версии. |
+| Prerelease-main | [`Prerelease-main`](https://github.com/getmikan/Citrus/releases/tag/Prerelease-main) | Сборка ветки `main`. |
+
+В пререлизах вместо версии стоят ветка и коммит, например `citrus-linux-arm64-main-1a2b3c4.gz`. Ветка `dev` проходит тесты, но не собирается в пакеты; чтобы попробовать её, [соберите ядро из исходников](#собрать-из-исходников).
+
+- **Linux, macOS, FreeBSD:** `.gz` с одним бинарником. Для Linux есть ещё `.deb`, `.rpm` и `.pkg.tar.zst`.
+- **Windows:** `.zip` с `citrus-windows-<arch>.exe`.
+- **amd64:** файл `amd64` собран под x86-64-v3 (Intel Haswell, AMD Excavator и новее). Для старых процессоров берите `amd64-compatible` или `amd64-v2`.
+- **Старые системы:** релизы для Windows и macOS собираются пропатченным [тулчейном Go от MetaCubeX](https://github.com/MetaCubeX/go), который сохраняет работу на Windows 7/8 и старых macOS (отдельно в Citrus это не тестируется). Для Linux нужно ядро 3.2 или новее. Отдельных сборок на старых версиях Go (`-go120` и подобных) нет.
+
+<Steps>
+
+1. Скачайте файл для своей системы и распакуйте его:
+
+   ```bash
+   gunzip citrus-linux-amd64-*.gz
+   chmod +x citrus-linux-amd64-*
+   sudo mv citrus-linux-amd64-* /usr/local/bin/citrus
+   ```
+
+2. Проверьте, что бинарник запускается:
+
+   ```bash
+   citrus -v
+   ```
+
+</Steps>
+
+## Конфиг
+
+Citrus читает `config.yaml` из каталога конфигурации:
+
+- **Linux и macOS:** `~/.config/citrus/`, а если его нет и задана `XDG_CONFIG_HOME`, то `$XDG_CONFIG_HOME/citrus/`.
+- **Windows:** `%USERPROFILE%\.config\citrus\`.
+- **Пакеты для Linux:** `/etc/citrus/`, когда ядро запущено как `citrus.service`.
+
+Минимальный конфиг: смешанный HTTP/SOCKS-порт, DNS с fake IP и всё напрямую.
+
+```yaml title="~/.config/citrus/config.yaml"
+mixed-port: 7890
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  nameserver:
+    - system
+
+rules:
+  - MATCH,DIRECT
+```
+
+Прокси, группы и правила добавляются по [справочнику конфига](/Citrus/start/configuration/). Конфиг от mihomo обычно подходит как есть; что может потребовать правок, собрано на странице [Переход с mihomo](/Citrus/migration/).
+
+## Запуск
+
+```bash
+citrus -d ~/.config/citrus
+```
+
+| Флаг | Что делает |
+| --- | --- |
+| `-d <каталог>` | Каталог конфигурации. Там же ядро хранит geodata и кеш. |
+| `-f <файл>` | Конкретный файл конфига. |
+| `-t` | Проверить конфиг и выйти. |
+| `-v` | Показать версию. |
+| `-secret-file <file>` | Прочитать `secret` контроллера из файла (`CLASH_OVERRIDE_SECRET_FILE`); в отличие от `-secret`, не виден в списке процессов. |
+| `-age-secret-key-file <file>` | Прочитать age-ключ для расшифровки конфига из файла (`CLASH_AGE_SECRET_KEY_FILE`). `citrus age decrypt` и `citrus age convert` тоже принимают ключ как `@file`. |
+
+Проверить конфиг перед перезапуском:
+
+```bash
+citrus -t -f ~/.config/citrus/config.yaml
+```
+
+## Как служба (Linux)
+
+Пакеты `.deb`, `.rpm` и `.pkg.tar.zst` ставят бинарник в `/usr/bin/citrus`, конфиг в `/etc/citrus/config.yaml` и юнит `citrus.service`:
+
+```bash
+sudo systemctl enable --now citrus
+sudo systemctl reload citrus   # перечитать конфиг
+journalctl -u citrus -f
+```
+
+Для нескольких экземпляров есть `citrus@.service`: `citrus@work` читает `/etc/citrus/work/`.
+
+## Дашборд
+
+Включите API контроллера в конфиге (`external-controller: 127.0.0.1:9090` и `secret`) и подключите совместимый дашборд, например [MetaCubeXD](https://github.com/MetaCubeX/metacubexd). Контроллер без secret отклоняет запросы браузера с других сайтов и не запускается на сетевом адресе, см. [Безопасность контроллера](/Citrus/start/controller/).
+
+## Собрать из исходников
+
+Нужен Go 1.26 или новее.
+
+```bash
+git clone https://github.com/getmikan/Citrus.git
+cd Citrus
+go build -tags with_gvisor -trimpath -o citrus .
+./citrus -v
+```

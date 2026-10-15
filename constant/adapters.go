@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,14 +33,11 @@ const (
 	LoadBalance
 
 	Shadowsocks
-	ShadowsocksR
 	Snell
 	Socks5
 	Http
-	Vmess
 	Vless
 	Trojan
-	Hysteria
 	Hysteria2
 	WireGuard
 	Tuic
@@ -55,6 +53,8 @@ const (
 	ZeroTier
 	EasyTier
 	GostRelay
+
+	ChainGroup
 )
 
 const (
@@ -196,22 +196,16 @@ func (at AdapterType) String() string {
 		return "Dns"
 	case Shadowsocks:
 		return "Shadowsocks"
-	case ShadowsocksR:
-		return "ShadowsocksR"
 	case Snell:
 		return "Snell"
 	case Socks5:
 		return "Socks5"
 	case Http:
 		return "Http"
-	case Vmess:
-		return "Vmess"
 	case Vless:
 		return "Vless"
 	case Trojan:
 		return "Trojan"
-	case Hysteria:
-		return "Hysteria"
 	case Hysteria2:
 		return "Hysteria2"
 	case WireGuard:
@@ -252,6 +246,8 @@ func (at AdapterType) String() string {
 		return "URLTest"
 	case LoadBalance:
 		return "LoadBalance"
+	case ChainGroup:
+		return "Chain"
 	default:
 		return "Unknown"
 	}
@@ -308,8 +304,33 @@ func NewPacketAdapter(packet UDPPacket, metadata *Metadata) PacketAdapter {
 	return &packetAdapter{
 		packet,
 		metadata,
-		packet.LocalAddr().String(),
+		NatKey(packet, metadata),
 	}
+}
+
+// NatKey is the key of the UDP session a packet belongs to. Besides the
+// client address it holds the inbound that received the packet (name and
+// listening address) and the user it was authenticated as: the session's
+// route, limits and write-back were chosen for those, so a packet from the
+// same client address on another inbound, or as another user, must not reuse
+// it.
+func NatKey(packet UDPPacket, metadata *Metadata) string {
+	src := packet.LocalAddr().String()
+	if metadata == nil || (metadata.InName == "" && metadata.InUser == "" && !metadata.InIP.IsValid()) {
+		return src
+	}
+	var b strings.Builder
+	b.Grow(len(metadata.InName) + len(metadata.InUser) + len(src) + 52)
+	b.WriteString(metadata.InName)
+	b.WriteByte(0)
+	b.WriteString(metadata.InUser)
+	b.WriteByte(0)
+	if metadata.InIP.IsValid() {
+		b.WriteString(netip.AddrPortFrom(metadata.InIP, metadata.InPort).String())
+	}
+	b.WriteByte(0)
+	b.WriteString(src)
+	return b.String()
 }
 
 type WriteBack interface {

@@ -1,6 +1,7 @@
 package common
 
 import (
+	"github.com/metacubex/mihomo/common/regexp2x"
 	C "github.com/metacubex/mihomo/constant"
 
 	"github.com/dlclark/regexp2"
@@ -18,7 +19,7 @@ func (dr *DomainRegex) RuleType() C.RuleType {
 
 func (dr *DomainRegex) Match(metadata *C.Metadata, helper C.RuleMatchHelper) (bool, string) {
 	domain := metadata.RuleHost()
-	match, _ := dr.regex.MatchString(domain)
+	match := regexp2x.MatchString(dr.regex, domain)
 	return match, dr.adapter
 }
 
@@ -31,7 +32,7 @@ func (dr *DomainRegex) Payload() string {
 }
 
 func NewDomainRegex(regex string, adapter string) (*DomainRegex, error) {
-	r, err := regexp2.Compile(regex, regexp2.IgnoreCase)
+	r, err := regexp2x.Compile(regex, regexp2.IgnoreCase)
 	if err != nil {
 		return nil, err
 	}

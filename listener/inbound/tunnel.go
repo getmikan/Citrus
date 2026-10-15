@@ -28,8 +28,11 @@ type Tunnel struct {
 }
 
 func NewTunnel(options *TunnelOption) (*Tunnel, error) {
-	base, err := NewBase(&options.BaseOption)
+	base, err := newStreamBase(&options.BaseOption)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkUnixNetworks(base, options.Network); err != nil {
 		return nil, err
 	}
 	return &Tunnel{

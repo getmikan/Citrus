@@ -11,15 +11,24 @@ import (
 
 type ShadowSocksOption struct {
 	BaseOption
-	Password   string     `inbound:"password"`
-	Cipher     string     `inbound:"cipher"`
-	UDP        bool       `inbound:"udp,omitempty"`
-	MuxOption  MuxOption  `inbound:"mux-option,omitempty"`
-	ShadowTLS  ShadowTLS  `inbound:"shadow-tls,omitempty"`
-	ResTLS     ResTLS     `inbound:"res-tls,omitempty"`
-	JLSConfig  JLSConfig  `inbound:"jls-config,omitempty"`
-	KcpTun     KcpTun     `inbound:"kcp-tun,omitempty"`
-	SimpleObfs SimpleObfs `inbound:"simple-obfs,omitempty"`
+	Password   string            `inbound:"password"`
+	Cipher     string            `inbound:"cipher"`
+	Users      []ShadowSocksUser `inbound:"users,omitempty"`
+	UDP        bool              `inbound:"udp,omitempty"`
+	MuxOption  MuxOption         `inbound:"mux-option,omitempty"`
+	ShadowTLS  ShadowTLS         `inbound:"shadow-tls,omitempty"`
+	ResTLS     ResTLS            `inbound:"res-tls,omitempty"`
+	JLSConfig  JLSConfig         `inbound:"jls-config,omitempty"`
+	KcpTun     KcpTun            `inbound:"kcp-tun,omitempty"`
+	SimpleObfs SimpleObfs        `inbound:"simple-obfs,omitempty"`
+}
+
+// ShadowSocksUser is one user of a multi-user Shadowsocks 2022 inbound (EIH).
+// With users set, the inbound password is the server key (iPSK) and each
+// user's password is its own key (uPSK); the client then uses "iPSK:uPSK".
+type ShadowSocksUser struct {
+	Name     string `inbound:"name"`
+	Password string `inbound:"password"`
 }
 
 type SimpleObfs struct {
@@ -46,8 +55,23 @@ type ShadowSocks struct {
 }
 
 func NewShadowSocks(options *ShadowSocksOption) (*ShadowSocks, error) {
-	base, err := NewBase(&options.BaseOption)
+	base, err := newStreamBase(&options.BaseOption)
 	if err != nil {
+		return nil, err
+	}
+	if base.IsUnix() {
+		if options.UDP {
+			return nil, errUnixUDP(options.Listen, "udp")
+		}
+		if options.KcpTun.Enable {
+			return nil, errUnixUDP(options.Listen, "kcp-tun")
+		}
+	}
+	users := make([]LC.ShadowsocksUser, len(options.Users))
+	for i, u := range options.Users {
+		users[i] = LC.ShadowsocksUser{Name: u.Name, Password: u.Password}
+	}
+	if err := sing_shadowsocks.ValidateUsers(options.Cipher, options.Password, users); err != nil {
 		return nil, err
 	}
 	return &ShadowSocks{
@@ -58,6 +82,7 @@ func NewShadowSocks(options *ShadowSocksOption) (*ShadowSocks, error) {
 			Listen:     base.RawAddress(),
 			Password:   options.Password,
 			Cipher:     options.Cipher,
+			Users:      users,
 			Udp:        options.UDP,
 			MuxOption:  options.MuxOption.Build(),
 			ShadowTLS:  options.ShadowTLS.Build(),
@@ -102,3 +127,36 @@ func (s *ShadowSocks) Close() error {
 }
 
 var _ C.InboundListener = (*ShadowSocks)(nil)
+
+// Users implements constant.InboundUserUpdater
+func (s *ShadowSocks) Users() []C.InboundUser {
+	return listenerUsers(s.l, func() []C.InboundUser { return s.configUsers() })
+}
+
+// SetUsers implements constant.InboundUserUpdater
+func (s *ShadowSocks) SetUsers(users []C.InboundUser) error {
+	return setListenerUsers(s.Name(), s.l, users)
+}
+
+// SameExceptUsers implements constant.InboundUserUpdater
+func (s *ShadowSocks) SameExceptUsers(config C.InboundConfig) bool {
+	// users switch the listener to multi-user mode: without users on both
+	// sides it is not a change of users
+	other, ok := config.(*ShadowSocksOption)
+	return ok && len(s.config.Users) > 0 && len(other.Users) > 0 && equalExceptUsers(s.config, other)
+}
+
+var _ C.InboundUserUpdater = (*ShadowSocks)(nil)
+
+func (s *ShadowSocks) configUsers() []C.InboundUser {
+	users := make([]C.InboundUser, len(s.config.Users))
+	for i, user := range s.config.Users {
+		users[i] = C.InboundUser{Name: user.Name, Secret: user.Password}
+	}
+	return users
+}
+
+// InboundUsers implements constant.InboundUserLister
+func (s *ShadowSocks) InboundUsers() []string { return userNames(s.Users()) }
+
+var _ C.InboundUserLister = (*ShadowSocks)(nil)

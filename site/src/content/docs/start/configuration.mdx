@@ -1,0 +1,48 @@
+---
+title: Конфигурация
+description: Где искать полный справочник config.yaml и из каких разделов он состоит.
+---
+
+Полный справочник — файл [`docs/config.yaml`](https://github.com/getmikan/Citrus/blob/main/docs/config.yaml) в репозитории: все ключи с примерами значений. Комментарии в нём пока в основном на китайском, как в upstream.
+
+Формат конфига общий с mihomo, поэтому подходит и [документация mihomo](https://wiki.metacubex.one/) с описанием ключей и API контроллера.
+
+## Разделы
+
+| Ключи | Что настраивают |
+| --- | --- |
+| `mixed-port`, `port`, `socks-port`, `redir-port`, `tproxy-port` | Локальные порты прокси. |
+| `allow-lan`, `bind-address`, `authentication`, `lan-allowed-ips` | Доступ из локальной сети и авторизация. |
+| `mode`, `log-level`, `ipv6`, `find-process-mode` | Общий режим работы. |
+| `log-format`, `log-timestamp-format` | Формат логов: `text` (по умолчанию) или `json`, по объекту на строку для Loki и ELK. |
+| `tcp-concurrent`, `tcp-connect-timeout` | Исходящие TCP-соединения: параллельный набор всех IP; общий срок установки соединения в миллисекундах (по умолчанию 5000, диапазон 100–600000). |
+| `external-controller`, `external-ui`, `secret` | API контроллера и веб-интерфейс; сетевому адресу нужен `secret`, см. [Безопасность контроллера](/Citrus/start/controller/). |
+| `user-stats` | Учёт трафика по пользователям входящих (по умолчанию включён), см. [Трафик пользователей](/Citrus/start/user-stats/). |
+| `user-limits` | Лимиты пользователей входящих: скорость, соединения, адреса, квота, срок, см. [Лимиты пользователей](/Citrus/start/user-limits/). |
+| `metrics`, `health-without-auth` | Метрики Prometheus (`GET /metrics`) и проверки `/healthz`, `/readyz`, см. [Метрики и здоровье](/Citrus/start/metrics/). |
+| `tun` | TUN-устройство и сетевой стек. |
+| `dns`, `hosts` | DNS-серверы (в том числе DNSCrypt v2 штампами `sdns://`), fake IP, политики для DNS-запросов. |
+| `dns.serve-expired`, `dns.serve-expired-ttl`, `dns.serve-expired-client-timeout` | Ответ просроченной записью из кэша, пока она обновляется (RFC 8767). По умолчанию просроченная запись отдаётся сразу и обновляется в фоне, как и раньше; TTL и таймаут клиента дают поведение по RFC 8767. |
+| `sniffer` | Определение домена по трафику (TLS, HTTP, QUIC) и BitTorrent для правила `PROTOCOL`; `skip-threshold` — после скольких неудач адрес больше не сниффится. |
+| `proxies`, `proxy-groups`, `proxy-providers` | Исходящие прокси, группы выбора и удалённые наборы прокси; группы `type: chain` для каскадов, см. [Цепочки](/Citrus/start/chains/). |
+| `rules`, `sub-rules`, `rule-providers` | Правила маршрутизации и удалённые наборы правил. |
+| `listeners`, `tunnels` | Дополнительные входящие, в том числе серверные протоколы. TCP-листенеры могут слушать unix-сокет: `listen: unix:/путь`, права задаёт `unix-mode`. |
+| `geox-url`, `geo-auto-update` | Откуда и как часто обновлять geodata. |
+
+## Правила во время работы
+
+`PUT /rules` с телом `{"rules": ["DOMAIN,a.com,DIRECT", "MATCH,PROXY"]}` заменяет правила верхнего уровня без перезагрузки конфига. Строки пишутся так же, как в `rules:`, и разбираются тем же кодом: цели — прокси и группы, работают `RULE-SET`, `SUB-RULE` и логические правила. Список проверяется целиком до замены; ошибка в любой строке — ответ 400 с текстом ошибки, правила не меняются. Прокси из `proxy-providers` целью быть не могут (как и в конфиге) — указывайте группу. `sub-rules` и `rule-providers` остаются прежними.
+
+Замена живёт только в памяти: следующая перезагрузка конфига (`PUT /configs`, `systemctl reload`, перезапуск) возвращает правила из файла. Ответ — `{"count": N, "ephemeral": true}`.
+
+## Проверка
+
+```bash
+citrus -t -f ~/.config/citrus/config.yaml
+```
+
+Команда разбирает конфиг и выходит, ничего не запуская. Пакетная служба перечитывает конфиг по `systemctl reload citrus`.
+
+## Перезагрузка
+
+`PUT /configs` (с `force=true` или без) и `systemctl reload citrus` сразу применяют политику доступа из нового конфига: `allow-lan`, `bind-address`, `skip-auth-prefixes`, `lan-allowed-ips`, `lan-disallowed-ips`, `authentication`, встроенные `ss-config` и `tuic-server`. Без `force=true` встроенные листенеры `port`, `socks-port`, `redir-port`, `tproxy-port` и `mixed-port` остаются на своих текущих портах (клиент мог поменять их через `PATCH /configs`); при смене `allow-lan` или `bind-address` они перепривязываются.

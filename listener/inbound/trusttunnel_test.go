@@ -112,3 +112,32 @@ func TestInboundTrustTunnel_H2(t *testing.T) {
 func TestInboundTrustTunnel_QUIC(t *testing.T) {
 	testInboundTrustTunnelTLS(t, true)
 }
+
+// TestInboundTrustTunnel_Fallback checks that authenticated tunnels keep working
+// when a fallback is set, which also makes the server negotiate ALPN.
+func TestInboundTrustTunnel_Fallback(t *testing.T) {
+	inboundOptions := inbound.TrustTunnelOption{
+		Certificate: tlsCertificate,
+		PrivateKey:  tlsPrivateKey,
+		Fallback:    "127.0.0.1:1",
+	}
+	outboundOptions := outbound.TrustTunnelOption{
+		Fingerprint: tlsFingerprint,
+		HealthCheck: true,
+	}
+	testInboundTrustTunnel(t, inboundOptions, outboundOptions)
+}
+
+func TestInboundTrustTunnel_InvalidFallback(t *testing.T) {
+	for _, fallback := range []string{"http://127.0.0.1:8080", "127.0.0.1", ":8080", "host:0", "host:65536"} {
+		t.Run(fallback, func(t *testing.T) {
+			_, err := inbound.NewTrustTunnel(&inbound.TrustTunnelOption{
+				BaseOption: inbound.BaseOption{NameStr: "invalid-fallback", Listen: "127.0.0.1", Port: "0"},
+				Fallback:   fallback,
+			})
+			if err == nil {
+				t.Fatal("invalid fallback accepted at construction")
+			}
+		})
+	}
+}

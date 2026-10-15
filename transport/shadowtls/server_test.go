@@ -9,7 +9,10 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -381,7 +384,8 @@ func TestV3WildcardSNISelection(t *testing.T) {
 		{name: "off-authenticated", mode: WildcardSNIOff, serverName: "other.example", authenticated: true, want: defaultHandshake.Server},
 		{name: "authed-authenticated", mode: WildcardSNIAuthed, serverName: "other.example", authenticated: true, want: "other.example:443"},
 		{name: "authed-fallback", mode: WildcardSNIAuthed, serverName: "other.example", authenticated: false, want: defaultHandshake.Server},
-		{name: "all-fallback", mode: WildcardSNIAll, serverName: "other.example", authenticated: false, want: "other.example:443"},
+		{name: "all-authenticated", mode: WildcardSNIAll, serverName: "other.example", authenticated: true, want: "other.example:443"},
+		{name: "all-unauthenticated", mode: WildcardSNIAll, serverName: "other.example", authenticated: false, want: defaultHandshake.Server},
 		{name: "custom-fallback", mode: WildcardSNIOff, serverName: "custom.example", authenticated: false, want: customHandshake.Server},
 	}
 	for _, testCase := range testCases {
@@ -393,6 +397,170 @@ func TestV3WildcardSNISelection(t *testing.T) {
 			}
 			if got := serverConfig.selectV3Handshake(testCase.serverName, testCase.authenticated).Server; got != testCase.want {
 				t.Fatalf("selected server = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestV3WildcardSNIAllFallback(t *testing.T) {
+	defaultHandshake := HandshakeConfig{Server: "default.example:443"}
+	customHandshake := HandshakeConfig{Server: "custom-upstream.example:443"}
+	zones := map[string][]netip.Addr{
+		"public.example.com":   {netip.MustParseAddr("93.184.216.34")},
+		"dual.example.com":     {netip.MustParseAddr("2606:2800:220:1::1"), netip.MustParseAddr("93.184.216.34")},
+		"v6only.example.com":   {netip.MustParseAddr("2606:2800:220:1::1")},
+		"private.example.com":  {netip.MustParseAddr("10.0.0.1")},
+		"mixed.example.com":    {netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("127.0.0.1")},
+		"metadata.example.com": {netip.MustParseAddr("169.254.169.254")},
+		"ec2v6.example.com":    {netip.MustParseAddr("fd00:ec2::254")},
+		"alibaba.example.com":  {netip.MustParseAddr("100.100.100.200")},
+		"cgnat.example.com":    {netip.MustParseAddr("100.64.0.1")},
+		"mapped.example.com":   {netip.MustParseAddr("::ffff:192.168.1.1")},
+		"nat64.example.com":    {netip.MustParseAddr("64:ff9b::7f00:1")},
+		"empty.example.com":    {},
+	}
+	testCases := []struct {
+		name       string
+		mode       WildcardSNI
+		serverName string
+		want       string
+		lookedUp   bool
+	}{
+		{name: "public", mode: WildcardSNIAll, serverName: "public.example.com", want: "93.184.216.34:443", lookedUp: true},
+		{name: "public-uppercase", mode: WildcardSNIAll, serverName: "PUBLIC.example.com", want: "93.184.216.34:443", lookedUp: true},
+		{name: "public-prefers-ipv4", mode: WildcardSNIAll, serverName: "dual.example.com", want: "93.184.216.34:443", lookedUp: true},
+		{name: "public-ipv6", mode: WildcardSNIAll, serverName: "v6only.example.com", want: "[2606:2800:220:1::1]:443", lookedUp: true},
+		{name: "ipv4-literal", mode: WildcardSNIAll, serverName: "127.0.0.1", want: defaultHandshake.Server},
+		{name: "ipv4-shorthand", mode: WildcardSNIAll, serverName: "127.1", want: defaultHandshake.Server},
+		{name: "ipv4-hex", mode: WildcardSNIAll, serverName: "0x7f.0x1", want: defaultHandshake.Server},
+		{name: "metadata-literal", mode: WildcardSNIAll, serverName: "169.254.169.254", want: defaultHandshake.Server},
+		{name: "ipv6-literal", mode: WildcardSNIAll, serverName: "::1", want: defaultHandshake.Server},
+		{name: "localhost", mode: WildcardSNIAll, serverName: "localhost", want: defaultHandshake.Server},
+		{name: "localhost-subdomain", mode: WildcardSNIAll, serverName: "app.localhost", want: defaultHandshake.Server},
+		{name: "internal-suffix", mode: WildcardSNIAll, serverName: "metadata.google.internal", want: defaultHandshake.Server},
+		{name: "single-label", mode: WildcardSNIAll, serverName: "intranet", want: defaultHandshake.Server},
+		{name: "trailing-dot", mode: WildcardSNIAll, serverName: "public.example.com.", want: defaultHandshake.Server},
+		{name: "empty-label", mode: WildcardSNIAll, serverName: "public..example.com", want: defaultHandshake.Server},
+		{name: "invalid-character", mode: WildcardSNIAll, serverName: "public.example.com:80", want: defaultHandshake.Server},
+		{name: "empty", mode: WildcardSNIAll, serverName: "", want: defaultHandshake.Server},
+		{name: "private", mode: WildcardSNIAll, serverName: "private.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "mixed", mode: WildcardSNIAll, serverName: "mixed.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "metadata", mode: WildcardSNIAll, serverName: "metadata.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "metadata-ec2-ipv6", mode: WildcardSNIAll, serverName: "ec2v6.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "metadata-alibaba", mode: WildcardSNIAll, serverName: "alibaba.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "cgnat", mode: WildcardSNIAll, serverName: "cgnat.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "ipv4-mapped-private", mode: WildcardSNIAll, serverName: "mapped.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "nat64-loopback", mode: WildcardSNIAll, serverName: "nat64.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "no-address", mode: WildcardSNIAll, serverName: "empty.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "lookup-error", mode: WildcardSNIAll, serverName: "nxdomain.example.com", want: defaultHandshake.Server, lookedUp: true},
+		{name: "custom", mode: WildcardSNIAll, serverName: "custom.example", want: customHandshake.Server},
+		{name: "authed-mode", mode: WildcardSNIAuthed, serverName: "public.example.com", want: defaultHandshake.Server},
+		{name: "off-mode", mode: WildcardSNIOff, serverName: "public.example.com", want: defaultHandshake.Server},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			lookedUp := false
+			serverConfig := &ServerConfig{
+				handshake:              defaultHandshake,
+				handshakeForServerName: map[string]HandshakeConfig{"custom.example": customHandshake},
+				wildcardSNI:            testCase.mode,
+				lookupIP: func(_ context.Context, host string) ([]netip.Addr, error) {
+					lookedUp = true
+					addrs, found := zones[strings.ToLower(host)]
+					if !found {
+						return nil, errors.New("no such host")
+					}
+					return addrs, nil
+				},
+			}
+			if got := serverConfig.fallbackV3Handshake(context.Background(), testCase.serverName).Server; got != testCase.want {
+				t.Fatalf("fallback server = %q, want %q", got, testCase.want)
+			}
+			if lookedUp != testCase.lookedUp {
+				t.Fatalf("looked up = %v, want %v", lookedUp, testCase.lookedUp)
+			}
+		})
+	}
+}
+
+// TestV3WildcardSNIAllFallbackDial runs an unauthenticated TLS client through the
+// server and checks which address the fallback dials: a refused SNI still reaches
+// the default handshake server, an accepted one is dialed by its vetted address.
+func TestV3WildcardSNIAllFallbackDial(t *testing.T) {
+	testCases := []struct {
+		name       string
+		serverName string
+		want       string // empty means the default handshake server
+	}{
+		{name: "localhost", serverName: "localhost"},
+		{name: "private", serverName: "private.example.com"},
+		{name: "public", serverName: "public.example.com", want: "93.184.216.34:443"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			camouflageAddr := startCamouflageServer(t, false)
+			var (
+				dialedMu sync.Mutex
+				dialed   []string
+			)
+			serverConfig, err := NewServerConfig(
+				3,
+				"",
+				[]User{{Name: "test-user", Password: testPassword}},
+				HandshakeConfig{
+					Server: camouflageAddr,
+					DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+						dialedMu.Lock()
+						dialed = append(dialed, address)
+						dialedMu.Unlock()
+						return (&net.Dialer{}).DialContext(ctx, network, camouflageAddr)
+					},
+				},
+				nil,
+				true,
+				WildcardSNIAll,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			serverConfig.lookupIP = func(_ context.Context, host string) ([]netip.Addr, error) {
+				switch host {
+				case "private.example.com":
+					return []netip.Addr{netip.MustParseAddr("192.168.0.10")}, nil
+				case "public.example.com":
+					return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+				}
+				return nil, errors.New("no such host")
+			}
+			frontendAddr, result := startServer(t, serverConfig)
+
+			rawClient, err := net.Dial("tcp", frontendAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			setTestDeadline(t, rawClient)
+			client := tls.Client(rawClient, &tls.Config{
+				ServerName:         testCase.serverName,
+				InsecureSkipVerify: true,
+				MinVersion:         tls.VersionTLS12,
+			})
+			if err = client.HandshakeContext(context.Background()); err != nil {
+				t.Fatalf("fallback TLS handshake: %v", err)
+			}
+			if err = client.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if serverResult := receiveServerResult(t, result); !errors.Is(serverResult.err, ErrFallbackCompleted) {
+				t.Fatalf("server error = %v, want %v", serverResult.err, ErrFallbackCompleted)
+			}
+			want := testCase.want
+			if want == "" {
+				want = camouflageAddr
+			}
+			dialedMu.Lock()
+			defer dialedMu.Unlock()
+			if len(dialed) != 1 || dialed[0] != want {
+				t.Fatalf("dialed %q, want [%q]", dialed, want)
 			}
 		})
 	}

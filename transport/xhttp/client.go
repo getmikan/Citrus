@@ -38,6 +38,12 @@ type DialQUICFunc func(ctx context.Context, cfg *quic.Config) (*quic.Conn, error
 
 type TransportMaker func() http.RoundTripper
 
+// packetUpMaxInflightPosts bounds the packet-up POSTs whose responses are still pending.
+// Xray-core does not wait for the responses at all and relies on the server's
+// scMaxBufferedPosts (30 by default) to reject a client that runs too far ahead,
+// so the same number is used here as a sanity limit that a well-behaved peer never reaches.
+const packetUpMaxInflightPosts = 30
+
 type PacketUpWriter struct {
 	ctx                  context.Context
 	cancel               context.CancelFunc
@@ -51,7 +57,12 @@ type PacketUpWriter struct {
 	seq                  uint64
 	buf                  []byte
 	timer                *time.Timer
+	lastWrite            time.Time
 	flushErr             error
+	closed               bool
+	inflight             sync.WaitGroup
+	inflightSem          chan struct{}
+	waitResponse         bool // wait for each response before the next request (HTTP/1.1)
 }
 
 func (c *PacketUpWriter) Write(b []byte) (int, error) {
@@ -65,7 +76,13 @@ func (c *PacketUpWriter) Write(b []byte) (int, error) {
 	data := bytes.NewBuffer(b)
 	for data.Len() > 0 {
 		if c.timer == nil { // start a timer to flush the buffer
-			c.timer = time.AfterFunc(time.Duration(c.scMinPostsIntervalMs.Rand())*time.Millisecond, c.flush)
+			// Like Xray-core, only wait for what is left of the interval since the previous POST,
+			// so the first packet of a connection (or after a pause) goes out immediately.
+			delay := time.Duration(c.scMinPostsIntervalMs.Rand())*time.Millisecond - time.Since(c.lastWrite)
+			if delay < 0 {
+				delay = 0
+			}
+			c.timer = time.AfterFunc(delay, c.flush)
 		}
 
 		c.buf = append(c.buf, data.Next(c.scMaxEachPostBytes-len(c.buf))...) // let buffer fill up to scMaxEachPostBytes
@@ -98,6 +115,7 @@ func (c *PacketUpWriter) flush() {
 	if len(c.buf) == 0 {
 		return
 	}
+	c.lastWrite = time.Now()
 	_, err := c.write(c.buf)
 	c.buf = c.buf[:0] // reset buffer
 	if err != nil {
@@ -106,11 +124,24 @@ func (c *PacketUpWriter) flush() {
 	}
 }
 
+// write sends b as one packet-up request. It must be called with writeMu held.
+//
+// It returns once the request has been written to the connection instead of waiting for the response,
+// so the upload is not serialized on the round-trip time (e.g. through a CDN).
+// The response is checked in the background: a bad status or a transport error is recorded with setError,
+// so the next Write fails, and cancels the writer's context.
+// Over HTTP/1.1 it still waits for the response.
+// See: https://github.com/XTLS/Xray-core/discussions/4113 and Xray-core's splithttp dialer (WroteRequest).
 func (c *PacketUpWriter) write(b []byte) (int, error) {
+	if c.closed {
+		return 0, net.ErrClosed
+	}
+
 	u := url.URL{
-		Scheme: "https",
-		Host:   c.cfg.Host,
-		Path:   c.cfg.NormalizedPath(),
+		Scheme:   "https",
+		Host:     c.cfg.Host,
+		Path:     c.cfg.NormalizedPath(),
+		RawQuery: c.cfg.NormalizedQuery(),
 	}
 
 	req, err := http.NewRequestWithContext(c.ctx, c.cfg.GetNormalizedUplinkHTTPMethod(), u.String(), nil)
@@ -121,23 +152,84 @@ func (c *PacketUpWriter) write(b []byte) (int, error) {
 	seqStr := strconv.FormatUint(c.seq, 10)
 	c.seq++
 
-	if err := c.cfg.FillPacketRequest(req, c.sessionID, seqStr, b); err != nil {
+	// The body must be a copy: c.buf is reused as soon as the request is written,
+	// but the transport may still read the body again (e.g. to retry it on a new connection).
+	payload := make([]byte, len(b))
+	copy(payload, b)
+	if err := c.cfg.FillPacketRequest(req, c.sessionID, seqStr, payload); err != nil {
 		return 0, err
 	}
 	req.Host = c.cfg.Host
 
-	resp, err := c.transport.RoundTrip(req)
-	if err != nil {
+	if c.waitResponse {
+		// HTTP/1.1 can't multiplex, so every pending response would hold a connection of its own.
+		// Xray-core also reads the previous response before it reuses an HTTP/1.1 upload connection.
+		if err := checkPacketUpResponse(c.transport.RoundTrip(req)); err != nil {
+			return 0, err
+		}
+		return len(b), nil
+	}
+
+	requestWritten := make(chan error, 1)
+	var requestWrittenOnce sync.Once
+	reportRequestWritten := func(err error) {
+		requestWrittenOnce.Do(func() {
+			requestWritten <- err
+		})
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			reportRequestWritten(info.Err)
+		},
+	}))
+
+	select {
+	case c.inflightSem <- struct{}{}:
+	case <-c.ctx.Done():
+		return 0, c.ctx.Err()
+	}
+
+	c.inflight.Add(1)
+	go func() {
+		defer c.inflight.Done()
+
+		resp, err := c.transport.RoundTrip(req)
+		reportRequestWritten(err)
+		err = checkPacketUpResponse(resp, err)
+		<-c.inflightSem // release the slot before setError, write() may be waiting for it with writeMu held
+		if err != nil {
+			c.setError(err)
+		}
+	}()
+
+	if err := <-requestWritten; err != nil {
 		return 0, err
+	}
+	return len(b), nil
+}
+
+func checkPacketUpResponse(resp *http.Response, err error) error {
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("xhttp packet-up bad status: %s", resp.Status)
+		return fmt.Errorf("xhttp packet-up bad status: %s", resp.Status)
 	}
+	return nil
+}
 
-	return len(b), nil
+// setError records an error that happened after write returned and stops the writer.
+func (c *PacketUpWriter) setError(err error) {
+	c.writeMu.Lock()
+	if c.flushErr == nil && !c.closed {
+		c.flushErr = err
+		c.writeCond.Broadcast()
+	}
+	c.writeMu.Unlock()
+	c.cancel()
 }
 
 func (c *PacketUpWriter) Close() error {
@@ -145,6 +237,14 @@ func (c *PacketUpWriter) Close() error {
 	go func() { // flush in the background
 		defer close(ch)
 		c.flush()
+		c.writeMu.Lock()
+		c.closed = true // no more requests, so waiting for the in-flight ones is safe
+		if c.flushErr == nil {
+			c.flushErr = net.ErrClosed
+		}
+		c.writeCond.Broadcast()
+		c.writeMu.Unlock()
+		c.inflight.Wait() // give the last packets a chance to be acknowledged before canceling them
 	}()
 	select {
 	case <-ch:
@@ -153,6 +253,11 @@ func (c *PacketUpWriter) Close() error {
 	c.cancel()
 	httputils.CloseTransport(c.transport)
 	return nil
+}
+
+// IsHTTP1ALPN reports whether alpn selects the HTTP/1.1 mode: `alpn: [http/1.1]`.
+func IsHTTP1ALPN(alpn []string) bool {
+	return len(alpn) == 1 && alpn[0] == "http/1.1"
 }
 
 func NewTransport(dialRaw DialRawFunc, wrapTLS WrapTLSFunc, dialQUIC DialQUICFunc, alpn []string, keepAlivePeriod time.Duration) http.RoundTripper {
@@ -174,7 +279,7 @@ func NewTransport(dialRaw DialRawFunc, wrapTLS WrapTLSFunc, dialQUIC DialQUICFun
 			},
 		}
 	}
-	if len(alpn) == 1 && alpn[0] == "http/1.1" { // `alpn: [http/1.1]` means using http/1.1 mode
+	if IsHTTP1ALPN(alpn) {
 		dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
 			raw, err := dialRaw(ctx)
 			if err != nil {
@@ -187,12 +292,12 @@ func NewTransport(dialRaw DialRawFunc, wrapTLS WrapTLSFunc, dialQUIC DialQUICFun
 			}
 			return wrapped, nil
 		}
-		return &http.Transport{
+		return &http1Transport{&http.Transport{
 			DialContext:       dialContext,
 			DialTLSContext:    dialContext,
 			IdleConnTimeout:   ConnIdleTimeout,
 			ForceAttemptHTTP2: false, // only http/1.1
-		}
+		}}
 	}
 	if keepAlivePeriod == 0 {
 		keepAlivePeriod = ChromeH2KeepAlivePeriod
@@ -225,6 +330,24 @@ func NewTransport(dialRaw DialRawFunc, wrapTLS WrapTLSFunc, dialQUIC DialQUICFun
 		HTTP2: &http.HTTP2Config{
 			SendPingTimeout: keepAlivePeriod,
 		},
+	}
+}
+
+// http1Transport is the transport of the `alpn: [http/1.1]` mode.
+type http1Transport struct {
+	*http.Transport
+}
+
+func isHTTP1Transport(rt http.RoundTripper) bool {
+	switch rt := rt.(type) {
+	case *http1Transport:
+		return true
+	case *ReuseTransport:
+		return isHTTP1Transport(rt.entry.transport)
+	case onlyRoundTripper:
+		return isHTTP1Transport(rt.RoundTripper)
+	default:
+		return false
 	}
 }
 
@@ -280,16 +403,17 @@ func NewClient(cfg *Config, makeTransport TransportMaker, makeDownloadTransport 
 			return nil, err
 		}
 		client.makeTransport = client.uploadManager.GetTransport
-		if cfg.DownloadConfig != nil {
-			if makeDownloadTransport == nil {
-				return nil, fmt.Errorf("xhttp: download manager requires download transport maker")
-			}
-			client.downloadManager, err = NewReuseManager(cfg.DownloadConfig.ReuseConfig, makeDownloadTransport)
-			if err != nil {
-				return nil, err
-			}
-			client.makeDownloadTransport = client.downloadManager.GetTransport
+	}
+	// the download reuses its connections on its own, e.g. HTTP/2 download-settings with an HTTP/1.1 upload
+	if cfg.DownloadConfig != nil && cfg.DownloadConfig.ReuseConfig != nil {
+		if makeDownloadTransport == nil {
+			return nil, fmt.Errorf("xhttp: download manager requires download transport maker")
 		}
+		client.downloadManager, err = NewReuseManager(cfg.DownloadConfig.ReuseConfig, makeDownloadTransport)
+		if err != nil {
+			return nil, err
+		}
+		client.makeDownloadTransport = client.downloadManager.GetTransport
 	}
 	return client, nil
 }
@@ -346,9 +470,10 @@ func (c *Client) DialStreamOne(ctx context.Context) (net.Conn, error) {
 	}
 
 	requestURL := url.URL{
-		Scheme: "https",
-		Host:   c.cfg.Host,
-		Path:   c.cfg.NormalizedPath(),
+		Scheme:   "https",
+		Host:     c.cfg.Host,
+		Path:     c.cfg.NormalizedPath(),
+		RawQuery: c.cfg.NormalizedQuery(),
 	}
 	pr, pw := io.Pipe()
 
@@ -443,15 +568,17 @@ func (c *Client) DialStreamUp(ctx context.Context) (net.Conn, error) {
 	}
 
 	streamURL := url.URL{
-		Scheme: "https",
-		Host:   c.cfg.Host,
-		Path:   c.cfg.NormalizedPath(),
+		Scheme:   "https",
+		Host:     c.cfg.Host,
+		Path:     c.cfg.NormalizedPath(),
+		RawQuery: c.cfg.NormalizedQuery(),
 	}
 
 	downloadURL := url.URL{
-		Scheme: "https",
-		Host:   downloadCfg.Host,
-		Path:   downloadCfg.NormalizedPath(),
+		Scheme:   "https",
+		Host:     downloadCfg.Host,
+		Path:     downloadCfg.NormalizedPath(),
+		RawQuery: downloadCfg.NormalizedQuery(),
 	}
 	pr, pw := io.Pipe()
 
@@ -587,9 +714,10 @@ func (c *Client) DialPacketUp(ctx context.Context) (net.Conn, error) {
 	sessionID := c.generateSessionID()
 
 	downloadURL := url.URL{
-		Scheme: "https",
-		Host:   downloadCfg.Host,
-		Path:   downloadCfg.NormalizedPath(),
+		Scheme:   "https",
+		Host:     downloadCfg.Host,
+		Path:     downloadCfg.NormalizedPath(),
+		RawQuery: downloadCfg.NormalizedQuery(),
 	}
 
 	writerCtx, writerCancel := context.WithCancel(c.ctx)
@@ -602,6 +730,8 @@ func (c *Client) DialPacketUp(ctx context.Context) (net.Conn, error) {
 		sessionID:            sessionID,
 		transport:            uploadTransport,
 		seq:                  0,
+		inflightSem:          make(chan struct{}, packetUpMaxInflightPosts),
+		waitResponse:         isHTTP1Transport(uploadTransport),
 	}
 	writer.writeCond = sync.Cond{L: &writer.writeMu}
 	conn := &Conn{writer: writer}

@@ -1,0 +1,113 @@
+---
+title: Getting started
+description: Download Citrus, add a config and run the core.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Download
+
+Builds are published as [GitHub releases](https://github.com/getmikan/Citrus/releases). Files are named `citrus-<os>-<arch>-<version>`:
+
+| Channel | Tag | What it is |
+| --- | --- | --- |
+| release | `vX.Y.Z` ([latest](https://github.com/getmikan/Citrus/releases/latest)) | Stable versions. |
+| Prerelease-main | [`Prerelease-main`](https://github.com/getmikan/Citrus/releases/tag/Prerelease-main) | A build of the `main` branch. |
+
+Prereleases carry the branch and commit instead of a version, for example `citrus-linux-arm64-main-1a2b3c4.gz`. The `dev` branch is tested but not packaged; to try it, [build from source](#build-from-source).
+
+- **Linux, macOS, FreeBSD:** a `.gz` with one binary. Linux also gets `.deb`, `.rpm` and `.pkg.tar.zst`.
+- **Windows:** a `.zip` with `citrus-windows-<arch>.exe`.
+- **amd64:** the `amd64` file targets x86-64-v3 (Intel Haswell, AMD Excavator and newer). For older CPUs take `amd64-compatible` or `amd64-v2`.
+- **Older systems:** Windows and macOS releases are built with the patched [MetaCubeX Go toolchain](https://github.com/MetaCubeX/go), which keeps Windows 7/8 and older macOS working (not tested separately by Citrus). Linux needs kernel 3.2 or newer. There are no separate builds on old Go versions (`-go120` and the like).
+
+<Steps>
+
+1. Download the file for your system and unpack it:
+
+   ```bash
+   gunzip citrus-linux-amd64-*.gz
+   chmod +x citrus-linux-amd64-*
+   sudo mv citrus-linux-amd64-* /usr/local/bin/citrus
+   ```
+
+2. Check that the binary runs:
+
+   ```bash
+   citrus -v
+   ```
+
+</Steps>
+
+## Configuration
+
+Citrus reads `config.yaml` from its configuration directory:
+
+- **Linux and macOS:** `~/.config/citrus/`, or `$XDG_CONFIG_HOME/citrus/` when that directory is missing and `XDG_CONFIG_HOME` is set.
+- **Windows:** `%USERPROFILE%\.config\citrus\`.
+- **Linux packages:** `/etc/citrus/` when the core runs as `citrus.service`.
+
+A minimal config: a mixed HTTP/SOCKS port, DNS with fake IP and everything direct.
+
+```yaml title="~/.config/citrus/config.yaml"
+mixed-port: 7890
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  nameserver:
+    - system
+
+rules:
+  - MATCH,DIRECT
+```
+
+Add proxies, groups and rules from the [configuration reference](/Citrus/en/start/configuration/). A mihomo config usually works as is; what may need changes is collected on [Migrating from mihomo](/Citrus/en/migration/).
+
+## Run
+
+```bash
+citrus -d ~/.config/citrus
+```
+
+| Flag | What it does |
+| --- | --- |
+| `-d <dir>` | The configuration directory. The core keeps geodata and its cache there too. |
+| `-f <file>` | A specific config file. |
+| `-t` | Test the config and exit. |
+| `-v` | Print the version. |
+| `-secret-file <file>` | Read the controller `secret` override from a file (`CLASH_OVERRIDE_SECRET_FILE`); unlike `-secret`, it does not show in the process list. |
+| `-age-secret-key-file <file>` | Read the age key that decrypts the config from a file (`CLASH_AGE_SECRET_KEY_FILE`). `citrus age decrypt` and `citrus age convert` take the key as `@file` too. |
+
+Test a config before a restart:
+
+```bash
+citrus -t -f ~/.config/citrus/config.yaml
+```
+
+## As a service (Linux)
+
+The `.deb`, `.rpm` and `.pkg.tar.zst` packages install the binary to `/usr/bin/citrus`, the config to `/etc/citrus/config.yaml` and a `citrus.service` unit:
+
+```bash
+sudo systemctl enable --now citrus
+sudo systemctl reload citrus   # re-read the config
+journalctl -u citrus -f
+```
+
+For several instances there is `citrus@.service`: `citrus@work` reads `/etc/citrus/work/`.
+
+## Dashboard
+
+Turn on the controller API in the config (`external-controller: 127.0.0.1:9090` and a `secret`) and connect a compatible dashboard such as [MetaCubeXD](https://github.com/MetaCubeX/metacubexd). A controller without a secret refuses browser requests from other sites and does not start on a network address, see [Controller security](/Citrus/en/start/controller/).
+
+## Build from source
+
+You need Go 1.26 or newer.
+
+```bash
+git clone https://github.com/getmikan/Citrus.git
+cd Citrus
+go build -tags with_gvisor -trimpath -o citrus .
+./citrus -v
+```

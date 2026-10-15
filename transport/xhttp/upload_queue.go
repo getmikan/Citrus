@@ -12,6 +12,10 @@ type Packet struct {
 	Seq     uint64
 	Payload []byte // UploadQueue will hold Payload, so never reuse it after UploadQueue.Push
 	Reader  io.ReadCloser
+	// Release, if set, is called once the whole Payload has been read out of
+	// the queue; the queue does not touch Payload after that. It is not called
+	// for a packet that is dropped unread (Close), which is left to the GC.
+	Release func()
 }
 
 type UploadQueue struct {
@@ -19,8 +23,10 @@ type UploadQueue struct {
 	condPushed sync.Cond
 	condPopped sync.Cond
 	packets    map[uint64][]byte
+	releases   map[uint64]func() // Packet.Release by seq; allocated on first use
 	nextSeq    uint64
 	buf        []byte
+	release    func() // Release of the packet buf belongs to
 	closed     bool
 	maxPackets int
 	reader     io.ReadCloser
@@ -62,6 +68,14 @@ func (q *UploadQueue) Push(p Packet) error {
 	}
 
 	q.packets[p.Seq] = p.Payload
+	if p.Release != nil {
+		if q.releases == nil {
+			q.releases = make(map[uint64]func())
+		}
+		q.releases[p.Seq] = p.Release
+	} else if q.releases != nil {
+		delete(q.releases, p.Seq)
+	}
 	q.condPushed.Broadcast()
 	return nil
 }
@@ -73,14 +87,24 @@ func (q *UploadQueue) Read(b []byte) (int, error) {
 		if len(q.buf) > 0 {
 			n := copy(b, q.buf)
 			q.buf = q.buf[n:]
+			if len(q.buf) == 0 {
+				q.releaseBuf()
+			}
 			q.mu.Unlock()
 			return n, nil
 		}
 
 		if payload, ok := q.packets[q.nextSeq]; ok {
 			delete(q.packets, q.nextSeq)
-			q.nextSeq++
 			q.buf = payload
+			if q.releases != nil {
+				q.release = q.releases[q.nextSeq]
+				delete(q.releases, q.nextSeq)
+			}
+			q.nextSeq++
+			if len(q.buf) == 0 {
+				q.releaseBuf()
+			}
 			q.condPopped.Broadcast()
 			continue
 		}
@@ -103,6 +127,15 @@ func (q *UploadQueue) Read(b []byte) (int, error) {
 		}
 
 		q.condPushed.Wait()
+	}
+}
+
+// releaseBuf hands the drained packet back to its owner. q.mu must be held.
+func (q *UploadQueue) releaseBuf() {
+	q.buf = nil
+	if release := q.release; release != nil {
+		q.release = nil
+		release()
 	}
 }
 

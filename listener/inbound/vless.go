@@ -11,22 +11,24 @@ import (
 
 type VlessOption struct {
 	BaseOption
-	Users           []VlessUser   `inbound:"users"`
-	Decryption      string        `inbound:"decryption,omitempty"`
-	WsPath          string        `inbound:"ws-path,omitempty"`
-	XHTTPConfig     XHTTPConfig   `inbound:"xhttp-config,omitempty"`
-	GrpcServiceName string        `inbound:"grpc-service-name,omitempty"`
-	Certificate     string        `inbound:"certificate,omitempty"`
-	PrivateKey      string        `inbound:"private-key,omitempty"`
-	ClientAuthType  string        `inbound:"client-auth-type,omitempty"`
-	ClientAuthCert  string        `inbound:"client-auth-cert,omitempty"`
-	EchKey          string        `inbound:"ech-key,omitempty"`
-	AllowInsecure   bool          `inbound:"allow-insecure,omitempty"`
-	ShadowTLS       ShadowTLS     `inbound:"shadow-tls,omitempty"`
-	ResTLS          ResTLS        `inbound:"res-tls,omitempty"`
-	JLSConfig       JLSConfig     `inbound:"jls-config,omitempty"`
-	RealityConfig   RealityConfig `inbound:"reality-config,omitempty"`
-	MuxOption       MuxOption     `inbound:"mux-option,omitempty"`
+	Users              []VlessUser   `inbound:"users"`
+	Decryption         string        `inbound:"decryption,omitempty"`
+	WsPath             string        `inbound:"ws-path,omitempty"`
+	XHTTPConfig        XHTTPConfig   `inbound:"xhttp-config,omitempty"`
+	GrpcServiceName    string        `inbound:"grpc-service-name,omitempty"`
+	Certificate        string        `inbound:"certificate,omitempty"`
+	PrivateKey         string        `inbound:"private-key,omitempty"`
+	ClientAuthType     string        `inbound:"client-auth-type,omitempty"`
+	ClientAuthCert     string        `inbound:"client-auth-cert,omitempty"`
+	EchKey             string        `inbound:"ech-key,omitempty"`
+	AllowInsecure      bool          `inbound:"allow-insecure,omitempty"`
+	TrustedProxyHeader string        `inbound:"trusted-proxy-header,omitempty"`
+	TrustedProxies     []string      `inbound:"trusted-proxies,omitempty"`
+	ShadowTLS          ShadowTLS     `inbound:"shadow-tls,omitempty"`
+	ResTLS             ResTLS        `inbound:"res-tls,omitempty"`
+	JLSConfig          JLSConfig     `inbound:"jls-config,omitempty"`
+	RealityConfig      RealityConfig `inbound:"reality-config,omitempty"`
+	MuxOption          MuxOption     `inbound:"mux-option,omitempty"`
 }
 
 type VlessUser struct {
@@ -57,6 +59,7 @@ type XHTTPConfig struct {
 	ScStreamUpServerSecs string `inbound:"sc-stream-up-server-secs,omitempty"`
 	ScMaxBufferedPosts   string `inbound:"sc-max-buffered-posts,omitempty"`
 	ScMaxEachPostBytes   string `inbound:"sc-max-each-post-bytes,omitempty"`
+	ServerMaxHeaderBytes int    `inbound:"server-max-header-bytes,omitempty"`
 }
 
 func (o XHTTPConfig) Build() LC.XHTTPConfig {
@@ -82,6 +85,7 @@ func (o XHTTPConfig) Build() LC.XHTTPConfig {
 		ScStreamUpServerSecs: o.ScStreamUpServerSecs,
 		ScMaxBufferedPosts:   o.ScMaxBufferedPosts,
 		ScMaxEachPostBytes:   o.ScMaxEachPostBytes,
+		ServerMaxHeaderBytes: o.ServerMaxHeaderBytes,
 	}
 }
 
@@ -97,7 +101,7 @@ type Vless struct {
 }
 
 func NewVless(options *VlessOption) (*Vless, error) {
-	base, err := NewBase(&options.BaseOption)
+	base, err := newStreamBase(&options.BaseOption)
 	if err != nil {
 		return nil, err
 	}
@@ -113,24 +117,26 @@ func NewVless(options *VlessOption) (*Vless, error) {
 		Base:   base,
 		config: options,
 		vs: LC.VlessServer{
-			Enable:          true,
-			Listen:          base.RawAddress(),
-			Users:           users,
-			Decryption:      options.Decryption,
-			WsPath:          options.WsPath,
-			XHTTPConfig:     options.XHTTPConfig.Build(),
-			GrpcServiceName: options.GrpcServiceName,
-			Certificate:     options.Certificate,
-			PrivateKey:      options.PrivateKey,
-			ClientAuthType:  options.ClientAuthType,
-			ClientAuthCert:  options.ClientAuthCert,
-			EchKey:          options.EchKey,
-			AllowInsecure:   options.AllowInsecure,
-			ShadowTLS:       options.ShadowTLS.Build(),
-			ResTLS:          options.ResTLS.Build(),
-			JLSConfig:       options.JLSConfig.Build(),
-			RealityConfig:   options.RealityConfig.Build(),
-			MuxOption:       options.MuxOption.Build(),
+			Enable:             true,
+			Listen:             base.RawAddress(),
+			Users:              users,
+			Decryption:         options.Decryption,
+			WsPath:             options.WsPath,
+			XHTTPConfig:        options.XHTTPConfig.Build(),
+			GrpcServiceName:    options.GrpcServiceName,
+			Certificate:        options.Certificate,
+			PrivateKey:         options.PrivateKey,
+			ClientAuthType:     options.ClientAuthType,
+			ClientAuthCert:     options.ClientAuthCert,
+			EchKey:             options.EchKey,
+			AllowInsecure:      options.AllowInsecure,
+			TrustedProxyHeader: options.TrustedProxyHeader,
+			TrustedProxies:     options.TrustedProxies,
+			ShadowTLS:          options.ShadowTLS.Build(),
+			ResTLS:             options.ResTLS.Build(),
+			JLSConfig:          options.JLSConfig.Build(),
+			RealityConfig:      options.RealityConfig.Build(),
+			MuxOption:          options.MuxOption.Build(),
 		},
 	}, nil
 }
@@ -167,4 +173,33 @@ func (v *Vless) Close() error {
 	return v.l.Close()
 }
 
+// InboundUsers implements constant.InboundUserLister
+func (v *Vless) InboundUsers() []string { return userNames(v.Users()) }
+
+func (v *Vless) configUsers() []C.InboundUser {
+	users := make([]C.InboundUser, len(v.config.Users))
+	for i, user := range v.config.Users {
+		users[i] = C.InboundUser{Name: user.Username, Secret: user.UUID, Flow: user.Flow}
+	}
+	return users
+}
+
 var _ C.InboundListener = (*Vless)(nil)
+var _ C.InboundUserLister = (*Vless)(nil)
+
+// Users implements constant.InboundUserUpdater
+func (v *Vless) Users() []C.InboundUser {
+	return listenerUsers(v.l, func() []C.InboundUser { return v.configUsers() })
+}
+
+// SetUsers implements constant.InboundUserUpdater
+func (v *Vless) SetUsers(users []C.InboundUser) error {
+	return setListenerUsers(v.Name(), v.l, users)
+}
+
+// SameExceptUsers implements constant.InboundUserUpdater
+func (v *Vless) SameExceptUsers(config C.InboundConfig) bool {
+	return equalExceptUsers(v.config, config)
+}
+
+var _ C.InboundUserUpdater = (*Vless)(nil)

@@ -2,6 +2,8 @@ package convert
 
 import (
 	"encoding/base64"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -320,4 +322,52 @@ func SetUserAgent(header http.Header) {
 func VerifyMethod(cipher, password string) (err error) {
 	_, err = shadowimpl.FetchMethod(cipher, password, time.Now)
 	return
+}
+
+// linkAllowsInsecure reports whether a share link explicitly turns off
+// certificate verification: skip-cert-verify, allowInsecure or insecure set to
+// a true value (1, true). Absent or anything else means verify.
+func linkAllowsInsecure(query url.Values) bool {
+	for _, key := range []string{"skip-cert-verify", "allowInsecure", "insecure"} {
+		if v, err := strconv.ParseBool(query.Get(key)); err == nil && v {
+			return true
+		}
+	}
+	return false
+}
+
+// handleTLSShareLinkQuery handles the TLS parameters of Xray share links:
+// pcs (pinnedPeerCertSha256), vcn (verifyPeerCertByName) and ech (echConfigList).
+func handleTLSShareLinkQuery(query url.Values, proxy map[string]any) {
+	if pcs := query.Get("pcs"); pcs != "" {
+		proxy["fingerprint"] = pcs
+	}
+	if vcn := query.Get("vcn"); vcn != "" {
+		proxy["name-cert-verify"] = vcn
+	}
+	if echConfigList := query.Get("ech"); echConfigList != "" {
+		// a "+" not percent-encoded in the link is decoded as a space
+		echConfigList = strings.ReplaceAll(echConfigList, " ", "+")
+		echOpts := map[string]any{"enable": true}
+		if strings.Contains(echConfigList, "://") {
+			// "https://1.1.1.1/dns-query" or "example.com+https://1.1.1.1/dns-query"
+			// (also udp://, h2c://): query the HTTPS record of the server name
+			// or of example.com through that DNS server
+			server := echConfigList
+			if name, rest, ok := strings.Cut(echConfigList, "+"); ok && !strings.Contains(name, "://") {
+				if name != "" {
+					echOpts["query-server-name"] = name
+				}
+				server = rest
+			}
+			if rest, ok := strings.CutPrefix(server, "h2c://"); ok {
+				// Xray sends h2c DoH plaintext for its routing to add TLS; we do TLS ourselves
+				server = "https://" + rest
+			}
+			echOpts["query-server"] = server
+		} else {
+			echOpts["config"] = echConfigList // base64 ECHConfigList
+		}
+		proxy["ech-opts"] = echOpts
+	}
 }

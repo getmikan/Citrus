@@ -1,0 +1,85 @@
+---
+title: Migrating from mihomo
+description: What to change in a mihomo configuration when moving to Citrus, and which behaviour has changed.
+---
+
+Citrus uses the same configuration format as mihomo, and most configs run unchanged. Below is what may still need edits, and the behaviour that has become stricter. Check a config before restarting:
+
+```bash
+citrus -t -f config.yaml
+```
+
+For projects that embed the core as a library: the Go module path is still `github.com/metacubex/mihomo`, so pull Citrus in with a `replace`. Citrus itself replaces `github.com/metacubex/utls`, `github.com/metacubex/tls` and `github.com/metacubex/http` with its forks; copy those lines into the embedding project's `go.mod` too. The module needs Go 1.26 or newer.
+
+## Removed protocols
+
+VMess (with mKCP, mekya and TLSMirror), ShadowsocksR, Hysteria v1, TUIC v4, Shadowsocks stream ciphers and v2ray-plugin are gone. Replacements are in the [compatibility table](/Citrus/en/compatibility/#removed-protocols).
+
+- **Main config:** such a proxy or listener is an error with a clear message, for example "VMess was removed from Citrus, use VLESS" or "TUIC v4 is no longer supported, use uuid/password (v5)". The config does not load.
+- **Proxy providers:** a node with a removed protocol is skipped with a warning, and the rest of the subscription loads.
+- **Links:** the converter skips `vmess://`, `ssr://`, `hysteria://` and TUIC v4 links.
+- **Options:** `network: mkcp`, `kcp`, `mekya` and `tlsmirror-opts` are now errors; VLESS and Trojan used to fall back to TCP silently. The `IN-TYPE,VMESS` rule no longer parses, and there is no top-level `vmess-config`.
+- **The `relay` group** was already removed in mihomo; its error now points at a `type: chain` group, see [Chains](/Citrus/en/start/chains/).
+
+## Controller
+
+Details are on the [Controller security](/Citrus/en/start/controller/) page.
+
+- **A network address needs a `secret`.** `external-controller` and `external-controller-tls` on a non-loopback address (`0.0.0.0:9090`, `:9090`, a LAN address) without a `secret` do not start: there is an error in the log, and the rest of the core runs. Without a secret you can use loopback, `external-controller-unix` and `external-controller-pipe`, and TLS with verified client certificates. To turn the check off: `external-controller-allow-insecure: true` (or `-ext-ctl-allow-insecure`, `CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true`). This affects Docker setups that publish the controller port.
+- **Browser guard without a secret.** A tcp/tls controller without a secret answers only a `Host` that is an IP or `localhost`, and refuses requests with a foreign `Origin`. A dashboard on an external site needs a `secret` or its origin in `external-controller-cors.allow-origins` (`"*"` does not count). Scripts and panels that send no `Origin` are not affected.
+- **`PUT /configs` applies the controller settings.** A new `secret`, addresses, TLS, CORS and `external-ui` take effect at once: the old token gets 401 and open websockets are closed. A config whose controller would be refused gets 400, and nothing is applied.
+- **The unix socket and the named pipe** are owner-only (socket 0600; pipe: the core's account, SYSTEM and Administrators). If a GUI runs as another user, set `CITRUS_UNIX_SOCKET_MODE=0660` with a shared group, or your own `LISTEN_NAMEDPIPE_SDDL`. When a `secret` is set, it is required on the socket and the pipe as well.
+- **Controller connection limits:** 10 seconds for the headers (and TLS), 2 minutes of keep-alive idle, 256 KiB of headers.
+- **`GET /configs` hides secrets** of TUIC and Shadowsocks (`******`). Read them from the config file.
+- **`/debug`** (pprof) needs the secret like the rest of the API.
+
+## Config reload
+
+- **The access policy applies without `force=true` too.** `PUT /configs` and `systemctl reload citrus` apply `allow-lan`, `bind-address`, `skip-auth-prefixes`, `lan-allowed-ips`, `lan-disallowed-ips`, and the built-in `ss-config` and `tuic-server` on every reload. `force` now only decides whether the built-in ports (`port`, `socks-port`, `mixed-port` and the rest) are reopened on the values from the file.
+- **Credential changes revoke sessions.** When a reload removes a user from `authentication` or changes its password, that user's open HTTP, SOCKS and mixed sessions are closed. Turning `authentication` on closes the sessions let in without it.
+- **Empty user names are refused:** `authentication: [":pass"]` and `users` with an empty `username` on socks, http and mixed are config errors.
+
+## Files and paths
+
+- **`external-ui` cannot point at the config root.** The home directory, the config file's directory, a `SAFE_PATHS` root or a parent of any of them is refused, even with `SKIP_SAFE_PATH_CHECK`: a UI update empties that folder. Use a subfolder such as `./ui`.
+- **Symlinks.** A path that leaves the home directory and `SAFE_PATHS` through a symlink or junction is refused. For example `ui -> /usr/share/metacubexd`: add the link target to `SAFE_PATHS`, or set `SKIP_SAFE_PATH_CHECK=true`. A provider file that was a symlink is replaced with a regular file on the next update.
+- **Modes of new files:** config directory 0700, `config.yaml` 0600, provider files 0600, `cache.db` 0600. Existing files keep their modes.
+
+## Providers and downloads
+
+- **Redirects into private networks are refused.** A public provider, rule-set, geodata or dashboard URL cannot redirect to loopback, private, link-local, CGNAT and similar addresses. A URL that is private to begin with is not restricted.
+- **`size-limit: 0` means 64 MiB**, not unlimited; `-1` removes the limit. Going over is an update error and the previous copy stays (the file used to be truncated).
+- **Size bounds:** a provider takes at most 50,000 `proxies` entries and builds at most 10,000 proxies; `override-expr` produces at most 65,536 results; logic rules nest at most 32 levels deep. Ordinary subscriptions are well within these.
+
+## Inbounds
+
+- **TLS 1.2 minimum** on every TLS inbound and on the controller's TLS.
+- **The HTTP proxy authenticates every request.** On a keep-alive connection a request without credentials gets 407, one with wrong credentials gets 403 and the connection is closed. With authentication off, `Proxy-Authorization` no longer names the user for `IN-USER`. Request headers are capped at 64 KiB (431).
+- **SOCKS5 UDP is bound to the user and a port.** With authentication on, datagrams are accepted only from a client that holds an open UDP ASSOCIATE, and only from that association's one UDP port. If the client's port changes (NAT rebinding), it has to associate again. SOCKS5 UDP sessions now count against the user's limits and stats.
+- **The Snell client ID no longer names the user.** It is chosen by any client that knows the shared PSK, so it is ignored: `IN-USER` rules, per-user limits and per-user stats see a Snell user only when ShadowTLS v3 or JLS verified one. A plain Snell inbound has no user.
+- **A 15-second handshake deadline** before authentication: VLESS, Trojan, AnyTLS, Shadowsocks, Snell, HTTP, SOCKS, mixed and the HTTP transports. A client that has not sent its header by then is dropped; there is no deadline after authentication.
+- **Hysteria2 Realm behind a reverse proxy** believes `trusted-proxy-header` only from addresses in `trusted-proxies`. An empty list means never: list the proxy, for example `trusted-proxies: [loopback]`. VLESS and Trojan have worked this way since `trusted-proxy-header` arrived.
+- **The Hysteria2 HTTPS masquerade** verifies the upstream certificate. For a self-signed local site set `masquerade-skip-cert-verify: true`, otherwise the answer is 502.
+- **REALITY: `max-time-difference` is in milliseconds**, like Xray's `maxTimeDiff` (it used to be microseconds).
+- **The same address on different inbounds or as different users** gets separate UDP sessions, each with its own rules and limits.
+
+## Outbounds
+
+- **REALITY sends X25519MLKEM768 by default.** For old servers set `reality-opts.support-x25519mlkem768: false`.
+- **XHTTP:** without `reuse-settings`, connections are shared as in Xray (except over HTTP/1.1); `h-max-request-times: "1"` opts out. With data in headers or cookies and no `uplink-data-key`, the client sends `X-Data-N` and `x_data_N`, as Xray does; if you mix versions, set `uplink-data-key` explicitly on both sides.
+- **SSH without `host-key`** still connects, but logs a warning and the server's key in authorized_keys format, ready to pin. `skip-host-key-check: true` accepts any key explicitly and silences the warning.
+- **OpenVPN** without a server identity check logs a warning. The new `verify-x509-name`, `verify-x509-type` and `verify-server-name` turn the check on.
+- **`http(s)://` and `socks5://` links** no longer turn on `skip-cert-verify` by themselves; only when the link has `skip-cert-verify`, `allowInsecure` or `insecure` set to 1 or true.
+- **`tcp-concurrent`** dials at most 8 addresses per connection and 4 at once, and cancels the losing attempts.
+- **DIRECT** connects to the address the IP rules checked instead of resolving the name again.
+
+## Core updates
+
+`/upgrade` checks the package against `checksums.txt` from the same release. A release without that file, or without a line for the package, will not install; Citrus builds always publish it. `version.txt` is validated, file names inside the archive are ignored, and a zip must hold exactly one file.
+
+## Platforms and builds
+
+Citrus needs Go 1.26 or newer to build. mihomo also publishes builds on old Go versions (files ending in `-go120`, `-go122`, `-go123`, `-go124`, `-go125`); Citrus does not.
+
+- **Windows 7/8 and older macOS:** Windows and macOS releases are built with the patched [MetaCubeX Go toolchain](https://github.com/MetaCubeX/go), which keeps these systems working. Citrus does not test them separately.
+- **Linux kernels older than 3.2** are not supported: Go 1.24 and newer require kernel 3.2.

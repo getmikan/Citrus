@@ -155,6 +155,12 @@ func withFakeIP(skipper *fakeip.Skipper, fakePool *fakeip.Pool, fakePool6 *fakei
 			if skipper.ShouldSkipped(host) {
 				return next(ctx, r)
 			}
+			// miekg/dns presents a label byte that cannot appear in a host name
+			// (a dot, a space, a non-ASCII byte...) as \X or \DDD. A fake IP for
+			// such a name could never be dialed, so it gets the upstream's answer.
+			if strings.ContainsRune(q.Name, '\\') {
+				return next(ctx, r)
+			}
 
 			var rr D.RR
 			switch q.Qtype {

@@ -8,6 +8,7 @@ import (
 	"github.com/dlclark/regexp2"
 
 	"github.com/metacubex/mihomo/adapter/provider"
+	"github.com/metacubex/mihomo/common/regexp2x"
 	"github.com/metacubex/mihomo/common/structure"
 	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
@@ -96,12 +97,12 @@ func ParseProxyGroup(config map[string]any, proxyMap map[string]C.Proxy, provide
 		if groupOption.Filter != "" {
 			var filterRegs []*regexp2.Regexp
 			for _, filter := range strings.Split(groupOption.Filter, "`") {
-				filterReg := regexp2.MustCompile(filter, regexp2.None)
+				filterReg := regexp2x.MustCompile(filter, regexp2.None)
 				filterRegs = append(filterRegs, filterReg)
 			}
 			for _, p := range AllProxies {
 				for _, filterReg := range filterRegs {
-					if mat, _ := filterReg.MatchString(p); mat {
+					if regexp2x.MatchString(filterReg, p) {
 						groupOption.Proxies = append(groupOption.Proxies, p)
 					}
 				}
@@ -128,6 +129,27 @@ func ParseProxyGroup(config map[string]any, proxyMap map[string]C.Proxy, provide
 		status = "*"
 	}
 	groupOption.ExpectedStatus = status
+
+	if groupOption.Type == "chain" {
+		// the hops are wired to each other by the configuration (dialer-proxy);
+		// here they are only looked up
+		if len(groupOption.Use) != 0 {
+			return nil, fmt.Errorf("%s: a chain takes its hops from `proxies`, not `use`", groupName)
+		}
+		hops, err := getProxies(proxyMap, groupOption.Proxies)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", groupName, err)
+		}
+		if _, ok := providersMap[groupName]; ok {
+			return nil, fmt.Errorf("%s: %w", groupName, errDuplicateProvider)
+		}
+		chain, err := newChain(&groupOption, hops, expectedStatus)
+		if err != nil {
+			return nil, err
+		}
+		providersMap[groupName] = chain.providers[0]
+		return chain, nil
+	}
 
 	if len(groupOption.Use) != 0 {
 		PDs, err := getProviders(providersMap, groupOption.Use)
@@ -214,7 +236,7 @@ func ParseProxyGroup(config map[string]any, proxyMap map[string]C.Proxy, provide
 		}
 		return NewLoadBalance(groupOption, opt, emptyFallback, providers)
 	case "relay":
-		return nil, fmt.Errorf("%w: The group [%s] with relay type was removed, please using dialer-proxy instead", errType, groupName)
+		return nil, fmt.Errorf("%w: The group [%s] with relay type was removed, use a group of type chain (or dialer-proxy) instead", errType, groupName)
 	default:
 		return nil, fmt.Errorf("%w: %s", errType, groupOption.Type)
 	}

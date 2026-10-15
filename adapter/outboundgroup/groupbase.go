@@ -10,6 +10,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/outbound"
 	"github.com/metacubex/mihomo/common/atomic"
+	"github.com/metacubex/mihomo/common/regexp2x"
 	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
@@ -64,7 +65,7 @@ func NewGroupBase(opt GroupBaseOption) *GroupBase {
 	var excludeFilterRegs []*regexp2.Regexp
 	if opt.ExcludeFilter != "" {
 		for _, excludeFilter := range strings.Split(opt.ExcludeFilter, "`") {
-			excludeFilterReg := regexp2.MustCompile(excludeFilter, regexp2.None)
+			excludeFilterReg := regexp2x.MustCompile(excludeFilter, regexp2.None)
 			excludeFilterRegs = append(excludeFilterRegs, excludeFilterReg)
 		}
 	}
@@ -72,7 +73,7 @@ func NewGroupBase(opt GroupBaseOption) *GroupBase {
 	var filterRegs []*regexp2.Regexp
 	if opt.Filter != "" {
 		for _, filter := range strings.Split(opt.Filter, "`") {
-			filterReg := regexp2.MustCompile(filter, regexp2.None)
+			filterReg := regexp2x.MustCompile(filter, regexp2.None)
 			filterRegs = append(filterRegs, filterReg)
 		}
 	}
@@ -154,7 +155,7 @@ func (gb *GroupBase) GetProxies(touch bool) []C.Proxy {
 			for _, filterReg := range gb.filterRegs {
 				for _, p := range pd.Proxies() {
 					name := p.Name()
-					if mat, _ := filterReg.MatchString(name); mat {
+					if regexp2x.MatchString(filterReg, name) {
 						if _, ok := proxiesSet[name]; !ok {
 							proxiesSet[name] = struct{}{}
 							newProxies = append(newProxies, p)
@@ -175,7 +176,7 @@ func (gb *GroupBase) GetProxies(touch bool) []C.Proxy {
 		for _, filterReg := range gb.filterRegs {
 			for _, p := range proxies {
 				name := p.Name()
-				if mat, _ := filterReg.MatchString(name); mat {
+				if regexp2x.MatchString(filterReg, name) {
 					if _, ok := proxiesSet[name]; !ok {
 						proxiesSet[name] = struct{}{}
 						newProxies = append(newProxies, p)
@@ -199,7 +200,7 @@ func (gb *GroupBase) GetProxies(touch bool) []C.Proxy {
 		for _, p := range proxies {
 			name := p.Name()
 			for _, excludeFilterReg := range gb.excludeFilterRegs {
-				if mat, _ := excludeFilterReg.MatchString(name); mat {
+				if regexp2x.MatchString(excludeFilterReg, name) {
 					continue LOOP1
 				}
 			}

@@ -1,0 +1,87 @@
+---
+title: Inbound users at runtime
+description: Adding, removing and re-keying the users of an inbound without recreating its listener.
+---
+
+The users of an inbound from the `listeners:` section can be changed while it runs: the listener is not recreated, the config is not reloaded, and the connections of the other users are not dropped.
+
+- An added user can connect at once.
+- A removed user's established connections are closed (with their mux sub-streams and UDP sessions), new connections are refused, and its [traffic counter](/Citrus/en/start/user-stats/) is dropped once its bytes are drained.
+- Changing a secret (or the VLESS flow) closes the user's connections opened with the old secret; the old secret is no longer accepted.
+- Users whose record did not change notice nothing.
+
+An update is atomic: a handshake sees either the old users or the new ones, and a connection that passed the check with the old key a moment before the change is closed as well.
+
+## Supported inbounds
+
+| Type | `name` | `secret` | `flow` |
+| --- | --- | --- | --- |
+| `vless` | username | UUID | `xtls-rprx-vision` or empty |
+| `trojan` | username | password | — |
+| `anytls` | user name | password | — |
+| `trusttunnel` | username | password | — |
+| `tuic` (v5) | the user's UUID | password | — |
+| `shadowsocks` | name | user key (uPSK) | — |
+| `socks`, `http`, `mixed` | username | password | — |
+
+Limits:
+
+- `shadowsocks`: multi-user mode only (`2022-blake3-aes-*` with `users` in the config). The keys are checked as in the config. A change of users restarts the UDP sessions of all users (the client sees a new server session), which Shadowsocks 2022 clients handle.
+- `socks`, `http`, `mixed`: only with `users` of their own in the config. Without `users` the global `authentication` applies, and `users: []` turns authentication off: there is nothing to change. An empty user list set through the API lets nobody in (it does not turn authentication off).
+- The global `authentication` is changed by a config reload, with the same effect on the `socks`, `http` and `mixed` inbounds that use it (and the `socks-port`, `port`, `mixed-port` listeners): the connections of a removed or re-keyed user are closed, and turning authentication on closes the connections let in without it. A reload that leaves a user's password alone keeps its connections.
+- `tuic`: names are stored as lower-case UUIDs (as `IN-USER` sees them).
+- `hysteria2`, `mieru`, `shadowquic` and the others are not supported yet: their libraries swap the user table without synchronization or cannot change it at all. The API answers `409` for them.
+
+## User rules
+
+Through the API every user needs a non-empty unique name and a non-empty unique secret; otherwise the answer is `400` and nothing changes. The config still allows users without a name, except in `socks`, `http`, `mixed` and the global `authentication`: there an empty username is a config error, because the empty name means "no user" to `IN-USER`, the user limits and the closing of sessions.
+
+## API
+
+Requests go to the `external-controller` with the same `secret` as the rest of the API. `{name}` is the name of an inbound in `listeners:`.
+
+| Request | Effect |
+| --- | --- |
+| `GET /inbounds/{name}/users` | The users: names and flows, never secrets. |
+| `PUT /inbounds/{name}/users` | Replace all: `{"users": [{"name": "…", "secret": "…", "flow": "…"}]}`. |
+| `POST /inbounds/{name}/users` | Add one: `{"name": "…", "secret": "…"}`. Answers `201`. |
+| `PATCH /inbounds/{name}/users/{user}` | Change the secret and/or flow: `{"secret": "…"}`. The user's connections are closed. |
+| `DELETE /inbounds/{name}/users/{user}` | Remove the user and close its connections. |
+
+Codes: `404` no such inbound or user; `400` invalid data (an empty or repeated name, a repeated secret, a bad key or flow); `409` the inbound cannot change its users at runtime, the message names its type.
+
+```bash
+curl -X POST -H "Authorization: Bearer $SECRET" \
+  -d '{"name":"bob","secret":"b0b0b0b0-0000-4000-8000-000000000000"}' \
+  http://127.0.0.1:9090/inbounds/vless-in/users
+
+curl -X DELETE -H "Authorization: Bearer $SECRET" \
+  http://127.0.0.1:9090/inbounds/vless-in/users/alice
+```
+
+```json
+{ "inbound": "vless-in", "type": "vless", "users": [{ "name": "bob" }] }
+```
+
+## Config reloads
+
+The changes live in memory. The config is the source of truth: the next reload (`PUT /configs`, a restart) sets the users of the config again. A panel that manages users through the API keeps its own list and writes it into the config it applies.
+
+Reloads are gentler too: when an inbound of the new config differs from the running one only in its users, the listener is not recreated; it takes the users of the config in place, and only the connections of the removed and re-keyed users are dropped. When the config of an inbound did not change but its users were changed through the API, the reload restores the users of the config the same way. When anything else changed (port, TLS, transport…), the inbound is recreated as before.
+
+## Go API
+
+For embedders, package `github.com/metacubex/mihomo/listener`:
+
+```go
+users, err := listener.InboundUsers("vless-in")             // []constant.InboundUser, with secrets
+err = listener.SetInboundUsers("vless-in", users)           // replace all
+err = listener.AddInboundUser("vless-in", constant.InboundUser{Name: "bob", Secret: uuid})
+err = listener.RemoveInboundUser("vless-in", "alice")
+err = listener.ModifyInboundUser("vless-in", "bob", func(u *constant.InboundUser) error {
+	u.Secret = newUUID
+	return nil
+})
+```
+
+Errors: `listener.ErrInboundNotFound`, `listener.ErrInboundUserNotFound`, `listener.ErrInboundUserExists`, `constant.ErrInvalidInboundUser`, `constant.ErrInboundUsersUnsupported` (match them with `errors.Is`). A listener that supports updates implements `constant.InboundUserUpdater`.

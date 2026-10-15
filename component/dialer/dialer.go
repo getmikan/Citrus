@@ -313,17 +313,45 @@ loop:
 	return nil, errors.Join(errs...)
 }
 
+const (
+	// parallelDialMaxIPs caps how many of the resolved addresses one
+	// concurrent dial tries. A domain under someone else's control can answer
+	// with hundreds of A/AAAA records; without the cap a single proxied
+	// request would fan out into as many outbound connections.
+	parallelDialMaxIPs = 8
+	// parallelDialMaxInFlight caps how many attempts run at the same time.
+	// The next address is tried as soon as a running attempt fails.
+	parallelDialMaxInFlight = 4
+)
+
 func parallelDialContext(ctx context.Context, network string, ips []netip.Addr, port string, opt option) (net.Conn, error) {
+	return boundedParallelDial(ctx, ips, func(ctx context.Context, ip netip.Addr) (net.Conn, error) {
+		return dialContext(ctx, network, ip, port, opt)
+	})
+}
+
+// boundedParallelDial races dial over ips, in their order, with at most
+// parallelDialMaxInFlight attempts in flight and at most parallelDialMaxIPs
+// addresses tried. The first success wins; the attempts still running are
+// cancelled and any connection they produce anyway is closed.
+func boundedParallelDial(ctx context.Context, ips []netip.Addr, dial func(context.Context, netip.Addr) (net.Conn, error)) (net.Conn, error) {
 	if len(ips) == 0 {
 		return nil, ErrorNoIpAddress
 	}
 	if len(ips) == 1 {
-		return dialContext(ctx, network, ips[0], port, opt)
+		return dial(ctx, ips[0])
 	}
+	if len(ips) > parallelDialMaxIPs {
+		ips = ips[:parallelDialMaxIPs]
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	results := make(chan dialResult)
 	returned := make(chan struct{})
 	defer close(returned)
-	racer := func(ctx context.Context, ip netip.Addr) {
+	racer := func(ip netip.Addr) {
 		result := dialResult{isPrimary: true, ip: ip}
 		defer func() {
 			select {
@@ -334,19 +362,24 @@ func parallelDialContext(ctx context.Context, network string, ips []netip.Addr, 
 				}
 			}
 		}()
-		result.Conn, result.error = dialContext(ctx, network, ip, port, opt)
+		result.Conn, result.error = dial(ctx, ip)
 	}
 
-	for _, ip := range ips {
-		go racer(ctx, ip)
+	started := 0
+	for ; started < len(ips) && started < parallelDialMaxInFlight; started++ {
+		go racer(ips[started])
 	}
 	var errs []error
-	for i := 0; i < len(ips); i++ {
+	for done := 0; done < started; done++ {
 		res := <-results
 		if res.error == nil {
 			return res.Conn, nil
 		}
 		errs = append(errs, res.error)
+		if started < len(ips) && ctx.Err() == nil {
+			go racer(ips[started])
+			started++
+		}
 	}
 
 	if len(errs) > 0 {

@@ -2,6 +2,7 @@ package xhttp
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -19,8 +20,24 @@ import (
 
 type ServerOption struct {
 	Config
-	ConnHandler func(net.Conn)
+	ConnHandler func(net.Conn, *http.Request)
 	HttpHandler http.Handler
+	// ReportsAuthentication: ConnHandler calls the function returned by
+	// OnAuthenticated for its request once the inner protocol has
+	// authenticated the client, and a packet-up/stream-up session stays
+	// pending (capped, reaped, upload-limited) until then. Without it the
+	// session leaves the pending state with the first upload byte, which
+	// proves nothing.
+	ReportsAuthentication bool
+}
+
+type authenticatedKey struct{}
+
+// OnAuthenticated returns the function the ConnHandler of a server with
+// ReportsAuthentication calls once the client is authenticated, or nil.
+func OnAuthenticated(r *http.Request) func() {
+	fn, _ := r.Context().Value(authenticatedKey{}).(func())
+	return fn
 }
 
 type httpServerConn struct {
@@ -76,37 +93,87 @@ func (c *httpServerConn) Wait() <-chan struct{} {
 	return c.done
 }
 
+// Limits on sessions that have not delivered any upload data yet. Such a
+// session costs a map entry, an upload queue and a reaper goroutine, and the
+// inner protocol (VLESS) has not seen a single byte from it, so nothing has
+// been authenticated. Xray-core only has the 30-second reaper for sessions
+// whose download GET never arrives; here the same deadline also covers a
+// session whose GET has arrived but whose upload never brings any data, and
+// the number of such sessions is capped. Once upload data has reached the
+// inner handler the session is no longer pending and is never reaped by these
+// limits, so long-lived downloads are unaffected.
+var (
+	maxPendingSessions    = 4096
+	pendingSessionTimeout = 30 * time.Second
+	// pendingUploadTimeout bounds reading the body of a packet-up upload to a
+	// pending session: the client has not authenticated, it must not hold a
+	// request open by trickling its body.
+	pendingUploadTimeout = 15 * time.Second
+	// maxPendingUploadBytes bounds the upload payload accepted by all pending
+	// sessions together (counted until a session leaves the pending state or
+	// is removed); beyond it a new pending upload gets 503. A client sends
+	// little before it authenticates, the VLESS header and its first data.
+	maxPendingUploadBytes = 64 << 20
+)
+
+// maxSessionIDLength bounds the session ID taken from the request. Xray-core
+// and Citrus clients send 32 hex digits, a UUID or a configured 16-32
+// character string by default.
+const maxSessionIDLength = 256
+
 type httpSession struct {
 	uploadQueue *UploadQueue
-	connected   chan struct{}
-	once        sync.Once
+	activated   chan struct{} // closed once the session is no longer pending
+	activate    sync.Once
+	closed      chan struct{} // closed once the session is removed from the handler
+	// guarded by requestHandler.mu
+	pending      bool
+	pendingBytes int  // upload payload accepted while pending
+	uploads      int  // packet-up uploads in progress while pending
+	downloading  bool // a session download is being served
 }
 
 func newHTTPSession(maxPackets int) *httpSession {
 	return &httpSession{
 		uploadQueue: NewUploadQueue(maxPackets),
-		connected:   make(chan struct{}),
+		activated:   make(chan struct{}),
+		closed:      make(chan struct{}),
+		pending:     true,
 	}
 }
 
-func (s *httpSession) markConnected() {
-	s.once.Do(func() {
-		close(s.connected)
-	})
+// sessionReader feeds the inner handler from the upload queue and marks the
+// session active on the first byte it delivers.
+type sessionReader struct {
+	*UploadQueue
+	h *requestHandler
+	s *httpSession
+}
+
+func (r *sessionReader) Read(b []byte) (int, error) {
+	n, err := r.UploadQueue.Read(b)
+	if n > 0 && !r.h.reportsAuthentication {
+		r.h.activateSession(r.s)
+	}
+	return n, err
 }
 
 type requestHandler struct {
 	config      Config
-	connHandler func(net.Conn)
+	connHandler func(net.Conn, *http.Request)
 	httpHandler http.Handler
+
+	reportsAuthentication bool
 
 	xPaddingBytes        Range
 	scMaxEachPostBytes   Range
 	scStreamUpServerSecs Range
 	scMaxBufferedPosts   Range
 
-	mu       sync.Mutex
-	sessions map[string]*httpSession
+	mu           sync.Mutex
+	sessions     map[string]*httpSession
+	pending      int // sessions that have not left the pending state yet
+	pendingBytes int // sum of httpSession.pendingBytes
 }
 
 func NewServerHandler(opt ServerOption) (http.Handler, error) {
@@ -127,17 +194,92 @@ func NewServerHandler(opt ServerOption) (http.Handler, error) {
 		return nil, err
 	}
 	return &requestHandler{
-		config:               opt.Config,
-		connHandler:          opt.ConnHandler,
-		httpHandler:          opt.HttpHandler,
-		xPaddingBytes:        xPaddingBytes,
-		scMaxEachPostBytes:   scMaxEachPostBytes,
-		scStreamUpServerSecs: scStreamUpServerSecs,
-		scMaxBufferedPosts:   scMaxBufferedPosts,
-		sessions:             map[string]*httpSession{},
+		config:                opt.Config,
+		connHandler:           opt.ConnHandler,
+		httpHandler:           opt.HttpHandler,
+		reportsAuthentication: opt.ReportsAuthentication,
+		xPaddingBytes:         xPaddingBytes,
+		scMaxEachPostBytes:    scMaxEachPostBytes,
+		scStreamUpServerSecs:  scStreamUpServerSecs,
+		scMaxBufferedPosts:    scMaxBufferedPosts,
+		sessions:              map[string]*httpSession{},
 	}, nil
 }
 
+func (h *requestHandler) activateSession(s *httpSession) {
+	s.activate.Do(func() {
+		h.mu.Lock()
+		h.leavePendingLocked(s)
+		h.mu.Unlock()
+		close(s.activated)
+	})
+}
+
+// leavePendingLocked drops s from the pending accounting. h.mu must be held.
+func (h *requestHandler) leavePendingLocked(s *httpSession) {
+	if s.pending {
+		s.pending = false
+		h.pending--
+		h.pendingBytes -= s.pendingBytes
+		s.pendingBytes = 0
+	}
+}
+
+// beginPendingUpload admits a packet-up upload. It returns whether the
+// session is pending, and false for ok when a pending session already has as
+// many uploads in progress as its queue holds packets: more could not be
+// queued anyway, and each holds a request and its body.
+func (h *requestHandler) beginPendingUpload(s *httpSession) (pending, ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !s.pending {
+		return false, true
+	}
+	if s.uploads >= h.scMaxBufferedPosts.Max {
+		return true, false
+	}
+	s.uploads++
+	return true, true
+}
+
+func (h *requestHandler) endPendingUpload(s *httpSession) {
+	h.mu.Lock()
+	s.uploads--
+	h.mu.Unlock()
+}
+
+// reservePendingBytes counts n payload bytes against the pending budget; it
+// fails when the session is still pending and the budget is spent.
+func (h *requestHandler) reservePendingBytes(s *httpSession, n int) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !s.pending {
+		return true
+	}
+	if h.pendingBytes+n > maxPendingUploadBytes {
+		return false
+	}
+	h.pendingBytes += n
+	s.pendingBytes += n
+	return true
+}
+
+// beginDownload marks the session download as served; a second concurrent
+// download of the same session would run a second inner handler on the same
+// upload queue.
+func (h *requestHandler) beginDownload(s *httpSession) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if s.downloading {
+		return false
+	}
+	s.downloading = true
+	return true
+}
+
+// upsertSession returns the session for sessionID, creating it if needed. It
+// returns nil when the session does not exist and too many sessions are
+// already pending.
 func (h *requestHandler) upsertSession(sessionID string) *httpSession {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -146,33 +288,44 @@ func (h *requestHandler) upsertSession(sessionID string) *httpSession {
 	if ok {
 		return s
 	}
+	if h.pending >= maxPendingSessions {
+		return nil
+	}
 
 	s = newHTTPSession(h.scMaxBufferedPosts.Max)
 	h.sessions[sessionID] = s
+	h.pending++
 
-	// Reap orphan sessions that never become fully connected (e.g. from probing).
-	// Matches Xray-core's 30-second reaper in upsertSession.
+	// Reap sessions that never deliver any upload data (e.g. from probing).
+	// Xray-core's reaper stops at the download GET; this one waits for data.
+	timeout := pendingSessionTimeout // read here, not in the goroutine, which may outlive a test that changes it
 	go func() {
-		timer := time.NewTimer(30 * time.Second)
+		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 		select {
 		case <-timer.C:
-			h.deleteSession(sessionID)
-		case <-s.connected:
+			h.deleteSession(sessionID, s)
+		case <-s.activated:
+		case <-s.closed:
 		}
 	}()
 
 	return s
 }
 
-func (h *requestHandler) deleteSession(sessionID string) {
+// deleteSession removes s if it is still the session registered under
+// sessionID, so a late close never drops a newer session with the same ID.
+func (h *requestHandler) deleteSession(sessionID string, s *httpSession) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if s, ok := h.sessions[sessionID]; ok {
-		_ = s.uploadQueue.Close()
-		delete(h.sessions, sessionID)
+	if h.sessions[sessionID] != s {
+		return
 	}
+	delete(h.sessions, sessionID)
+	h.leavePendingLocked(s)
+	_ = s.uploadQueue.Close()
+	close(s.closed)
 }
 
 func (h *requestHandler) getSession(sessionID string) *httpSession {
@@ -246,11 +399,7 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	config := XPaddingConfig{Length: length}
 
 	if h.config.XPaddingObfsMode {
-		config.Placement = XPaddingPlacement{
-			Placement: h.config.XPaddingPlacement,
-			Key:       h.config.XPaddingKey,
-			Header:    h.config.XPaddingHeader,
-		}
+		config.Placement = h.config.xPaddingObfsPlacement("")
 		config.Method = PaddingMethod(h.config.XPaddingMethod)
 	} else {
 		config.Placement = XPaddingPlacement{
@@ -273,10 +422,18 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	obfsPaddingAccepted := h.config.XPaddingObfsMode && paddingValue != ""
 	sessionId, seqStr := h.config.ExtractMetaFromRequest(r, path)
+	if len(sessionId) > maxSessionIDLength {
+		http.Error(w, "invalid xhttp session", http.StatusBadRequest)
+		return
+	}
 
 	var currentSession *httpSession
 	if sessionId != "" {
 		currentSession = h.upsertSession(sessionId)
+		if currentSession == nil {
+			http.Error(w, "too many pending sessions", http.StatusServiceUnavailable)
+			return
+		}
 	}
 
 	// stream-up upload: POST /path/{session}
@@ -328,14 +485,31 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// packet-up upload: POST /path/{session}/{seq}
-	if r.Method != http.MethodGet && sessionId != "" && seqStr != "" && h.allowPacketUpUpload() {
+	// packet-up upload: {any method} /path/{session}/{seq}
+	// As in Xray-core, a request with a seq is an upload whatever its method
+	// (uplink-http-method): CDNs that pass only GET/HEAD to the origin, or
+	// answer 405 to POST, still get through with GET/PUT/... uploads.
+	if sessionId != "" && seqStr != "" && h.allowPacketUpUpload() {
+		seq, err := strconv.ParseUint(seqStr, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid xhttp seq", http.StatusBadRequest)
+			return
+		}
+		pending, ok := h.beginPendingUpload(currentSession)
+		if !ok {
+			http.Error(w, "too many pending uploads", http.StatusServiceUnavailable)
+			return
+		}
+		if pending {
+			defer h.endPendingUpload(currentSession)
+			// the client is not authenticated yet: the body must come in time
+			_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(pendingUploadTimeout))
+		}
 		scMaxEachPostBytes := h.scMaxEachPostBytes.Max
-		dataPlacement := h.config.GetNormalizedUplinkDataPlacement()
-		uplinkDataKey := h.config.UplinkDataKey
+		dataPlacement := h.config.GetNormalizedServerUplinkDataPlacement()
 		var headerPayload []byte
-		var err error
 		if dataPlacement == PlacementAuto || dataPlacement == PlacementHeader {
+			uplinkDataKey := h.config.GetNormalizedUplinkDataKey(PlacementHeader)
 			var headerPayloadChunks []string
 			for i := 0; true; i++ {
 				chunk := r.Header.Get(fmt.Sprintf("%s-%d", uplinkDataKey, i))
@@ -354,6 +528,7 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		var cookiePayload []byte
 		if dataPlacement == PlacementAuto || dataPlacement == PlacementCookie {
+			uplinkDataKey := h.config.GetNormalizedUplinkDataKey(PlacementCookie)
 			var cookiePayloadChunks []string
 			for i := 0; true; i++ {
 				cookieName := fmt.Sprintf("%s_%d", uplinkDataKey, i)
@@ -372,19 +547,24 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var bodyPayload []byte
+		var releaseBody func()
 		if dataPlacement == PlacementAuto || dataPlacement == PlacementBody {
 			if r.ContentLength > int64(scMaxEachPostBytes) {
 				http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
 				return
 			}
-			bodyPayload, err = io.ReadAll(io.LimitReader(r.Body, int64(scMaxEachPostBytes)+1))
+			bodyPayload, releaseBody, err = readPacketBody(r.Body, r.ContentLength, scMaxEachPostBytes)
 			if err != nil {
 				http.Error(w, "failed to read body", http.StatusBadRequest)
 				return
 			}
+			if pending {
+				_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
+			}
 		}
 
 		var payload []byte
+		release := releaseBody // only while payload is bodyPayload itself
 		switch dataPlacement {
 		case PlacementHeader:
 			payload = headerPayload
@@ -393,33 +573,47 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case PlacementBody:
 			payload = bodyPayload
 		case PlacementAuto:
+			if len(headerPayload) == 0 && len(cookiePayload) == 0 {
+				payload = bodyPayload // the usual case: no copy
+				break
+			}
 			payload = headerPayload
 			payload = append(payload, cookiePayload...)
 			payload = append(payload, bodyPayload...)
+			if releaseBody != nil {
+				releaseBody()
+				release = nil
+			}
 		}
 
 		if len(payload) > h.scMaxEachPostBytes.Max {
+			if release != nil {
+				release()
+			}
 			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
 
-		seq, err := strconv.ParseUint(seqStr, 10, 64)
-		if err != nil {
-			http.Error(w, "invalid xhttp seq", http.StatusBadRequest)
+		if !h.reservePendingBytes(currentSession, len(payload)) {
+			if release != nil {
+				release()
+			}
+			http.Error(w, "too much pending upload data", http.StatusServiceUnavailable)
 			return
 		}
 
 		err = currentSession.uploadQueue.Push(Packet{
 			Seq:     seq,
 			Payload: payload,
+			Release: release,
 		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if len(payload) == 0 {
-			// Methods without a body are usually cached by default.
+		if len(bodyPayload) == 0 || r.Method == http.MethodGet {
+			// Methods without a body are usually cached by default, and so are GET responses.
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		w.WriteHeader(http.StatusOK)
@@ -428,8 +622,14 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// stream-up/packet-up download: GET /path/{session}
 	if r.Method == http.MethodGet && sessionId != "" && seqStr == "" && h.allowSessionDownload() {
-		currentSession.markConnected()
-
+		if !h.beginDownload(currentSession) {
+			http.Error(w, "session download already in progress", http.StatusConflict)
+			return
+		}
+		if h.reportsAuthentication {
+			s := currentSession
+			r = r.WithContext(context.WithValue(r.Context(), authenticatedKey{}, func() { h.activateSession(s) }))
+		}
 		// magic header instructs nginx + apache to not buffer response body
 		w.Header().Set("X-Accel-Buffering", "no")
 		// A web-compliant header telling all middleboxes to disable caching.
@@ -449,18 +649,19 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpSC := newHTTPServerConn(w, r.Body)
 		conn := &Conn{
 			writer: httpSC,
-			reader: currentSession.uploadQueue,
+			reader: &sessionReader{UploadQueue: currentSession.uploadQueue, h: h, s: currentSession},
 			onClose: func() {
-				h.deleteSession(sessionId)
+				h.deleteSession(sessionId, currentSession)
 			},
 		}
 		httputils.SetAddrFromRequest(&conn.NetAddr, r)
 
-		go h.connHandler(N.NewDeadlineConn(conn))
+		go h.connHandler(N.NewDeadlineConn(conn), r)
 
 		select {
 		case <-r.Context().Done():
 		case <-httpSC.Wait():
+		case <-currentSession.closed: // reaped before any upload data arrived
 		}
 
 		_ = conn.Close()
@@ -484,7 +685,7 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		httputils.SetAddrFromRequest(&conn.NetAddr, r)
 
-		go h.connHandler(N.NewDeadlineConn(conn))
+		go h.connHandler(N.NewDeadlineConn(conn), r)
 
 		select {
 		case <-r.Context().Done():
@@ -496,6 +697,50 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.NotFound(w, r)
+}
+
+// packetBodyPool recycles the bodies of packet-up uploads (up to
+// sc-max-each-post-bytes, 1 MB by default, per request). Reading them with
+// io.ReadAll grew a fresh slice from 512 bytes for every POST: about twice the
+// body in copies, the same again in zeroed memory, and the GC work for it, a
+// large part of the server's CPU for a packet-up upload.
+var packetBodyPool sync.Pool // of *[]byte
+
+// minPooledPacketBody: smaller bodies are allocated exactly; a pooled buffer
+// is only used for a body of at least half its capacity, so a small packet
+// waiting in an upload queue never pins a large buffer.
+const minPooledPacketBody = 32 << 10
+
+// readPacketBody reads a packet-up request body of at most limit bytes. When
+// the length is declared, the body is read into a buffer of that size, pooled
+// for large bodies; release (nil when not pooled) gives the buffer back once
+// the payload is no longer used.
+func readPacketBody(r io.Reader, contentLength int64, limit int) (payload []byte, release func(), err error) {
+	if contentLength < 0 || contentLength > int64(limit) {
+		// unknown length (HTTP/1.1 chunked, or HTTP/2 without content-length);
+		// the caller rejects a declared length above the limit.
+		payload, err = io.ReadAll(io.LimitReader(r, int64(limit)+1))
+		return payload, nil, err
+	}
+	n := int(contentLength)
+	if n < minPooledPacketBody {
+		payload = make([]byte, n)
+		if _, err = io.ReadFull(r, payload); err != nil {
+			return nil, nil, err
+		}
+		return payload, nil, nil
+	}
+	bp, _ := packetBodyPool.Get().(*[]byte)
+	if bp == nil || cap(*bp) < n || cap(*bp)/2 > n {
+		b := make([]byte, n)
+		bp = &b
+	}
+	payload = (*bp)[:n]
+	if _, err = io.ReadFull(r, payload); err != nil {
+		packetBodyPool.Put(bp)
+		return nil, nil, err
+	}
+	return payload, func() { packetBodyPool.Put(bp) }, nil
 }
 
 func splitNonEmpty(s string) []string {

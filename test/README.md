@@ -13,16 +13,13 @@
   - [x] Normal
   - [x] ObfsHTTP
   - [x] ObfsTLS
-  - [x] ObfsV2rayPlugin
-- [x] Vmess
-  - [x] Normal
-  - [x] AEAD
+- [x] VLESS
+  - [x] TLS
+  - [x] XTLS
   - [x] HTTP
   - [x] HTTP2
-  - [x] TLS
-  - [x] Websocket
   - [x] Websocket TLS
-  - [x] gRPC
+  - [x] Websocket 0-RTT
 - [x] Trojan
   - [x] Normal
   - [x] gRPC

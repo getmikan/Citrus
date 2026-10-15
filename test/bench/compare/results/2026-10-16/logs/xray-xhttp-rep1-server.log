@@ -1,0 +1,5 @@
+Xray 26.10.10 (Xray, Penetrates Everything.) 701af60 (go1.27.2 linux/amd64)
+A unified platform for anti-censorship.
+2026/10/15 11:55:53.533020 [Info] infra/conf/serial: Reading config: &{Name:/cfg/xray/xhttp.json Format:json}
+2026/10/15 11:55:53.542567 [Warning] core: Xray 26.10.10 started
+2026/10/15 11:55:54.060363 http: TLS handshake error from 10.77.0.30:23514: EOF

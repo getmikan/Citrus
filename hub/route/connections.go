@@ -3,6 +3,7 @@ package route
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -11,6 +12,12 @@ import (
 	"github.com/metacubex/chi"
 	"github.com/metacubex/chi/render"
 	"github.com/metacubex/http"
+)
+
+// The bounds of the interval (milliseconds) of the /connections websocket.
+const (
+	minConnectionsInterval = 1
+	maxConnectionsInterval = 3600 * 1000
 )
 
 func connectionRouter() http.Handler {
@@ -28,23 +35,24 @@ func getConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The interval is checked before the upgrade: after it the response
+	// writer is gone, and a nonpositive ticker period panics.
+	interval := 1000
+	if intervalStr := r.URL.Query().Get("interval"); intervalStr != "" {
+		t, err := strconv.Atoi(intervalStr)
+		if err != nil || t < minConnectionsInterval || t > maxConnectionsInterval {
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, newError(fmt.Sprintf("interval must be %d to %d milliseconds", minConnectionsInterval, maxConnectionsInterval)))
+			return
+		}
+		interval = t
+	}
+
 	conn, _, err := wsUpgrade(r, w)
 	if err != nil {
 		return
 	}
-
-	intervalStr := r.URL.Query().Get("interval")
-	interval := 1000
-	if intervalStr != "" {
-		t, err := strconv.Atoi(intervalStr)
-		if err != nil {
-			render.Status(r, http.StatusBadRequest)
-			render.JSON(w, r, ErrBadRequest)
-			return
-		}
-
-		interval = t
-	}
+	defer untrackStream(conn)
 
 	buf := &bytes.Buffer{}
 	sendSnapshot := func() error {
@@ -78,9 +86,18 @@ func closeConnection(w http.ResponseWriter, r *http.Request) {
 	render.NoContent(w, r)
 }
 
+// closeAllConnections closes all connections, or with the `inbound` and/or
+// `user` query parameters only the connections of that inbound and user.
 func closeAllConnections(w http.ResponseWriter, r *http.Request) {
+	match := userFilter(r)
 	statistic.DefaultManager.Range(func(c statistic.Tracker) bool {
-		_ = c.Close()
+		var inbound, user string
+		if m := c.Info().Metadata; m != nil {
+			inbound, user = m.InName, m.InUser
+		}
+		if match(inbound, user) {
+			_ = c.Close()
+		}
 		return true
 	})
 	render.NoContent(w, r)

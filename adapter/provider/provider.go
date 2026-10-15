@@ -11,6 +11,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/common/convert"
+	"github.com/metacubex/mihomo/common/regexp2x"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/common/yaml"
 	"github.com/metacubex/mihomo/component/age"
@@ -18,6 +19,7 @@ import (
 	"github.com/metacubex/mihomo/component/resource"
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
+	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 
 	"github.com/dlclark/regexp2"
@@ -26,6 +28,14 @@ import (
 
 const (
 	ReservedName = "default"
+
+	// maxProviderEntries caps the proxy entries a provider document may hold
+	// before any of them is parsed, and maxProviderProxies caps the adapters
+	// built from one provider. Real subscriptions hold hundreds to a few
+	// thousand proxies; the caps stop a hostile or broken source from making
+	// the core build an unbounded number of adapters within the size limit.
+	maxProviderEntries = 50000
+	maxProviderProxies = 10000
 )
 
 type ProxySchema struct {
@@ -207,6 +217,7 @@ func NewProxySetProvider(name string, interval time.Duration, payload []map[stri
 
 	fetcher := resource.NewFetcher[[]C.Proxy](name, interval, vehicle, nil, parser, pd.setProxies)
 	pd.Fetcher = fetcher
+	fetcher.SetResourceType("proxy")
 	if httpVehicle, ok := vehicle.(*resource.HTTPVehicle); ok {
 		httpVehicle.SetInRead(func(resp *http.Response) {
 			if subscriptionInfo := resp.Header.Get("subscription-userinfo"); subscriptionInfo != "" {
@@ -349,7 +360,7 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 	var excludeFilterRegs []*regexp2.Regexp
 	if excludeFilter != "" {
 		for _, excludeFilter := range strings.Split(excludeFilter, "`") {
-			excludeFilterReg, err := regexp2.Compile(excludeFilter, regexp2.None)
+			excludeFilterReg, err := regexp2x.Compile(excludeFilter, regexp2.None)
 			if err != nil {
 				return nil, fmt.Errorf("invalid excludeFilter regex: %w", err)
 			}
@@ -359,11 +370,16 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 
 	var filterRegs []*regexp2.Regexp
 	for _, filter := range strings.Split(filter, "`") {
-		filterReg, err := regexp2.Compile(filter, regexp2.None)
+		filterReg, err := regexp2x.Compile(filter, regexp2.None)
 		if err != nil {
 			return nil, fmt.Errorf("invalid filter regex: %w", err)
 		}
 		filterRegs = append(filterRegs, filterReg)
+	}
+
+	// override.proxy-name patterns are decoded from the configuration
+	for _, expr := range override.ProxyName {
+		regexp2x.SetTimeout(expr.Pattern)
 	}
 
 	if ageSecretKey != "" {
@@ -391,6 +407,9 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 
 		if schema.Proxies == nil {
 			return nil, errors.New("file must have a `proxies` field")
+		}
+		if len(schema.Proxies) > maxProviderEntries {
+			return nil, fmt.Errorf("file has %d proxies, more than the limit of %d", len(schema.Proxies), maxProviderEntries)
 		}
 
 		proxies := []C.Proxy{}
@@ -423,18 +442,21 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 				}
 				if len(excludeFilterRegs) > 0 {
 					for _, excludeFilterReg := range excludeFilterRegs {
-						if mat, _ := excludeFilterReg.MatchString(name); mat {
+						if regexp2x.MatchString(excludeFilterReg, name) {
 							continue LOOP1
 						}
 					}
 				}
 				if len(filter) > 0 {
-					if mat, _ := filterReg.MatchString(name); !mat {
+					if !regexp2x.MatchString(filterReg, name) {
 						continue
 					}
 				}
 				if _, ok := proxiesSet[name]; ok {
 					continue
+				}
+				if len(proxies) >= maxProviderProxies {
+					return nil, fmt.Errorf("provider yields more than %d proxies; narrow it with filter or exclude-filter", maxProviderProxies)
 				}
 
 				if len(dialerProxy) > 0 {
@@ -447,6 +469,12 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 				}
 
 				proxy, err := adapter.ParseProxy(mapping, adapter.WithTunnelForAPI(tunnel), adapter.WithProviderName(pdName))
+				if errors.Is(err, C.ErrRemovedProtocol) {
+					// Nothing from the mapping but the name: err is built from it and may
+					// carry credentials.
+					log.Warnln("[Provider] %s: skip proxy %d (%s): it uses a protocol or option removed from Citrus (SSR, Hysteria v1, TUIC v4, Shadowsocks stream ciphers, v2ray-plugin, VMess)", pdName, idx, name)
+					continue
+				}
 				if err != nil {
 					return nil, fmt.Errorf("proxy %d error: %w", idx, err)
 				}

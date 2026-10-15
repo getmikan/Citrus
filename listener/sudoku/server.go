@@ -12,6 +12,7 @@ import (
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/authevent"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/inner"
@@ -98,6 +99,7 @@ func (l *Listener) handleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 		var susp *sudoku.SuspiciousError
 		isSuspicious := errors.As(err, &susp) && susp != nil && susp.Conn != nil
 		if isSuspicious {
+			authevent.EmitAddr("sudoku", authevent.ReasonRejectedHandshake, conn.LocalAddr(), conn.RemoteAddr())
 			log.Warnln("[Sudoku] suspicious handshake from %s: %v", conn.RemoteAddr(), err)
 			if fallbackAddr != "" {
 				fb, err := inner.HandleTcp(tunnel, fallbackAddr, "")

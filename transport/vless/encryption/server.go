@@ -86,24 +86,63 @@ func (i *ServerInstance) Init(nfsSKeysBytes [][]byte, xorMode uint32, secondsFro
 					i.RWLock.Unlock()
 					return
 				}
-				minute := time.Now().Unix() / 60
-				last := i.Lasts[minute]
-				delete(i.Lasts, minute)
-				delete(i.Lasts, minute-1) // for insurance
-				if last != [16]byte{} {
-					for j, ticket := range i.Tickets {
-						delete(i.Sessions, ticket)
-						if ticket == last {
-							i.Tickets = i.Tickets[j+1:]
-							break
-						}
-					}
-				}
+				i.expireTicketsLocked(time.Now())
 				i.RWLock.Unlock()
 			}
 		}()
 	}
 	return
+}
+
+// MaxServerSessions bounds the number of 0-RTT tickets a ServerInstance keeps.
+// A ticket is issued after a successful 1-RTT handshake, which happens before
+// the inner VLESS UUID is checked, so without a cap any peer that knows the
+// public decryption key could grow the store without limit until the
+// per-minute expiry catches up. When the store is full, the oldest tickets are
+// evicted first; a client presenting an evicted ticket is simply told to do a
+// new 1-RTT handshake, exactly as for an expired one. Xray-core has no such
+// limit; it does not affect the wire format.
+var MaxServerSessions = 65536
+
+// expireTicketsLocked drops every ticket issued up to the last ticket recorded
+// for the current minute. The caller holds i.RWLock for writing.
+func (i *ServerInstance) expireTicketsLocked(now time.Time) {
+	minute := now.Unix() / 60
+	last := i.Lasts[minute]
+	delete(i.Lasts, minute)
+	delete(i.Lasts, minute-1) // for insurance
+	if last == [16]byte{} {
+		return
+	}
+	if _, ok := i.Sessions[last]; !ok {
+		return // already evicted by the cap, together with everything older
+	}
+	for j, ticket := range i.Tickets {
+		delete(i.Sessions, ticket)
+		if ticket == last {
+			i.Tickets = i.Tickets[j+1:]
+			break
+		}
+	}
+}
+
+// storeTicketLocked records a new ticket, evicting the oldest ones when the
+// store is full. The caller holds i.RWLock for writing.
+func (i *ServerInstance) storeTicketLocked(now time.Time, ticket [16]byte, s *ServerSession) {
+	if _, ok := i.Sessions[ticket]; ok { // a 112-bit random collision: the ticket is already queued
+		i.Sessions[ticket] = s
+		return
+	}
+	limit := max(MaxServerSessions, 1)
+	if n := len(i.Tickets) - limit + 1; n > 0 {
+		for _, old := range i.Tickets[:n] {
+			delete(i.Sessions, old)
+		}
+		i.Tickets = i.Tickets[n:]
+	}
+	i.Lasts[(now.Unix()+max(i.SecondsFrom, i.SecondsTo))/60+2] = ticket
+	i.Tickets = append(i.Tickets, ticket)
+	i.Sessions[ticket] = s
 }
 
 func (i *ServerInstance) Close() (err error) {
@@ -276,9 +315,7 @@ func (i *ServerInstance) Handshake(conn net.Conn, fallback *[]byte) (*CommonConn
 	copy(ticket[:], EncodeLength(int(seconds)))
 	if seconds > 0 {
 		i.RWLock.Lock()
-		i.Lasts[(time.Now().Unix()+max(i.SecondsFrom, i.SecondsTo))/60+2] = ticket
-		i.Tickets = append(i.Tickets, ticket)
-		i.Sessions[ticket] = &ServerSession{PfsKey: pfsKey}
+		i.storeTicketLocked(time.Now(), ticket, &ServerSession{PfsKey: pfsKey})
 		i.RWLock.Unlock()
 	}
 

@@ -68,7 +68,7 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		return nil, err
 	}
 
-	tlsConfig := &tls.Config{Time: ntp.Now}
+	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
 	var realityBuilder *reality.Builder
 
 	if config.Certificate != "" && config.PrivateKey != "" {

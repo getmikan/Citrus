@@ -1,0 +1,21 @@
+---
+// RU | EN as two links in one pill, like the language switch in the panel itself. Every page
+// exists in both languages, so the other link goes to the same page.
+import { otherLocaleUrl } from '../locale';
+
+const lang = Astro.locals.starlightRoute.lang === 'en' ? 'en' : 'ru';
+const items = [
+	{ code: 'ru', label: 'RU', name: 'Русский', href: otherLocaleUrl(Astro.url.pathname, 'ru') },
+	{ code: 'en', label: 'EN', name: 'English', href: otherLocaleUrl(Astro.url.pathname, 'en') },
+];
+---
+
+<nav class="seg seg-lang" aria-label={lang === 'en' ? 'Language' : 'Язык'}>
+	{
+		items.map((i) => (
+			<a class="seg-item" href={i.href} hreflang={i.code} lang={i.code} aria-current={i.code === lang ? 'page' : undefined} aria-label={i.name}>
+				{i.label}
+			</a>
+		))
+	}
+</nav>

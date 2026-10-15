@@ -1,0 +1,9 @@
+---
+// Only the two landing pages (index.mdx in each language) have a hero; they render the
+// whole landing here instead of Starlight's generic hero.
+import Landing from './Landing.astro';
+
+const lang = Astro.locals.starlightRoute.lang === 'en' ? 'en' : 'ru';
+---
+
+<Landing lang={lang} />

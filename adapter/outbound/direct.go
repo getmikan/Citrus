@@ -27,7 +27,7 @@ func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn,
 	}
 	opts := d.DialOptions()
 	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
-	c, err := dialer.DialContext(ctx, "tcp", metadata.RemoteAddress(), opts...)
+	c, err := dialer.DialContext(ctx, "tcp", directAddress(metadata), opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +50,9 @@ func (d *Direct) ListenPacketContext(ctx context.Context, metadata *C.Metadata) 
 }
 
 func (d *Direct) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
+	if metadata.DstIPChecked && metadata.Resolved() {
+		return nil // keep the address the IP rules were matched against
+	}
 	if (!metadata.Resolved() || resolver.DirectHostResolver != resolver.DefaultResolver) && metadata.Host != "" {
 		ip, err := resolveIPWithResolver(ctx, metadata.Host, d.prefer, resolver.DirectHostResolver)
 		if err != nil {
@@ -58,6 +61,18 @@ func (d *Direct) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
 		metadata.DstIP = ip
 	}
 	return nil
+}
+
+// directAddress returns the address DIRECT dials. When an IP-based rule
+// resolved Host to DstIP during rule matching, the connection is pinned to
+// that checked address; resolving Host again (possibly through
+// direct-nameserver, or after a DNS rebind) could reach an address the rules
+// never saw.
+func directAddress(metadata *C.Metadata) string {
+	if metadata.DstIPChecked && metadata.Resolved() {
+		return metadata.AddrPort().String()
+	}
+	return metadata.RemoteAddress()
 }
 
 func (d *Direct) IsL3Protocol(metadata *C.Metadata) bool {

@@ -28,20 +28,34 @@ func NewHosts(hosts *trie.DomainTrie[HostValue]) Hosts {
 	}
 }
 
-// Return the search result and whether to match the parameter `isDomain`
+// MaxHostsHops bounds how many domain -> domain mappings a lookup follows, so a
+// cycle the config check can't see (e.g. one closed through a wildcard) can't
+// spin forever.
+const MaxHostsHops = 16
+
+// Return the search result and whether to match the parameter `isDomain`.
+// Domain mappings are followed to the last domain or to the IPs it maps to;
+// a mapping onto itself (e.g. `+.example.com: example.com`) ends the chain at
+// that domain, and a chain longer than MaxHostsHops (a cycle) counts as no mapping.
 func (h *Hosts) Search(domain string, isDomain bool) (*HostValue, bool) {
 	if value := h.DomainTrie.Search(domain); value != nil {
 		hostValue := value.Data()
-		for {
-			if isDomain && hostValue.IsDomain {
+		for hops := 0; hostValue.IsDomain; hops++ {
+			if isDomain {
 				return &hostValue, true
-			} else {
-				if node := h.DomainTrie.Search(hostValue.Domain); node != nil {
-					hostValue = node.Data()
-				} else {
-					break
-				}
 			}
+			if hops == MaxHostsHops {
+				return nil, false
+			}
+			node := h.DomainTrie.Search(hostValue.Domain)
+			if node == nil {
+				break
+			}
+			next := node.Data()
+			if next.IsDomain && strings.EqualFold(next.Domain, hostValue.Domain) {
+				break
+			}
+			hostValue = next
 		}
 		if isDomain == hostValue.IsDomain {
 			return &hostValue, true

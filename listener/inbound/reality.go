@@ -10,6 +10,11 @@ type RealityConfig struct {
 	MaxTimeDifference int      `inbound:"max-time-difference,omitempty"`
 	Proxy             string   `inbound:"proxy,omitempty"`
 
+	Mldsa65Seed           string `inbound:"mldsa65-seed,omitempty"`
+	RequireX25519MLKEM768 bool   `inbound:"require-x25519mlkem768,omitempty"`
+	MinClientVer          string `inbound:"min-client-ver,omitempty"`
+	MaxClientVer          string `inbound:"max-client-ver,omitempty"`
+
 	LimitFallbackUpload   RealityLimitFallback `inbound:"limit-fallback-upload,omitempty"`
 	LimitFallbackDownload RealityLimitFallback `inbound:"limit-fallback-download,omitempty"`
 }
@@ -28,6 +33,11 @@ func (c RealityConfig) Build() reality.Config {
 		ServerNames:       c.ServerNames,
 		MaxTimeDifference: c.MaxTimeDifference,
 		Proxy:             c.Proxy,
+
+		Mldsa65Seed:           c.Mldsa65Seed,
+		RequireX25519MLKEM768: c.RequireX25519MLKEM768,
+		MinClientVer:          c.MinClientVer,
+		MaxClientVer:          c.MaxClientVer,
 
 		LimitFallbackUpload: reality.LimitFallback{
 			AfterBytes:       c.LimitFallbackUpload.AfterBytes,

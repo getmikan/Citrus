@@ -21,7 +21,7 @@ func ParseListener(mapping map[string]any) (C.InboundListener, error) {
 	)
 	switch proxyType {
 	case "socks":
-		socksOption := &IN.SocksOption{UDP: true}
+		socksOption := &IN.SocksOption{UDP: defaultUDP(mapping)}
 		err = decoder.Decode(mapping, socksOption)
 		if err != nil {
 			return nil, err
@@ -49,7 +49,7 @@ func ParseListener(mapping map[string]any) (C.InboundListener, error) {
 		}
 		listener, err = IN.NewRedir(redirOption)
 	case "mixed":
-		mixedOption := &IN.MixedOption{UDP: true}
+		mixedOption := &IN.MixedOption{UDP: defaultUDP(mapping)}
 		err = decoder.Decode(mapping, mixedOption)
 		if err != nil {
 			return nil, err
@@ -73,7 +73,7 @@ func ParseListener(mapping map[string]any) (C.InboundListener, error) {
 		}
 		listener, err = IN.NewTun(tunOption)
 	case "shadowsocks":
-		shadowsocksOption := &IN.ShadowSocksOption{UDP: true}
+		shadowsocksOption := &IN.ShadowSocksOption{UDP: defaultUDP(mapping)}
 		err = decoder.Decode(mapping, shadowsocksOption)
 		if err != nil {
 			return nil, err
@@ -87,12 +87,7 @@ func ParseListener(mapping map[string]any) (C.InboundListener, error) {
 		}
 		listener, err = IN.NewSnell(snellOption)
 	case "vmess":
-		vmessOption := &IN.VmessOption{}
-		err = decoder.Decode(mapping, vmessOption)
-		if err != nil {
-			return nil, err
-		}
-		listener, err = IN.NewVmess(vmessOption)
+		return nil, C.ErrVMessRemoved
 	case "vless":
 		vlessOption := &IN.VlessOption{}
 		err = decoder.Decode(mapping, vlessOption)
@@ -179,4 +174,12 @@ func ParseListener(mapping map[string]any) (C.InboundListener, error) {
 		return nil, fmt.Errorf("unsupport proxy type: %s", proxyType)
 	}
 	return listener, err
+}
+
+// defaultUDP is the default of the udp option of the listeners that relay UDP
+// next to TCP by default: on, except for a listener on a unix socket, which
+// carries TCP streams only.
+func defaultUDP(mapping map[string]any) bool {
+	listen, _ := mapping["listen"].(string)
+	return !IN.IsUnixListen(listen)
 }

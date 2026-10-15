@@ -69,16 +69,17 @@ func ReadDomainMapBin[T any](reader io.Reader, readValue func(io.Reader) (T, err
 	if err := binary.Read(reader, binary.BigEndian, &length); err != nil {
 		return nil, err
 	}
-	if length < 1 {
-		return nil, errors.New("length is invalid")
+	if err = checkBinLength(length); err != nil {
+		return nil, err
 	}
-	mapping := &DomainMap[T]{values: make([]T, length)}
+	mapping := &DomainMap[T]{values: make([]T, 0, min64(length, binPreallocLength))}
 	mapping.index.DomainSet = set
-	for index := range mapping.values {
-		mapping.values[index], err = readValue(reader)
+	for i := int64(0); i < length; i++ {
+		value, err := readValue(reader)
 		if err != nil {
 			return nil, err
 		}
+		mapping.values = append(mapping.values, value)
 	}
 
 	// init

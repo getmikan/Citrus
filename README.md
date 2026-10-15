@@ -18,7 +18,7 @@ in one YAML configuration.
 ## Features
 
 - HTTP, HTTPS, SOCKS, mixed, redirect, and TPROXY listeners.
-- VMess, VLESS, Shadowsocks, Trojan, Snell, TUIC, Hysteria, and other outbound protocols.
+- VLESS, Shadowsocks, Trojan, Snell, TUIC, Hysteria2, and other outbound protocols.
 - TUN networking with a configurable network stack.
 - DNS over HTTPS, TLS, and QUIC, with fake IP and DNS routing rules.
 - Routing by domain, IP range, geodata, process, and logical rule combinations.
@@ -30,7 +30,7 @@ in one YAML configuration.
 | Branch | Role | Automated build |
 | --- | --- | --- |
 | [`main`](https://github.com/getmikan/Citrus/tree/main) | Primary branch | `Prerelease-main` |
-| [`dev`](https://github.com/getmikan/Citrus/tree/dev) | Secondary branch | `Prerelease-dev` |
+| [`dev`](https://github.com/getmikan/Citrus/tree/dev) | Integration branch, all PRs | — (tested, not packaged) |
 
 Build artifacts are available through [GitHub Actions](https://github.com/getmikan/Citrus/actions)
 and published builds through [Releases](https://github.com/getmikan/Citrus/releases).
@@ -60,7 +60,10 @@ Compatible dashboards include [MetaCubeXD](https://github.com/MetaCubeX/metacube
 
 ## Build from source
 
-The module targets Go 1.20 and newer. CI also exercises supported newer toolchains.
+The module needs Go 1.26 or newer. Windows and macOS releases are built with the patched
+[MetaCubeX Go toolchain](https://github.com/MetaCubeX/go), which keeps Windows 7/8 and older
+macOS working (not tested separately). Linux needs kernel 3.2 or newer. There are no separate
+builds on old Go versions (`-go120` and the like).
 
 ```shell
 git clone https://github.com/getmikan/Citrus.git

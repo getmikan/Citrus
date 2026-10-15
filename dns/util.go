@@ -45,10 +45,34 @@ func updateTTL(records []D.RR, ttl uint32) {
 	}
 }
 
+// cacheKey returns the cache key for a query: its first question and, when
+// the client sent an EDNS Client Subnet option, that subnet. Upstreams may
+// tailor answers to the subnet, so an answer for one client subnet must not
+// be served to clients asking for another one (or for none).
+func cacheKey(m *D.Msg) string {
+	key := m.Question[0].String()
+	if opt := m.IsEdns0(); opt != nil {
+		for _, option := range opt.Option {
+			if subnet, ok := option.(*D.EDNS0_SUBNET); ok {
+				addr, ok := netip.AddrFromSlice(subnet.Address)
+				if !ok {
+					return key + "\x00ecs=invalid"
+				}
+				prefix, err := addr.Unmap().Prefix(int(subnet.SourceNetmask))
+				if err != nil {
+					return key + "\x00ecs=invalid"
+				}
+				return key + "\x00ecs=" + prefix.String()
+			}
+		}
+	}
+	return key
+}
+
 // getMsgFromCache returns a cached dns message if it exists, otherwise returns nil.
 // the returned msg is a copy of the original msg, so it can be modified without affecting the original msg.
-func getMsgFromCache(c dnsCache, q D.Question) (*D.Msg, time.Time, bool) {
-	msg, expireTime, hit := c.GetWithExpire(q.String())
+func getMsgFromCache(c dnsCache, key string) (*D.Msg, time.Time, bool) {
+	msg, expireTime, hit := c.GetWithExpire(key)
 	if msg != nil {
 		msg = msg.Copy() // never modify the original msg
 	}
@@ -57,7 +81,7 @@ func getMsgFromCache(c dnsCache, q D.Question) (*D.Msg, time.Time, bool) {
 
 // putMsgToCache puts a dns message into the cache.
 // the msg is copied before being stored in the cache, so it can be modified without affecting the original msg.
-func putMsgToCache(c dnsCache, q D.Question, msg *D.Msg) {
+func putMsgToCache(c dnsCache, q D.Question, key string, msg *D.Msg) {
 	// skip dns cache for acme challenge
 	if q.Qtype == D.TypeTXT && strings.HasPrefix(q.Name, "_acme-challenge.") {
 		log.Debugln("[DNS] dns cache ignored because of acme challenge for: %s", q.Name)
@@ -83,7 +107,7 @@ func putMsgToCache(c dnsCache, q D.Question, msg *D.Msg) {
 		return
 	}
 
-	c.SetWithExpire(q.String(), msg, time.Now().Add(time.Duration(ttl)*time.Second))
+	c.SetWithExpire(key, msg, time.Now().Add(time.Duration(ttl)*time.Second))
 }
 
 func setMsgTTL(msg *D.Msg, ttl uint32) {
@@ -134,6 +158,12 @@ func transform(servers []NameServer, resolver resolver.Resolver) []dnsClient {
 			c = newRCodeClient(s.Addr)
 		case "quic":
 			c = newDoQ(s.Addr, resolver, s.Params, s.ProxyAdapter, s.ProxyName)
+		case "dnscrypt":
+			if dc, err := newDNSCryptClient(s.Addr, resolver, s.ProxyAdapter, s.ProxyName); err != nil {
+				c = errorClient{addr: s.Addr, err: err}
+			} else {
+				c = dc
+			}
 		default:
 			c = newClient(s.Addr, resolver, s.Net, s.Params, s.ProxyAdapter, s.ProxyName)
 		}

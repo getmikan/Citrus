@@ -2,6 +2,7 @@ package tuic
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -12,11 +13,13 @@ import (
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/sing"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/ntp"
 	"github.com/metacubex/mihomo/transport/socks5"
 	"github.com/metacubex/mihomo/transport/tuic"
+	v5 "github.com/metacubex/mihomo/transport/tuic/v5"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/metacubex/quic-go"
@@ -24,16 +27,37 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-const ServerMaxIncomingStreams = (1 << 32) - 1
+// Per-connection QUIC stream limits. Streams over the limit are not refused:
+// QUIC flow control (MAX_STREAMS) makes the client wait for a stream to close.
+//
+//   - Bidirectional streams carry one TCP relay each. The mihomo client opens
+//     at most max-open-streams (100 by default) per connection before dialing
+//     another one; single-connection clients get room for 2048 concurrent TCP
+//     connections, far more than a phone or a home router uses.
+//   - Unidirectional streams carry the authentication, heartbeats, dissociate
+//     commands and, in the "quic" UDP relay mode, one stream per UDP packet.
+//     Each lives for well under an RTT, so 2048 credits allow ~2048 packets
+//     per RTT of UDP-over-stream.
+//
+// Before authentication the server additionally bounds the handlers it runs
+// per connection (see tuic.ServerOption).
+const (
+	ServerMaxIncomingStreams    = 2048
+	ServerMaxIncomingUniStreams = 2048
+)
 
 type Listener struct {
 	closed       bool
 	config       LC.TuicServer
 	udpListeners []net.PacketConn
 	servers      []*tuic.Server
+	users        *inbounduser.Set[[16]byte]
 }
 
 func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*Listener, error) {
+	if len(config.Token) > 0 {
+		return nil, fmt.Errorf("tuic-server: %w", tuic.ErrV4Unsupported)
+	}
 	if len(additions) == 0 {
 		additions = []inbound.Addition{
 			inbound.WithInName("DEFAULT-TUIC"),
@@ -97,7 +121,7 @@ func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additi
 	quicConfig := &quic.Config{
 		MaxIdleTimeout:        time.Duration(config.MaxIdleTime) * time.Millisecond,
 		MaxIncomingStreams:    ServerMaxIncomingStreams,
-		MaxIncomingUniStreams: ServerMaxIncomingStreams,
+		MaxIncomingUniStreams: ServerMaxIncomingUniStreams,
 		EnableDatagrams:       true,
 		Allow0RTT:             true,
 		DisablePathManager:    true, // for port hopping
@@ -107,10 +131,7 @@ func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additi
 	quicConfig.InitialConnectionReceiveWindow = tuic.DefaultConnectionReceiveWindow / 10
 	quicConfig.MaxConnectionReceiveWindow = tuic.DefaultConnectionReceiveWindow
 
-	packetOverHead := tuic.PacketOverHeadV4
-	if len(config.Token) == 0 {
-		packetOverHead = tuic.PacketOverHeadV5
-	}
+	packetOverHead := tuic.PacketOverHeadV5
 
 	if config.CWND == 0 {
 		config.CWND = 32
@@ -158,22 +179,12 @@ func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additi
 		CWND:                  config.CWND,
 		BBRProfile:            config.BBRProfile,
 	}
-	if len(config.Token) > 0 {
-		tokens := make([][32]byte, len(config.Token))
-		for i, token := range config.Token {
-			tokens[i] = tuic.GenTKN(token)
-		}
-		option.Tokens = tokens
-	}
-	if len(config.Users) > 0 {
-		users := make(map[[16]byte]string)
-		for _uuid, password := range config.Users {
-			users[uuid.FromStringOrNil(_uuid)] = password
-		}
-		option.Users = users
+	option.Users, err = inbounduser.New(v5.UserKey, ConfigUsers(config.Users, true))
+	if err != nil {
+		return nil, err
 	}
 
-	sl := &Listener{false, config, nil, nil}
+	sl := &Listener{false, config, nil, nil, option.Users}
 
 	for _, addr := range strings.Split(config.Listen, ",") {
 		addr := addr
@@ -226,6 +237,45 @@ func (l *Listener) Close() error {
 		}
 	}
 	return retErr
+}
+
+// ConfigUsers converts the users of a configuration (uuid -> password). The
+// names become canonical lower-case UUIDs, the form of metadata.InUser; a
+// name that is not a UUID can never authenticate and is left out.
+func ConfigUsers(m map[string]string, warn bool) []C.InboundUser {
+	users := make([]C.InboundUser, 0, len(m))
+	for _, user := range inbounduser.FromMap(m) {
+		id, err := uuid.FromString(user.Name)
+		if err != nil {
+			if warn {
+				log.Warnln("tuic-server: user %q is not a UUID and can never authenticate", user.Name)
+			}
+			continue
+		}
+		user.Name = id.String()
+		users = append(users, user)
+	}
+	return users
+}
+
+// Users returns the current users (Name = uuid, Secret = password).
+func (l *Listener) Users() []C.InboundUser { return l.users.Users() }
+
+// ReplaceUsers swaps the users without closing the listener; the QUIC
+// connections of the removed and changed users are closed. The names are
+// stored as canonical lower-case UUIDs, the form of metadata.InUser.
+func (l *Listener) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, error) {
+	if err := inbounduser.NoFlow("tuic", users); err != nil {
+		return inbounduser.Change{}, err
+	}
+	canonical := make([]C.InboundUser, len(users))
+	for i, user := range users {
+		if id, err := uuid.FromString(user.Name); err == nil {
+			user.Name = id.String()
+		}
+		canonical[i] = user
+	}
+	return l.users.Replace(canonical)
 }
 
 func (l *Listener) Config() LC.TuicServer {

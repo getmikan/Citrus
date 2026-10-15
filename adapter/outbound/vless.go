@@ -22,9 +22,9 @@ import (
 	"github.com/metacubex/mihomo/transport/restls"
 	"github.com/metacubex/mihomo/transport/shadowtls"
 	"github.com/metacubex/mihomo/transport/tuic/common"
+	"github.com/metacubex/mihomo/transport/v2ray"
 	"github.com/metacubex/mihomo/transport/vless"
 	"github.com/metacubex/mihomo/transport/vless/encryption"
-	"github.com/metacubex/mihomo/transport/vmess"
 	"github.com/metacubex/mihomo/transport/xhttp"
 
 	"github.com/metacubex/http"
@@ -127,6 +127,32 @@ type XHTTPReuseSettings struct {
 	HKeepAlivePeriod int    `proxy:"h-keep-alive-period,omitempty"`
 }
 
+func (s *XHTTPReuseSettings) isEmpty() bool {
+	return s == nil || *s == (XHTTPReuseSettings{})
+}
+
+// build converts the settings to the xhttp reuse config and the keep-alive period.
+// Like Xray-core, nil or empty settings mean the default XMUX, so connections are shared
+// instead of dialing a new one for every proxied connection.
+// The default is not applied to HTTP/1.1 (`alpn: [http/1.1]`): a connection there carries one request
+// at a time, so sharing it saves no handshakes, and Xray-core's HTTP/1.1 client doesn't keep connections
+// alive either. Explicit settings are always used as they are; `h-max-request-times: "1"` turns the reuse off.
+func (s *XHTTPReuseSettings) build(http1 bool) (*xhttp.ReuseConfig, time.Duration) {
+	if s.isEmpty() {
+		if http1 {
+			return nil, 0
+		}
+		return xhttp.DefaultReuseConfig(), 0
+	}
+	return &xhttp.ReuseConfig{
+		MaxConcurrency:   s.MaxConcurrency,
+		MaxConnections:   s.MaxConnections,
+		CMaxReuseTimes:   s.CMaxReuseTimes,
+		HMaxRequestTimes: s.HMaxRequestTimes,
+		HMaxReusableSecs: s.HMaxReusableSecs,
+	}, time.Duration(s.HKeepAlivePeriod) * time.Second
+}
+
 type XHTTPDownloadSettings struct {
 	// xhttp part
 	Path          *string             `proxy:"path,omitempty"`
@@ -156,7 +182,7 @@ func (v *Vless) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 	switch v.option.Network {
 	case "ws":
 		host, port, _ := net.SplitHostPort(v.addr)
-		wsOpts := &vmess.WebsocketConfig{
+		wsOpts := &v2ray.WebsocketConfig{
 			Host:                     host,
 			Port:                     port,
 			Path:                     v.option.WSOpts.Path,
@@ -183,7 +209,7 @@ func (v *Vless) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 			}
 
 			if v.shadowTLSConfig != nil || v.restlsConfig != nil || v.jlsConfig != nil {
-				c, err = vmess.StreamTLSConn(ctx, c, &vmess.TLSConfig{
+				c, err = v2ray.StreamTLSConn(ctx, c, &v2ray.TLSConfig{
 					Host:              serverName,
 					SkipCertVerify:    v.option.SkipCertVerify,
 					NameCertVerify:    v.option.NameCertVerify,
@@ -222,7 +248,7 @@ func (v *Vless) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 				convert.SetUserAgent(wsOpts.Headers)
 			}
 		}
-		c, err = vmess.StreamWebsocketConn(ctx, c, wsOpts)
+		c, err = v2ray.StreamWebsocketConn(ctx, c, wsOpts)
 	case "http":
 		// readability first, so just copy default TLS logic
 		c, err = v.streamTLSConn(ctx, c, false)
@@ -231,26 +257,26 @@ func (v *Vless) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 		}
 
 		host, _, _ := net.SplitHostPort(v.addr)
-		httpOpts := &vmess.HTTPConfig{
+		httpOpts := &v2ray.HTTPConfig{
 			Host:    host,
 			Method:  v.option.HTTPOpts.Method,
 			Path:    v.option.HTTPOpts.Path,
 			Headers: v.option.HTTPOpts.Headers,
 		}
 
-		c = vmess.StreamHTTPConn(c, httpOpts)
+		c = v2ray.StreamHTTPConn(c, httpOpts)
 	case "h2":
 		c, err = v.streamTLSConn(ctx, c, true)
 		if err != nil {
 			return nil, err
 		}
 
-		h2Opts := &vmess.H2Config{
+		h2Opts := &v2ray.H2Config{
 			Hosts: v.option.HTTP2Opts.Host,
 			Path:  v.option.HTTP2Opts.Path,
 		}
 
-		c, err = vmess.StreamH2Conn(ctx, c, h2Opts)
+		c, err = v2ray.StreamH2Conn(ctx, c, h2Opts)
 	case "grpc":
 		break // already handle in dialContext
 	case "xhttp":
@@ -307,7 +333,7 @@ func (v *Vless) streamTLSConn(ctx context.Context, conn net.Conn, isH2 bool) (ne
 	if v.option.TLS {
 		host, _, _ := net.SplitHostPort(v.addr)
 
-		tlsOpts := vmess.TLSConfig{
+		tlsOpts := v2ray.TLSConfig{
 			Host:              host,
 			SkipCertVerify:    v.option.SkipCertVerify,
 			NameCertVerify:    v.option.NameCertVerify,
@@ -331,7 +357,7 @@ func (v *Vless) streamTLSConn(ctx context.Context, conn net.Conn, isH2 bool) (ne
 			tlsOpts.Host = v.option.ServerName
 		}
 
-		return vmess.StreamTLSConn(ctx, conn, &tlsOpts)
+		return v2ray.StreamTLSConn(ctx, conn, &tlsOpts)
 	}
 
 	return conn, nil
@@ -580,9 +606,9 @@ func NewVless(option VlessOption) (*Vless, error) {
 		if option.ServerName == "" {
 			gunConfig.Host = v.addr
 		}
-		var tlsConfig *vmess.TLSConfig
+		var tlsConfig *v2ray.TLSConfig
 		if option.TLS {
-			tlsConfig = &vmess.TLSConfig{
+			tlsConfig = &v2ray.TLSConfig{
 				Host:              option.ServerName,
 				SkipCertVerify:    option.SkipCertVerify,
 				NameCertVerify:    option.NameCertVerify,
@@ -624,19 +650,7 @@ func NewVless(option VlessOption) (*Vless, error) {
 			}
 		}
 
-		var hKeepAlivePeriod time.Duration
-
-		var reuseCfg *xhttp.ReuseConfig
-		if option.XHTTPOpts.ReuseSettings != nil {
-			reuseCfg = &xhttp.ReuseConfig{
-				MaxConcurrency:   option.XHTTPOpts.ReuseSettings.MaxConcurrency,
-				MaxConnections:   option.XHTTPOpts.ReuseSettings.MaxConnections,
-				CMaxReuseTimes:   option.XHTTPOpts.ReuseSettings.CMaxReuseTimes,
-				HMaxRequestTimes: option.XHTTPOpts.ReuseSettings.HMaxRequestTimes,
-				HMaxReusableSecs: option.XHTTPOpts.ReuseSettings.HMaxReusableSecs,
-			}
-			hKeepAlivePeriod = time.Duration(option.XHTTPOpts.ReuseSettings.HKeepAlivePeriod) * time.Second
-		}
+		reuseCfg, hKeepAlivePeriod := option.XHTTPOpts.ReuseSettings.build(xhttp.IsHTTP1ALPN(v.option.ALPN))
 
 		cfg := &xhttp.Config{
 			Host:                 requestHost,
@@ -675,7 +689,7 @@ func NewVless(option VlessOption) (*Vless, error) {
 				},
 				func(ctx context.Context, cfg *quic.Config) (*quic.Conn, error) {
 					host, _, _ := net.SplitHostPort(v.addr)
-					tlsOpts := &vmess.TLSConfig{
+					tlsOpts := &v2ray.TLSConfig{
 						Host:              host,
 						SkipCertVerify:    v.option.SkipCertVerify,
 						NameCertVerify:    v.option.NameCertVerify,
@@ -814,14 +828,10 @@ func NewVless(option VlessOption) (*Vless, error) {
 			downloadCfg.Headers = lo.FromPtrOr(ds.Headers, v.option.XHTTPOpts.Headers)
 
 			if ds.ReuseSettings != nil {
-				downloadCfg.ReuseConfig = &xhttp.ReuseConfig{
-					MaxConcurrency:   ds.ReuseSettings.MaxConcurrency,
-					MaxConnections:   ds.ReuseSettings.MaxConnections,
-					CMaxReuseTimes:   ds.ReuseSettings.CMaxReuseTimes,
-					HMaxRequestTimes: ds.ReuseSettings.HMaxRequestTimes,
-					HMaxReusableSecs: ds.ReuseSettings.HMaxReusableSecs,
-				}
-				downloadHKeepAlivePeriod = time.Duration(ds.ReuseSettings.HKeepAlivePeriod) * time.Second
+				downloadCfg.ReuseConfig, downloadHKeepAlivePeriod = ds.ReuseSettings.build(xhttp.IsHTTP1ALPN(downloadALPN))
+			} else if v.option.XHTTPOpts.ReuseSettings.isEmpty() {
+				// nothing to inherit: the default depends on the HTTP version of the download
+				downloadCfg.ReuseConfig, _ = ds.ReuseSettings.build(xhttp.IsHTTP1ALPN(downloadALPN))
 			}
 
 			cfg.DownloadConfig = &downloadCfg
@@ -835,7 +845,7 @@ func NewVless(option VlessOption) (*Vless, error) {
 						if downloadTLS {
 							host, _, _ := net.SplitHostPort(downloadAddr)
 
-							tlsOpts := vmess.TLSConfig{
+							tlsOpts := v2ray.TLSConfig{
 								Host:              host,
 								SkipCertVerify:    downloadSkipCertVerify,
 								NameCertVerify:    downloadNameCertVerify,
@@ -859,14 +869,14 @@ func NewVless(option VlessOption) (*Vless, error) {
 								tlsOpts.Host = downloadServerName
 							}
 
-							return vmess.StreamTLSConn(ctx, conn, &tlsOpts)
+							return v2ray.StreamTLSConn(ctx, conn, &tlsOpts)
 						}
 
 						return conn, nil
 					},
 					func(ctx context.Context, cfg *quic.Config) (*quic.Conn, error) {
 						host, _, _ := net.SplitHostPort(downloadAddr)
-						tlsOpts := &vmess.TLSConfig{
+						tlsOpts := &v2ray.TLSConfig{
 							Host:              host,
 							SkipCertVerify:    downloadSkipCertVerify,
 							NameCertVerify:    downloadNameCertVerify,

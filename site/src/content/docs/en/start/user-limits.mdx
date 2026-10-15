@@ -1,0 +1,104 @@
+---
+title: User limits
+description: Speed, connection and address limits, traffic quota and expiry for inbound users, enforced in the core without wrappers.
+---
+
+The core limits inbound users itself, so an embedding application does not have to wrap connections. A limit is set for the pair of an inbound and a user, the same pair as in [user traffic](/Citrus/en/start/user-stats/), and with `user: "*"` as the default of every user of the inbound that has no limit of its own.
+
+| Limit | What it does |
+| --- | --- |
+| `speed-up`, `speed-down` | Upload and download rate, in bytes per second. One token bucket per user, shared by all its TCP connections and UDP sessions. |
+| `max-conns` | How many connections and UDP sessions the user holds at once. An excess new connection is rejected. |
+| `max-ips` | How many distinct addresses of the user are online. A connection from a new address beyond the limit is rejected; the addresses already connected keep working. An address stays online for a minute after its last connection closed, as in the `ips` list. |
+| `quota` | Traffic budget in bytes, upload plus download. When it is used up, the user's connections are closed and new ones are rejected until the quota is reset or raised. |
+| `expire-at` | Time (unix seconds or RFC 3339) after which the user's connections are closed and new ones are rejected. |
+
+Zero or a missing key is no limit.
+
+## Config
+
+```yaml
+user-limits:
+  - { inbound: vless-in, user: alice, speed-up: 10M, speed-down: 80Mbps, max-conns: 64, max-ips: 3, quota: 100G, expire-at: 1767225600 }
+  - { inbound: vless-in, user: "*", speed-down: 20M, max-ips: 2, quota: 50G }
+```
+
+A user's own limit replaces the default of the inbound as a whole; it does not add to it.
+
+### Units
+
+- Sizes (`quota`) are in bytes. A plain number is bytes; `K`, `M`, `G`, `T` (optionally with `B`: `GB`) are powers of 1000; `Ki`, `Mi`, `Gi`, `Ti` (`GiB`) are powers of 1024. `100G` is 100 000 000 000 bytes.
+- Rates are **bytes per second**, written the same way, optionally followed by `/s` or `ps`: `10M`, `10MB/s` and `10MBps` are all 10 000 000 bytes/s. A lowercase `b` means **bits**: `80Mbps` (or `80Mb`) is 80 megabits/s, that is 10 000 000 bytes/s.
+
+## How it works
+
+- `expire-at`, `quota`, `max-conns` and `max-ips` are checked in the tunnel after the rules matched and **before** the outbound is dialed: a rejected connection is closed without connecting anywhere. An `info` line with the reason is logged, e.g. `rejected by the user limits: max-conns 64 reached` (at most once a second per user; the skipped lines are counted).
+- Every rejection is counted on the user's counter: `rejected` and `rejectReasons` (`expired`, `quota`, `max-conns`, `max-ips`) in [`GET /traffic/users`](/Citrus/en/start/user-stats/).
+- The quota counts the same bytes as `up` + `down`: the payload on the outbound side, without the inbound protocol overhead. The overshoot is bounded by what passed before the connections were closed.
+- The speed is limited in the read and write paths of the connection. For a user with a speed limit the copy goes through a buffer rather than `splice` (a splice moves up to a megabyte per step, so the rate would be jumpy); for users without a speed limit `splice` and the other fast paths are unchanged. A limit set while a splice already runs is honoured too, in steps of what the splice moved.
+- A user without limits pays nothing beyond the traffic accounting: the check is one comparison of a pointer with `nil`.
+- Limits need connections to be attributed: with `user-stats: false`, users are still attributed as long as there is any limit.
+- SOCKS5 UDP (`socks`, `mixed` with `udp: true`): the datagrams of a UDP ASSOCIATE carry the user that authenticated it, so each UDP session counts against that user's limits. An association is held to one UDP source port of the client: the port named in the request when the client named its own address, otherwise the port of the first datagram. Other sockets on the same client IP (another client behind the same NAT) cannot use it. The association's TCP control connection itself is not counted in `max-conns`.
+
+## Config reload
+
+A reload replaces all limits with those of the config: the limits set through the API are dropped. The state of a user that keeps a limit survives: the quota used, the speed buckets (when the speed is unchanged) and the expiry timer (when `expire-at` is unchanged). The quota used is only zeroed by a reset or by removing the user's limit.
+
+## API
+
+Requests go to `external-controller` with the same `secret` as the rest of the API.
+
+### `GET /limits/users?inbound=…&user=…`
+
+The limits and their state; the parameters are optional. The list has the inbound defaults (`"user": "*"`), the users' own limits, and the users that got the default (`"inherited": true`).
+
+```json
+[
+  {
+    "inbound": "vless-in", "user": "alice",
+    "speedUp": 10000000, "speedDown": 10000000,
+    "maxConns": 64, "maxIPs": 3,
+    "quota": 100000000000, "expireAt": 1767225600,
+    "source": "config",
+    "used": 52428800, "remaining": 99947571200,
+    "quotaExceeded": false, "expired": false
+  }
+]
+```
+
+`used` is the bytes counted against the quota since the limit was set or reset, `remaining` the rest (`null` without a quota), `source` is `config` or `api`.
+
+### `PUT /limits/users?inbound=…&user=…`
+
+Sets the limit of a user (`user=*`: the default of the inbound). The body is JSON with the keys of the `user-limits` section (or their camelCase forms) and the same units; a missing key is no limit. The user's quota usage is kept. The response is the state of the limit.
+
+```bash
+curl -X PUT -H "Authorization: Bearer $SECRET" \
+  "http://127.0.0.1:9090/limits/users?inbound=vless-in&user=alice" \
+  -d '{"speed-down": "80Mbps", "max-conns": 64, "quota": "100G"}'
+```
+
+### `DELETE /limits/users?inbound=…&user=…`
+
+Removes a limit; the user falls back to the default of the inbound, if any. `404` when there is no such limit.
+
+### `POST /limits/users/reset-quota?inbound=…&user=…`
+
+Zeroes the quota usage of the matching users (all of them without parameters) and admits again those who used it up. Response: `{"reset": 2}`.
+
+## Go API
+
+```go
+users := statistic.DefaultManager.Users()
+_ = users.SetConfigLimits([]statistic.UserLimit{{Inbound: "vless-in", User: "*", MaxIPs: 2}})
+_ = users.SetLimit(statistic.UserLimit{Inbound: "vless-in", User: "alice", SpeedDown: 10_000_000, Quota: 100e9})
+st, ok := users.GetLimit(statistic.UserKey{Inbound: "vless-in", User: "alice"})
+users.ResetQuota(func(k statistic.UserKey) bool { return k.User == "alice" })
+users.DeleteLimit(statistic.UserKey{Inbound: "vless-in", User: "alice"})
+
+// a custom dial path: check the limits before dialing
+adm, err := statistic.DefaultManager.Admit(metadata) // *statistic.LimitError when refused
+conn := statistic.NewTCPTrackerAdmitted(remote, statistic.DefaultManager, metadata, rule, 0, 0, adm)
+```
+
+`statistic.ParseSize` and `statistic.ParseRate` parse the units like the config does.

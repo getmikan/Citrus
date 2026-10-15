@@ -30,6 +30,7 @@ func (o MixedOption) Equal(config C.InboundConfig) bool {
 
 type Mixed struct {
 	*Base
+	authStoreUsers
 	config *MixedOption
 	l      []*mixed.Listener
 	lUDP   []*socks.UDPListener
@@ -37,14 +38,22 @@ type Mixed struct {
 }
 
 func NewMixed(options *MixedOption) (*Mixed, error) {
-	base, err := NewBase(&options.BaseOption)
+	base, err := newStreamBase(&options.BaseOption)
+	if err != nil {
+		return nil, err
+	}
+	if base.IsUnix() && options.UDP {
+		return nil, errUnixUDP(options.Listen, "udp")
+	}
+	users, err := newAuthStoreUsers(base.Name(), options.Users)
 	if err != nil {
 		return nil, err
 	}
 	return &Mixed{
-		Base:   base,
-		config: options,
-		udp:    options.UDP,
+		Base:           base,
+		config:         options,
+		udp:            options.UDP,
+		authStoreUsers: users,
 	}, nil
 }
 
@@ -69,7 +78,7 @@ func (m *Mixed) Listen(tunnel C.Tunnel) error {
 		config := LC.AuthServer{
 			Enable:         true,
 			Listen:         addr,
-			AuthStore:      m.config.Users.GetAuthStore(),
+			AuthStore:      m.authStore(),
 			Certificate:    m.config.Certificate,
 			PrivateKey:     m.config.PrivateKey,
 			ClientAuthType: m.config.ClientAuthType,
@@ -116,3 +125,14 @@ func (m *Mixed) Close() error {
 }
 
 var _ C.InboundListener = (*Mixed)(nil)
+
+// SameExceptUsers implements constant.InboundUserUpdater: only between
+// configurations that both have users of their own (no users means the
+// global authentication, `users: []` turns it off).
+func (m *Mixed) SameExceptUsers(config C.InboundConfig) bool {
+	other, ok := config.(*MixedOption)
+	return ok && m.store != nil && len(other.Users) > 0 && equalExceptUsers(m.config, other)
+}
+
+var _ C.InboundUserUpdater = (*Mixed)(nil)
+var _ C.InboundUserLister = (*Mixed)(nil)

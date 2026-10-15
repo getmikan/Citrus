@@ -11,7 +11,9 @@ import (
 	"github.com/metacubex/mihomo/common/atomic"
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/xsync"
+	"github.com/metacubex/mihomo/component/authevent"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/transport/socks5"
 	"github.com/metacubex/mihomo/transport/tuic/types"
 
@@ -23,7 +25,7 @@ type ServerOption struct {
 	HandleTcpFn func(conn net.Conn, addr socks5.Addr, additions ...inbound.Addition) error
 	HandleUdpFn func(addr socks5.Addr, packet C.UDPPacket, additions ...inbound.Addition) error
 
-	Users                 map[[16]byte]string
+	Users                 *inbounduser.Set[[16]byte] // Name = uuid, Secret = password
 	MaxUdpRelayPacketSize int
 }
 
@@ -33,6 +35,7 @@ func NewServerHandler(option *ServerOption, quicConn *quic.Conn, uuid uuid.UUID)
 		quicConn:     quicConn,
 		uuid:         uuid,
 		authCh:       make(chan struct{}),
+		fragCache:    fragCache[uint32]{maxPackets: serverMaxFragPackets},
 	}
 }
 
@@ -47,14 +50,24 @@ type serverHandler struct {
 	authOnce sync.Once
 
 	udpInputMap xsync.Map[uint16, *serverUDPInput]
+	// fragCache reassembles fragmented packets of every association of the
+	// connection, keyed by ASSOC_ID<<16 | PKT_ID, so the connection has one
+	// bounded budget of incomplete packets however many associations it opens.
+	fragCache fragCache[uint32]
 }
 
 func (s *serverHandler) AuthOk() bool {
 	return s.authOk.Load()
 }
 
+// AuthDone is closed once authentication succeeded, failed or timed out.
+func (s *serverHandler) AuthDone() <-chan struct{} {
+	return s.authCh
+}
+
 func (s *serverHandler) HandleTimeout() {
 	s.authOnce.Do(func() {
+		authevent.EmitAddr("tuic", authevent.ReasonAuthenticationTimeout, s.quicConn.LocalAddr(), s.quicConn.RemoteAddr())
 		_ = s.quicConn.CloseWithError(AuthenticationTimeout, "AuthenticationTimeout")
 		s.authOk.Store(false)
 		close(s.authCh)
@@ -99,7 +112,7 @@ func (s *serverHandler) parsePacket(packet *Packet, udpRelayMode types.UdpRelayM
 	if input.writeClosed.Load() {
 		return nil
 	}
-	packetPtr := input.Feed(packet)
+	packetPtr := s.fragCache.feed(uint32(assocId)<<16|uint32(packet.PKT_ID), packet)
 	if packetPtr == nil {
 		return
 	}
@@ -156,18 +169,28 @@ func (s *serverHandler) HandleUniStream(reader *bufio.Reader) (err error) {
 		authOk := false
 		var authUUID uuid.UUID
 		var token [32]byte
-		if password, ok := s.Users[authenticate.UUID]; ok {
-			token, err = GenToken(s.quicConn.ConnectionState(), authenticate.UUID, password)
+		if entry, ok := s.Users.Lookup(authenticate.UUID); ok {
+			token, err = GenToken(s.quicConn.ConnectionState(), authenticate.UUID, entry.Secret())
 			if err != nil {
 				return
 			}
 			if token == authenticate.TOKEN {
-				authOk = true
-				authUUID = authenticate.UUID
+				// the connection dies with the user: removing or re-keying
+				// it closes the QUIC connection
+				release, bound := s.Users.Bind(entry, quicCloser{s.quicConn})
+				if bound {
+					authOk = true
+					authUUID = authenticate.UUID
+					go func() {
+						<-s.quicConn.Context().Done()
+						release()
+					}()
+				}
 			}
 		}
 		s.authOnce.Do(func() {
 			if !authOk {
+				authevent.EmitAddr("tuic", authevent.ReasonWrongCredentials, s.quicConn.LocalAddr(), s.quicConn.RemoteAddr())
 				_ = s.quicConn.CloseWithError(AuthenticationFailed, "AuthenticationFailed")
 			}
 			s.authOk.Store(authOk)
@@ -194,9 +217,23 @@ func (s *serverHandler) HandleUniStream(reader *bufio.Reader) (err error) {
 	return
 }
 
+type quicCloser struct{ conn *quic.Conn }
+
+func (c quicCloser) Close() error {
+	return c.conn.CloseWithError(AuthenticationFailed, "user removed")
+}
+
+// UserKey maps a user to its TUIC v5 UUID (the name).
+func UserKey(user C.InboundUser) ([16]byte, error) {
+	id, err := uuid.FromString(user.Name)
+	if err != nil {
+		return [16]byte{}, fmt.Errorf("%w: user %q: name must be a UUID", C.ErrInvalidInboundUser, user.Name)
+	}
+	return id, nil
+}
+
 type serverUDPInput struct {
 	writeClosed atomic.Bool
-	deFragger
 }
 
 type serverUDPPacket struct {

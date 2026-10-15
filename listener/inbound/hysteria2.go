@@ -11,26 +11,27 @@ import (
 
 type Hysteria2Option struct {
 	BaseOption
-	Users                 map[string]string `inbound:"users,omitempty"`
-	Obfs                  string            `inbound:"obfs,omitempty"`
-	ObfsPassword          string            `inbound:"obfs-password,omitempty"`
-	ObfsMinPacketSize     int               `inbound:"obfs-min-packet-size,omitempty"`
-	ObfsMaxPacketSize     int               `inbound:"obfs-max-packet-size,omitempty"`
-	Certificate           string            `inbound:"certificate"`
-	PrivateKey            string            `inbound:"private-key"`
-	ClientAuthType        string            `inbound:"client-auth-type,omitempty"`
-	ClientAuthCert        string            `inbound:"client-auth-cert,omitempty"`
-	EchKey                string            `inbound:"ech-key,omitempty"`
-	MaxIdleTime           int               `inbound:"max-idle-time,omitempty"`
-	ALPN                  []string          `inbound:"alpn,omitempty"`
-	Up                    string            `inbound:"up,omitempty"`
-	Down                  string            `inbound:"down,omitempty"`
-	IgnoreClientBandwidth bool              `inbound:"ignore-client-bandwidth,omitempty"`
-	Masquerade            string            `inbound:"masquerade,omitempty"`
-	CWND                  int               `inbound:"cwnd,omitempty"`
-	BBRProfile            string            `inbound:"bbr-profile,omitempty"`
-	UdpMTU                int               `inbound:"udp-mtu,omitempty"`
-	MuxOption             MuxOption         `inbound:"mux-option,omitempty"`
+	Users                    map[string]string `inbound:"users,omitempty"`
+	Obfs                     string            `inbound:"obfs,omitempty"`
+	ObfsPassword             string            `inbound:"obfs-password,omitempty"`
+	ObfsMinPacketSize        int               `inbound:"obfs-min-packet-size,omitempty"`
+	ObfsMaxPacketSize        int               `inbound:"obfs-max-packet-size,omitempty"`
+	Certificate              string            `inbound:"certificate"`
+	PrivateKey               string            `inbound:"private-key"`
+	ClientAuthType           string            `inbound:"client-auth-type,omitempty"`
+	ClientAuthCert           string            `inbound:"client-auth-cert,omitempty"`
+	EchKey                   string            `inbound:"ech-key,omitempty"`
+	MaxIdleTime              int               `inbound:"max-idle-time,omitempty"`
+	ALPN                     []string          `inbound:"alpn,omitempty"`
+	Up                       string            `inbound:"up,omitempty"`
+	Down                     string            `inbound:"down,omitempty"`
+	IgnoreClientBandwidth    bool              `inbound:"ignore-client-bandwidth,omitempty"`
+	Masquerade               string            `inbound:"masquerade,omitempty"`
+	MasqueradeSkipCertVerify bool              `inbound:"masquerade-skip-cert-verify,omitempty"`
+	CWND                     int               `inbound:"cwnd,omitempty"`
+	BBRProfile               string            `inbound:"bbr-profile,omitempty"`
+	UdpMTU                   int               `inbound:"udp-mtu,omitempty"`
+	MuxOption                MuxOption         `inbound:"mux-option,omitempty"`
 
 	RealmOpts Hysteria2RealmOption `inbound:"realm-opts,omitempty"`
 
@@ -97,29 +98,30 @@ func NewHysteria2(options *Hysteria2Option) (*Hysteria2, error) {
 		Base:   base,
 		config: options,
 		ts: LC.Hysteria2Server{
-			Enable:                true,
-			Listen:                base.RawAddress(),
-			Users:                 options.Users,
-			Obfs:                  options.Obfs,
-			ObfsPassword:          options.ObfsPassword,
-			ObfsMinPacketSize:     options.ObfsMinPacketSize,
-			ObfsMaxPacketSize:     options.ObfsMaxPacketSize,
-			Certificate:           options.Certificate,
-			PrivateKey:            options.PrivateKey,
-			ClientAuthType:        options.ClientAuthType,
-			ClientAuthCert:        options.ClientAuthCert,
-			EchKey:                options.EchKey,
-			MaxIdleTime:           options.MaxIdleTime,
-			ALPN:                  options.ALPN,
-			Up:                    options.Up,
-			Down:                  options.Down,
-			IgnoreClientBandwidth: options.IgnoreClientBandwidth,
-			Masquerade:            options.Masquerade,
-			CWND:                  options.CWND,
-			BBRProfile:            options.BBRProfile,
-			UdpMTU:                options.UdpMTU,
-			MuxOption:             options.MuxOption.Build(),
-			RealmOpts:             options.RealmOpts.Build(),
+			Enable:                   true,
+			Listen:                   base.RawAddress(),
+			Users:                    options.Users,
+			Obfs:                     options.Obfs,
+			ObfsPassword:             options.ObfsPassword,
+			ObfsMinPacketSize:        options.ObfsMinPacketSize,
+			ObfsMaxPacketSize:        options.ObfsMaxPacketSize,
+			Certificate:              options.Certificate,
+			PrivateKey:               options.PrivateKey,
+			ClientAuthType:           options.ClientAuthType,
+			ClientAuthCert:           options.ClientAuthCert,
+			EchKey:                   options.EchKey,
+			MaxIdleTime:              options.MaxIdleTime,
+			ALPN:                     options.ALPN,
+			Up:                       options.Up,
+			Down:                     options.Down,
+			IgnoreClientBandwidth:    options.IgnoreClientBandwidth,
+			Masquerade:               options.Masquerade,
+			MasqueradeSkipCertVerify: options.MasqueradeSkipCertVerify,
+			CWND:                     options.CWND,
+			BBRProfile:               options.BBRProfile,
+			UdpMTU:                   options.UdpMTU,
+			MuxOption:                options.MuxOption.Build(),
+			RealmOpts:                options.RealmOpts.Build(),
 			// quic-go special config
 			InitialStreamReceiveWindow:     options.InitialStreamReceiveWindow,
 			MaxStreamReceiveWindow:         options.MaxStreamReceiveWindow,

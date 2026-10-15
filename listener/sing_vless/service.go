@@ -5,10 +5,14 @@ package sing_vless
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/authevent"
+	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/transport/vless"
 	"github.com/metacubex/mihomo/transport/vless/vision"
 
@@ -23,10 +27,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type Service[T comparable] struct {
-	userMap  map[[16]byte]T
-	userFlow map[T]string
-	handler  Handler
+type Service struct {
+	users   *inbounduser.Set[[16]byte]
+	handler Handler
 }
 
 type Handler interface {
@@ -35,27 +38,36 @@ type Handler interface {
 	E.Handler
 }
 
-func NewService[T comparable](handler Handler) *Service[T] {
-	return &Service[T]{
-		handler: handler,
-	}
+// userKey maps a user to its VLESS id: the UUID, or the UUIDv5 of any other
+// string (the Xray convention).
+func userKey(user C.InboundUser) ([16]byte, error) {
+	return utils.UUIDMap(user.Secret), nil
 }
 
-func (s *Service[T]) UpdateUsers(userList []T, userUUIDList []string, userFlowList []string) {
-	userMap := make(map[[16]byte]T)
-	userFlowMap := make(map[T]string)
-	for i, userName := range userList {
-		userID := utils.UUIDMap(userUUIDList[i])
-		userMap[userID] = userName
-		userFlowMap[userName] = userFlowList[i]
-	}
-	s.userMap = userMap
-	s.userFlow = userFlowMap
+// NewService returns a service for users (Name = username, Secret = uuid,
+// Flow = flow).
+func NewService(handler Handler, users []C.InboundUser) *Service {
+	set, _ := inbounduser.New(userKey, users) // userKey never fails
+	return &Service{handler: handler, users: set}
 }
 
-var _ N.TCPConnectionHandler = (*Service[int])(nil)
+// Users returns the current users.
+func (s *Service) Users() []C.InboundUser { return s.users.Users() }
 
-func (s *Service[T]) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
+// ReplaceUsers swaps the users in place; the sessions of the removed and
+// changed users are closed.
+func (s *Service) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, error) {
+	for _, user := range users {
+		if user.Flow != "" && user.Flow != vless.XRV {
+			return inbounduser.Change{}, fmt.Errorf("%w: user %q: unknown flow %q", C.ErrInvalidInboundUser, user.Name, user.Flow)
+		}
+	}
+	return s.users.Replace(users)
+}
+
+var _ N.TCPConnectionHandler = (*Service)(nil)
+
+func (s *Service) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
 	var version uint8
 	err := binary.Read(conn, binary.BigEndian, &version)
 	if err != nil {
@@ -105,18 +117,32 @@ func (s *Service[T]) NewConnection(ctx context.Context, conn net.Conn, metadata 
 		}
 	}
 
-	user, loaded := s.userMap[requestUUID]
+	entry, loaded := s.users.Lookup(requestUUID)
 	if !loaded {
+		authevent.EmitAddr("vless", authevent.ReasonWrongCredentials, conn.LocalAddr(), clientAddr(ctx, conn))
 		return E.New("unknown UUID: ", uuid.FromBytesOrNil(requestUUID[:]))
 	}
-	ctx = auth.ContextWithUser(ctx, user)
+	ctx = auth.ContextWithUser(ctx, entry.Name())
 	metadata.Destination = destination
 
-	userFlow := s.userFlow[user]
+	userFlow := entry.Flow()
 	requestFlow := addons.Flow
 	if requestFlow != userFlow && requestFlow != "" {
 		return E.New("flow mismatch: expected ", flowName(userFlow), ", but got ", flowName(requestFlow))
 	}
+	// the header is read and the user is authenticated: lift the handshake
+	// deadline set by the listener, the session may idle from here on
+	clearHandshakeDeadline(conn)
+	if onAuthenticated := onAuthenticatedFrom(ctx); onAuthenticated != nil {
+		onAuthenticated() // e.g. an xhttp session leaves its pre-auth limits
+	}
+
+	// the session dies with the user: removing or re-keying it closes conn
+	release, ok := s.users.Bind(entry, conn)
+	if !ok {
+		return E.New("user ", entry.Name(), " was removed")
+	}
+	defer release()
 
 	responseConn := &serverConn{ExtendedConn: bufio.NewExtendedConn(conn)}
 	switch requestFlow {
@@ -143,6 +169,21 @@ func (s *Service[T]) NewConnection(ctx context.Context, conn net.Conn, metadata 
 	default:
 		return E.New("unknown command: ", command)
 	}
+}
+
+type clientAddrKey struct{}
+
+// withClientAddr records the address of the client behind a trusted reverse
+// proxy, for the auth events of the connection.
+func withClientAddr(ctx context.Context, addr net.Addr) context.Context {
+	return context.WithValue(ctx, clientAddrKey{}, addr)
+}
+
+func clientAddr(ctx context.Context, conn net.Conn) net.Addr {
+	if addr, ok := ctx.Value(clientAddrKey{}).(net.Addr); ok {
+		return addr
+	}
+	return conn.RemoteAddr()
 }
 
 func flowName(value string) string {

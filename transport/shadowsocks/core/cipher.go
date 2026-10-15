@@ -3,13 +3,14 @@ package core
 import (
 	"crypto/md5"
 	"errors"
+	"fmt"
 	"net"
 	"sort"
 	"strings"
 
 	N "github.com/metacubex/mihomo/common/net"
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/shadowsocks/shadowaead"
-	"github.com/metacubex/mihomo/transport/shadowsocks/shadowstream"
 )
 
 type Cipher interface {
@@ -27,6 +28,9 @@ type PacketConnCipher interface {
 
 // ErrCipherNotSupported occurs when a cipher is not supported (likely because of security concerns).
 var ErrCipherNotSupported = errors.New("cipher not supported")
+
+// ErrStreamCipherRemoved occurs when a legacy (pre-AEAD) stream cipher is requested.
+var ErrStreamCipherRemoved = fmt.Errorf("%w: shadowsocks stream ciphers are no longer supported, use an AEAD cipher (aes-128-gcm, aes-256-gcm, chacha20-ietf-poly1305) or 2022-blake3-*", C.ErrRemovedProtocol)
 
 const (
 	aeadAes128Gcm         = "AEAD_AES_128_GCM"
@@ -58,30 +62,32 @@ var aeadList = map[string]struct {
 	aeadAes256Ccm:         {32, shadowaead.AESCCM},
 }
 
-// List of stream ciphers: key size in bytes and constructor
-var streamList = map[string]struct {
-	KeySize int
-	New     func(key []byte) (shadowstream.Cipher, error)
-}{
-	"RC4-MD5":       {16, shadowstream.RC4MD5},
-	"AES-128-CTR":   {16, shadowstream.AESCTR},
-	"AES-192-CTR":   {24, shadowstream.AESCTR},
-	"AES-256-CTR":   {32, shadowstream.AESCTR},
-	"AES-128-CFB":   {16, shadowstream.AESCFB},
-	"AES-192-CFB":   {24, shadowstream.AESCFB},
-	"AES-256-CFB":   {32, shadowstream.AESCFB},
-	"CHACHA20":      {32, shadowstream.ChaCha20},
-	"CHACHA20-IETF": {32, shadowstream.Chacha20IETF},
-	"XCHACHA20":     {32, shadowstream.Xchacha20},
+// legacyStreamCiphers are the removed pre-AEAD stream ciphers, kept only to give a clear error.
+var legacyStreamCiphers = map[string]struct{}{
+	"TABLE":         {},
+	"RC4":           {},
+	"RC4-MD5":       {},
+	"AES-128-CTR":   {},
+	"AES-192-CTR":   {},
+	"AES-256-CTR":   {},
+	"AES-128-CFB":   {},
+	"AES-192-CFB":   {},
+	"AES-256-CFB":   {},
+	"CHACHA20":      {},
+	"CHACHA20-IETF": {},
+	"XCHACHA20":     {},
+}
+
+// IsStreamCipher reports whether name is one of the removed legacy stream ciphers.
+func IsStreamCipher(name string) bool {
+	_, ok := legacyStreamCiphers[strings.ToUpper(name)]
+	return ok
 }
 
 // ListCipher returns a list of available cipher names sorted alphabetically.
 func ListCipher() []string {
 	var l []string
 	for k := range aeadList {
-		l = append(l, k)
-	}
-	for k := range streamList {
 		l = append(l, k)
 	}
 	sort.Strings(l)
@@ -128,15 +134,8 @@ func PickCipher(name string, key []byte, password string) (Cipher, error) {
 		return &AeadCipher{Cipher: aead, Key: key}, err
 	}
 
-	if choice, ok := streamList[name]; ok {
-		if len(key) == 0 {
-			key = Kdf(password, choice.KeySize)
-		}
-		if len(key) != choice.KeySize {
-			return nil, shadowstream.KeySizeError(choice.KeySize)
-		}
-		ciph, err := choice.New(key)
-		return &StreamCipher{Cipher: ciph, Key: key}, err
+	if IsStreamCipher(name) {
+		return nil, ErrStreamCipherRemoved
 	}
 
 	return nil, ErrCipherNotSupported
@@ -151,17 +150,6 @@ type AeadCipher struct {
 func (aead *AeadCipher) StreamConn(c net.Conn) net.Conn { return shadowaead.NewConn(c, aead) }
 func (aead *AeadCipher) PacketConn(c N.EnhancePacketConn) N.EnhancePacketConn {
 	return shadowaead.NewPacketConn(c, aead)
-}
-
-type StreamCipher struct {
-	shadowstream.Cipher
-
-	Key []byte
-}
-
-func (ciph *StreamCipher) StreamConn(c net.Conn) net.Conn { return shadowstream.NewConn(c, ciph) }
-func (ciph *StreamCipher) PacketConn(c N.EnhancePacketConn) N.EnhancePacketConn {
-	return shadowstream.NewPacketConn(c, ciph)
 }
 
 // dummy cipher does not encrypt

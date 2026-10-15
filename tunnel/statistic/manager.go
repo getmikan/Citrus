@@ -2,6 +2,7 @@ package statistic
 
 import (
 	"os"
+	stdatomic "sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
@@ -35,9 +36,34 @@ type Manager struct {
 	downloadTotal atomic.Int64
 	pid           int32
 	memory        uint64
+	users         stdatomic.Pointer[UserManager]
+	inbounds      xsync.Map[string, *InboundCounter]
+	opened        stdatomic.Int64
+}
+
+// Users returns the per-user counters, creating them on first use.
+func (m *Manager) Users() *UserManager {
+	if um := m.users.Load(); um != nil {
+		return um
+	}
+	um := NewUserManager()
+	um.SetCloser(m.CloseUser)
+	m.users.CompareAndSwap(nil, um)
+	return m.users.Load()
+}
+
+// CloseUser closes the tracked connections of an inbound user.
+func (m *Manager) CloseUser(key UserKey) {
+	m.Range(func(c Tracker) bool {
+		if md := c.Info().Metadata; md != nil && md.InName == key.Inbound && md.InUser == key.User {
+			_ = c.Close()
+		}
+		return true
+	})
 }
 
 func (m *Manager) Join(c Tracker) {
+	m.opened.Add(1)
 	m.connections.Store(c.ID(), c)
 }
 
@@ -56,6 +82,32 @@ func (m *Manager) Range(f func(c Tracker) bool) {
 	m.connections.Range(func(key string, value Tracker) bool {
 		return f(value)
 	})
+}
+
+// CloseUserConnections closes the connections of the given users of an
+// inbound (metadata.InName and metadata.InUser) and returns how many it
+// closed. An empty user name never matches.
+func (m *Manager) CloseUserConnections(inbound string, users ...string) int {
+	if len(users) == 0 {
+		return 0
+	}
+	set := make(map[string]struct{}, len(users))
+	for _, user := range users {
+		if user != "" {
+			set[user] = struct{}{}
+		}
+	}
+	closed := 0
+	m.Range(func(c Tracker) bool {
+		if md := c.Info().Metadata; md != nil && md.InName == inbound {
+			if _, ok := set[md.InUser]; ok {
+				_ = c.Close()
+				closed++
+			}
+		}
+		return true
+	})
+	return closed
 }
 
 func (m *Manager) PushUploaded(size int64) {
@@ -114,10 +166,17 @@ func (m *Manager) ResetStatistic() {
 
 func (m *Manager) handle() {
 	ticker := time.NewTicker(time.Second)
+	lastSweep := time.Now()
 
-	for range ticker.C {
+	for now := range ticker.C {
 		m.uploadBlip.Store(m.uploadTemp.Swap(0))
 		m.downloadBlip.Store(m.downloadTemp.Swap(0))
+		if now.Sub(lastSweep) >= userSweepInterval {
+			lastSweep = now
+			if um := m.users.Load(); um != nil {
+				um.Sweep()
+			}
+		}
 	}
 }
 

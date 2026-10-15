@@ -3,8 +3,64 @@ package trie
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 )
+
+const (
+	// MaxBinLength bounds every element count stored in a binary DomainSet
+	// or DomainMap. The largest real-world rule sets (a few million domains)
+	// stay far below it; it only exists so a corrupt or hostile int64 header
+	// cannot be fed straight into make.
+	MaxBinLength = 1 << 28
+
+	// binPreallocLength is how many elements are allocated up front for a
+	// length read from the stream. Larger slices grow while their elements
+	// are actually read, so memory follows the data present rather than the
+	// length the header claims.
+	binPreallocLength = 1 << 16
+)
+
+// checkBinLength validates a length read from a binary header.
+func checkBinLength(length int64) error {
+	if length < 1 || length > MaxBinLength {
+		return fmt.Errorf("length %d is invalid", length)
+	}
+	return nil
+}
+
+func readBinUint64s(r io.Reader, length int64) ([]uint64, error) {
+	out := make([]uint64, 0, min64(length, binPreallocLength))
+	for i := int64(0); i < length; i++ {
+		var v uint64
+		if err := binary.Read(r, binary.BigEndian, &v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func readBinBytes(r io.Reader, length int64) ([]byte, error) {
+	out := make([]byte, 0, min64(length, binPreallocLength))
+	chunk := make([]byte, min64(length, binPreallocLength))
+	for left := length; left > 0; {
+		n := min64(left, int64(len(chunk)))
+		if _, err := io.ReadFull(r, chunk[:n]); err != nil {
+			return nil, err
+		}
+		out = append(out, chunk[:n]...)
+		left -= n
+	}
+	return out, nil
+}
+
+func min64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 func (ss *DomainSet) WriteBin(w io.Writer) (err error) {
 	// version
@@ -69,15 +125,12 @@ func ReadDomainSetBin(r io.Reader) (ds *DomainSet, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if length < 1 {
-		return nil, errors.New("length is invalid")
+	if err = checkBinLength(length); err != nil {
+		return nil, err
 	}
-	ds.leaves = make([]uint64, length)
-	for i := int64(0); i < length; i++ {
-		err = binary.Read(r, binary.BigEndian, &ds.leaves[i])
-		if err != nil {
-			return nil, err
-		}
+	ds.leaves, err = readBinUint64s(r, length)
+	if err != nil {
+		return nil, err
 	}
 
 	// labelBitmap
@@ -85,15 +138,12 @@ func ReadDomainSetBin(r io.Reader) (ds *DomainSet, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if length < 1 {
-		return nil, errors.New("length is invalid")
+	if err = checkBinLength(length); err != nil {
+		return nil, err
 	}
-	ds.labelBitmap = make([]uint64, length)
-	for i := int64(0); i < length; i++ {
-		err = binary.Read(r, binary.BigEndian, &ds.labelBitmap[i])
-		if err != nil {
-			return nil, err
-		}
+	ds.labelBitmap, err = readBinUint64s(r, length)
+	if err != nil {
+		return nil, err
 	}
 
 	// labels
@@ -101,11 +151,10 @@ func ReadDomainSetBin(r io.Reader) (ds *DomainSet, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if length < 1 {
-		return nil, errors.New("length is invalid")
+	if err = checkBinLength(length); err != nil {
+		return nil, err
 	}
-	ds.labels = make([]byte, length)
-	_, err = io.ReadFull(r, ds.labels)
+	ds.labels, err = readBinBytes(r, length)
 	if err != nil {
 		return nil, err
 	}

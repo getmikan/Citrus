@@ -61,7 +61,9 @@ func (r IPReader) LookupCode(ipAddress net.IP) []string {
 		case []any: // lookup returned type of slice is []any
 			result := make([]string, 0, len(record))
 			for _, item := range record {
-				result = append(result, item.(string))
+				if code, ok := item.(string); ok {
+					result = append(result, code)
+				}
 			}
 			return result
 		}
@@ -80,8 +82,12 @@ func (r ASNReader) LookupASN(ip net.IP) (string, string) {
 		return fmt.Sprint(result.AutonomousSystemNumber), result.AutonomousSystemOrganization
 	case "ipinfo generic_asn_free.mmdb":
 		var result IPInfo
-		_ = r.Lookup(ip, &result)
-		return result.ASN[2:], result.Name
+		if err := r.Lookup(ip, &result); err != nil || result.ASN == "" {
+			// no record for this IP (or an unreadable one): not found
+			return "", ""
+		}
+		// ipinfo stores the number as "AS13335"
+		return strings.TrimPrefix(result.ASN, "AS"), result.Name
 	default:
 		log.Warnln("Unsupported ASN type: %s", r.Metadata.DatabaseType)
 	}

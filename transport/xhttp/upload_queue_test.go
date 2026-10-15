@@ -51,3 +51,33 @@ func TestUploadQueueMaxPackets(t *testing.T) {
 
 	<-ch
 }
+
+func TestUploadQueueRelease(t *testing.T) {
+	q := NewUploadQueue(4)
+	var released []uint64
+	push := func(seq uint64, payload string) {
+		err := q.Push(Packet{Seq: seq, Payload: []byte(payload), Release: func() { released = append(released, seq) }})
+		assert.NoError(t, err)
+	}
+	push(1, "") // an empty packet is released as soon as it is popped
+	push(0, "abcd")
+	push(2, "ef")
+
+	buf := make([]byte, 3)
+	n, err := q.Read(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, "abc", string(buf[:n]))
+	assert.Empty(t, released, "released before the payload was read out")
+
+	n, err = q.Read(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, "d", string(buf[:n]))
+	assert.Equal(t, []uint64{0}, released)
+
+	n, err = q.Read(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, "ef", string(buf[:n]))
+	assert.Equal(t, []uint64{0, 1, 2}, released)
+
+	assert.NoError(t, q.Close())
+}

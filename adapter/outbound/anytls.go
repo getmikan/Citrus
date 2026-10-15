@@ -12,7 +12,7 @@ import (
 	"github.com/metacubex/mihomo/component/proxydialer"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/anytls"
-	"github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 
 	M "github.com/metacubex/sing/common/metadata"
 	"github.com/metacubex/sing/common/uot"
@@ -150,7 +150,7 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
 	if len(securityModes) > 1 {
 		return nil, errors.New("security modes are mutually exclusive: " + strings.Join(securityModes, ", "))
 	}
-	tlsConfig := &vmess.TLSConfig{
+	tlsConfig := &v2ray.TLSConfig{
 		Host:              option.SNI,
 		SkipCertVerify:    option.SkipCertVerify,
 		NameCertVerify:    option.NameCertVerify,

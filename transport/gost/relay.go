@@ -14,7 +14,7 @@ import (
 	"time"
 
 	C "github.com/metacubex/mihomo/constant"
-	mihomoVMess "github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 
 	"github.com/metacubex/smux"
 )
@@ -173,7 +173,7 @@ func (d *relayDialer) dialRelayServer(ctx context.Context, fallbackAddress strin
 	}
 
 	if d.option.TLS {
-		tlsConn, err := mihomoVMess.StreamTLSConn(ctx, conn, &mihomoVMess.TLSConfig{
+		tlsConn, err := v2ray.StreamTLSConn(ctx, conn, &v2ray.TLSConfig{
 			Host:              d.serverName(relayAddress),
 			SkipCertVerify:    d.option.SkipCertVerify,
 			NameCertVerify:    d.option.NameCertVerify,

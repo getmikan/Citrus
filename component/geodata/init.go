@@ -2,13 +2,15 @@ package geodata
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
+	"github.com/metacubex/mihomo/common/utils"
 	mihomoHttp "github.com/metacubex/mihomo/component/http"
 	"github.com/metacubex/mihomo/component/mmdb"
 	C "github.com/metacubex/mihomo/constant"
@@ -68,7 +70,23 @@ func SetASNUrl(url string) {
 	asnUrl = url
 }
 
-func downloadToPath(url string, path string) (err error) {
+// DownloadSizeLimit caps a single GEO database download (GeoIP.dat,
+// GeoSite.dat, MMDB, ASN). The stock databases are 2-25 MiB; the limit is set
+// well above that so that a city-level MMDB (GeoLite2-City is ~70 MiB,
+// dbip-city-lite ~130 MiB) configured as mmdb-url still fits, while an endless
+// or hostile response can no longer fill the disk or the memory of the
+// updater, which buffers the whole file.
+const DownloadSizeLimit int64 = 256 << 20
+
+func downloadToPath(url string, path string) error {
+	return downloadToPathLimit(url, path, DownloadSizeLimit)
+}
+
+// downloadToPathLimit downloads url into a temporary file next to path and
+// renames it into place only once the whole body has arrived within limit, so
+// a failed or oversized download never leaves a partial file (or the stale
+// tail of an older, longer file) at path.
+func downloadToPathLimit(url string, path string, limit int64) (err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*90)
 	defer cancel()
 	resp, err := mihomoHttp.HttpRequest(ctx, url, http.MethodGet, nil, nil)
@@ -76,15 +94,36 @@ func downloadToPath(url string, path string) (err error) {
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return errors.New(resp.Status)
+	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
+	tmpPath := f.Name()
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
-	return err
+	_, err = utils.CopyLimit(f, resp.Body, limit)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		var limitErr *utils.SizeLimitError
+		if errors.As(err, &limitErr) {
+			err = fmt.Errorf("response %w", err)
+		}
+		return err
+	}
+	if err = os.Chmod(tmpPath, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func InitGeoSite() error {

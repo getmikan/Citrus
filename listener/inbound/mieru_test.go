@@ -4,10 +4,12 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"runtime"
 	"strconv"
 	"testing"
 
 	"github.com/metacubex/mihomo/adapter/outbound"
+	"github.com/metacubex/mihomo/constant/features"
 	"github.com/metacubex/mihomo/listener/inbound"
 	"github.com/stretchr/testify/assert"
 )
@@ -262,6 +264,11 @@ func testInboundMieruTCP(t *testing.T, handshakeMode string) {
 
 func testInboundMieruUDP(t *testing.T, handshakeMode string) {
 	t.Parallel()
+	if runtime.GOOS == "windows" && features.AffectedByGoIssue78041(runtime.Version()) {
+		// The broken toolchain corrupts the stack in UDPConn.ReadFrom and kills the
+		// whole test binary; TestToolchainWindowsUDP reports it instead.
+		t.Skipf("%s: Windows UDP ReadFrom stack corruption, https://go.dev/issue/78041", runtime.Version())
+	}
 	// mieru must listen on a specific port, so we first create a socket, get the port, and then inject it via ListenConfigForAPI
 	l, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if !assert.NoError(t, err) {

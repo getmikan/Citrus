@@ -11,10 +11,12 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/buf"
+	"github.com/metacubex/mihomo/component/authevent"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/jls"
 	"github.com/metacubex/mihomo/listener/restls"
 	"github.com/metacubex/mihomo/listener/shadowtls"
@@ -34,7 +36,7 @@ type Listener struct {
 	config    LC.AnyTLSServer
 	listeners []net.Listener
 	tlsConfig *tls.Config
-	userMap   map[[32]byte]string
+	users     *inbounduser.Set[[32]byte]
 	padding   atomic.Pointer[padding.PaddingFactory]
 }
 
@@ -49,7 +51,7 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 	var shadowTLSBuilder *shadowtls.Builder
 	var restlsBuilder *restls.Builder
 	var jlsBuilder *jls.Builder
-	tlsConfig := &tls.Config{Time: ntp.Now}
+	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
 	if config.Certificate != "" && config.PrivateKey != "" {
 		certLoader, err := ca.NewTLSKeyPairLoader(config.Certificate, config.PrivateKey)
 		if err != nil {
@@ -117,12 +119,8 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 	sl = &Listener{
 		config:    config,
 		tlsConfig: tlsConfig,
-		userMap:   make(map[[32]byte]string),
 	}
-
-	for user, password := range config.Users {
-		sl.userMap[sha256.Sum256([]byte(password))] = user
-	}
+	sl.users, _ = inbounduser.New(userKey, inbounduser.FromMap(config.Users)) // userKey never fails
 
 	if len(config.PaddingScheme) > 0 {
 		if !padding.UpdatePaddingScheme([]byte(config.PaddingScheme), &sl.padding) {
@@ -203,6 +201,23 @@ func (l *Listener) AddrList() (addrList []net.Addr) {
 	return
 }
 
+// userKey maps a user to the SHA-256 of its password.
+func userKey(user C.InboundUser) ([32]byte, error) {
+	return sha256.Sum256([]byte(user.Secret)), nil
+}
+
+// Users returns the current users (Name = user, Secret = password).
+func (l *Listener) Users() []C.InboundUser { return l.users.Users() }
+
+// ReplaceUsers swaps the users without closing the listener; the sessions
+// of the removed and changed users are closed.
+func (l *Listener) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, error) {
+	if err := inbounduser.NoFlow("anytls", users); err != nil {
+		return inbounduser.Change{}, err
+	}
+	return l.users.Replace(users)
+}
+
 func (l *Listener) HandleConn(conn net.Conn, h *sing.ListenerHandler) {
 	ctx := context.TODO()
 	defer conn.Close()
@@ -210,6 +225,7 @@ func (l *Listener) HandleConn(conn net.Conn, h *sing.ListenerHandler) {
 	b := buf.NewPacket()
 	defer b.Release()
 
+	setHandshakeDeadline(conn)
 	_, err := b.ReadOnceFrom(conn)
 	if err != nil {
 		return
@@ -222,11 +238,18 @@ func (l *Listener) HandleConn(conn net.Conn, h *sing.ListenerHandler) {
 	}
 	var passwordSha256 [32]byte
 	copy(passwordSha256[:], by)
-	if user, ok := l.userMap[passwordSha256]; ok {
-		ctx = auth.ContextWithUser(ctx, user)
-	} else {
+	entry, ok := l.users.Lookup(passwordSha256)
+	if !ok {
+		authevent.EmitAddr("anytls", authevent.ReasonWrongCredentials, conn.LocalAddr(), conn.RemoteAddr())
 		return
 	}
+	ctx = auth.ContextWithUser(ctx, entry.Name())
+	// the session dies with the user: removing or re-keying it closes conn
+	release, bound := l.users.Bind(entry, conn)
+	if !bound {
+		return
+	}
+	defer release()
 	by, err = b.ReadBytes(2)
 	if err != nil {
 		return
@@ -238,14 +261,19 @@ func (l *Listener) HandleConn(conn net.Conn, h *sing.ListenerHandler) {
 			return
 		}
 	}
+	clearHandshakeDeadline(conn)
 
 	session := session.NewServerSession(conn, func(stream *session.Stream) {
 		defer stream.Close()
 
+		// a stream that never sends its destination must not hold its
+		// goroutine forever
+		setHandshakeDeadline(stream)
 		destination, err := M.SocksaddrSerializer.ReadAddrPort(stream)
 		if err != nil {
 			return
 		}
+		clearHandshakeDeadline(stream)
 
 		// It seems that mihomo does not implement a connection error reporting mechanism, so we report success directly.
 		err = stream.HandshakeSuccess()

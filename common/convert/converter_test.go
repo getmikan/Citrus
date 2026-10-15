@@ -2,6 +2,7 @@ package convert_test
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/metacubex/mihomo/adapter"
@@ -210,7 +211,7 @@ func TestConvertsV2RayRealityMLKEM768(t *testing.T) {
 		{"invalid", "&support-x25519mlkem768=invalid", publicKey, nil},
 		{"no-public-key", "&support-x25519mlkem768=true", "", nil},
 	}
-	for _, scheme := range []string{"vless", "vmess"} {
+	for _, scheme := range []string{"vless"} {
 		for _, tt := range tests {
 			t.Run(scheme+"/"+tt.name, func(t *testing.T) {
 				uri := scheme + "://b831381d-6324-4d53-ad4f-8cda48b30811@example.com:443" +
@@ -279,53 +280,48 @@ func TestConvertsV2RayVlessHTTPTransportUsesH2Opts(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// Regression test for MetaCubeX/mihomo#2738: the legacy v2rayN-style
-// base64-JSON VMess parser must place `host` under h2-opts.host instead
-// of stranding it inside a non-existent h2-opts.headers.Host key.
-func TestConvertsV2RayVmessBase64H2Transport(t *testing.T) {
-	// base64 payload decodes to:
-	// {"v":"2","ps":"demo","add":"server.example.com","port":"443",
-	//  "id":"b831381d-6324-4d53-ad4f-8cda48b30811","aid":"0","scy":"auto",
-	//  "net":"h2","type":"none","host":"cdn.example.com","path":"/grpc","tls":"tls"}
-	vmessTest := "vmess://eyJ2IjoiMiIsInBzIjoiZGVtbyIsImFkZCI6InNlcnZlci5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6ImI4MzEzODFkLTYzMjQtNGQ1My1hZDRmLThjZGE0OGIzMDgxMSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0IjoiaDIiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJjZG4uZXhhbXBsZS5jb20iLCJwYXRoIjoiL2dycGMiLCJ0bHMiOiJ0bHMifQ=="
-
-	proxies, err := ConvertsV2Ray([]byte(vmessTest))
-
-	assert.Nil(t, err)
-	assert.Len(t, proxies, 1)
-	assert.Equal(t, "h2", proxies[0]["network"])
-	assert.Equal(t, map[string]any{
-		"host": []string{"cdn.example.com"},
-		"path": "/grpc",
-	}, proxies[0]["h2-opts"])
-	assert.NotContains(t, proxies[0], "http-opts")
-
-	_, err = adapter.ParseProxy(proxies[0])
+func TestConvertsV2Ray_SkipsLegacyLinks(t *testing.T) {
+	ssStream := "ss://" + base64.RawURLEncoding.EncodeToString([]byte("rc4-md5:secret")) + "@1.2.3.4:8388#rc4"
+	ssAEAD := "ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-128-gcm:secret")) + "@1.2.3.4:8388#aead"
+	tuicV4 := "tuic://tok3n@1.2.3.4:443#v4"
+	ssV2rayPlugin := "ss://" + base64.RawURLEncoding.EncodeToString([]byte("aes-128-gcm:secret")) + "@1.2.3.4:8388/?plugin=v2ray-plugin%3Bmode%3Dwebsocket#v2ray"
+	// VMess, as a v2rayN base64-JSON link and as an Xray VMessAEAD link
+	vmessJSON := "vmess://eyJ2IjoiMiIsInBzIjoiZGVtbyIsImFkZCI6InNlcnZlci5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6ImI4MzEzODFkLTYzMjQtNGQ1My1hZDRmLThjZGE0OGIzMDgxMSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0IjoiaDIiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJjZG4uZXhhbXBsZS5jb20iLCJwYXRoIjoiL2dycGMiLCJ0bHMiOiJ0bHMifQ=="
+	vmessAEAD := "vmess://b831381d-6324-4d53-ad4f-8cda48b30811@1.2.3.4:443?security=tls&type=ws&path=%2Fws#aead"
+	proxies, err := ConvertsV2Ray([]byte(strings.Join([]string{ssStream, ssAEAD, tuicV4, ssV2rayPlugin, vmessJSON, vmessAEAD}, "\n")))
 	assert.NoError(t, err)
+	if assert.Len(t, proxies, 1) {
+		assert.Equal(t, "aes-128-gcm", proxies[0]["cipher"])
+	}
 }
 
-// `net: http` with `type != "http"` is remapped to h2 transport
-// at converter.go's network-resolution step, so it must produce the
-// same h2-opts shape as `net: h2`. Guards against regression if the
-// remap rule is changed later.
-func TestConvertsV2RayVmessBase64HTTPRemappedToH2Transport(t *testing.T) {
-	// base64 payload decodes to:
-	// {"v":"2","ps":"demo-http-remapped","add":"server.example.com","port":"443",
-	//  "id":"b831381d-6324-4d53-ad4f-8cda48b30811","aid":"0","scy":"auto",
-	//  "net":"http","type":"none","host":"cdn.example.com","path":"/grpc","tls":"tls"}
-	vmessTest := "vmess://eyJ2IjoiMiIsInBzIjoiZGVtby1odHRwLXJlbWFwcGVkIiwiYWRkIjoic2VydmVyLmV4YW1wbGUuY29tIiwicG9ydCI6IjQ0MyIsImlkIjoiYjgzMTM4MWQtNjMyNC00ZDUzLWFkNGYtOGNkYTQ4YjMwODExIiwiYWlkIjoiMCIsInNjeSI6ImF1dG8iLCJuZXQiOiJodHRwIiwidHlwZSI6Im5vbmUiLCJob3N0IjoiY2RuLmV4YW1wbGUuY29tIiwicGF0aCI6Ii9ncnBjIiwidGxzIjoidGxzIn0="
-
-	proxies, err := ConvertsV2Ray([]byte(vmessTest))
-
-	assert.Nil(t, err)
-	assert.Len(t, proxies, 1)
-	assert.Equal(t, "h2", proxies[0]["network"])
-	assert.Equal(t, map[string]any{
-		"host": []string{"cdn.example.com"},
-		"path": "/grpc",
-	}, proxies[0]["h2-opts"])
-	assert.NotContains(t, proxies[0], "http-opts")
-
-	_, err = adapter.ParseProxy(proxies[0])
-	assert.NoError(t, err)
+func TestConvertsV2Ray_HTTPSocksVerifyCertByDefault(t *testing.T) {
+	tests := []struct {
+		link     string
+		insecure bool
+	}{
+		{"https://user:pass@proxy.example.com:443#https", false},
+		{"http://proxy.example.com:8080#http", false},
+		{"socks5://proxy.example.com:1080#socks", false},
+		{"https://proxy.example.com:443?skip-cert-verify=1#skip", true},
+		{"https://proxy.example.com:443?allowInsecure=true#allow", true},
+		{"https://proxy.example.com:443?insecure=1#insecure", true},
+		{"https://proxy.example.com:443?insecure=0#secure", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.link, func(t *testing.T) {
+			proxies, err := ConvertsV2Ray([]byte(tt.link))
+			assert.NoError(t, err)
+			if !assert.Len(t, proxies, 1) {
+				return
+			}
+			if tt.insecure {
+				assert.Equal(t, true, proxies[0]["skip-cert-verify"])
+			} else {
+				assert.NotContains(t, proxies[0], "skip-cert-verify")
+			}
+			_, err = adapter.ParseProxy(proxies[0])
+			assert.NoError(t, err)
+		})
+	}
 }

@@ -1,0 +1,155 @@
+---
+title: Metrics and health
+description: Prometheus metrics of the core (GET /metrics) and the health probes GET /healthz and GET /readyz.
+---
+
+The core serves its metrics in the Prometheus text format on the controller (`external-controller`), next to the rest of the API: traffic, connections, inbounds, users, proxy health checks and the process. Two health probes, `/healthz` and `/readyz`, tell a load balancer or an orchestrator whether the core is running and ready.
+
+The core does not depend on the Prometheus client library: the text is written by a small built-in writer.
+
+## Config
+
+```yaml
+metrics:
+  enable: true    # GET /metrics; off by default
+  per-user: false # the series of every inbound user; off by default
+health-without-auth: false # /healthz and /readyz without the secret; off by default
+```
+
+- `enable` turns `GET /metrics` on (it answers 404 while off) and starts counting the traffic per inbound. The per-inbound counters cost one atomic add per read or write; connections opened while the metrics are off are not counted per inbound.
+- `per-user` adds the per-user series. There are five of them per user, so 10 000 users are about 50 000 series: turn it on only when your Prometheus is ready for that cardinality. The data comes from the [user traffic](/Citrus/en/start/user-stats/) counters, so `user-stats` must stay on.
+
+A reload of the configuration applies the options at once, without restarting the controller.
+
+## Authorization
+
+`/metrics` is behind the controller `secret` like every other route. Prometheus sends it as a bearer token:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: citrus
+    scrape_interval: 30s
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/citrus-secret # the controller secret
+    static_configs:
+      - targets: ['node1.example.com:9090', 'node2.example.com:9090']
+        labels: { cluster: eu }
+```
+
+When the controller listens on a public address, use `external-controller-tls` and `scheme: https` in the scrape config.
+
+## Metrics
+
+### Process
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `citrus_build_info{version,go_version}` | gauge | Always 1; the labels carry the version. |
+| `citrus_start_time_seconds`, `citrus_uptime_seconds` | gauge | Start time (unix) and seconds since the start. |
+| `citrus_goroutines` | gauge | Goroutines. |
+| `citrus_heap_bytes` | gauge | Heap objects, live and not yet swept. |
+| `citrus_resident_memory_bytes` | gauge | Resident memory (RSS). |
+| `citrus_memory_limit_bytes` | gauge | Soft memory limit of the Go runtime (`GOMEMLIMIT`), 0 when unlimited. |
+| `citrus_open_fds`, `citrus_max_fds` | gauge | Open file descriptors and their limit (Linux only). |
+| `citrus_gc_cycles_total` | counter | Completed GC cycles. |
+| `citrus_gc_pause_seconds` | histogram | GC stop-the-world pauses, folded from `runtime/metrics` (the sum is an estimate). |
+| `citrus_live`, `citrus_ready` | gauge | 1 when `/healthz` and `/readyz` would answer 200. |
+| `citrus_listeners_failed` | gauge | Listeners of the `listeners` section that failed to start. |
+
+### Traffic and connections
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `citrus_traffic_bytes_total{direction}` | counter | Bytes through the tunnel since the start, `direction` is `up` or `down` (the `/traffic` totals). |
+| `citrus_connections` | gauge | Open connections and UDP sessions. |
+| `citrus_connections_opened_total` | counter | Connections and UDP sessions opened since the start. |
+| `citrus_inbound_connections{inbound}` | gauge | Open connections of an inbound. |
+| `citrus_inbound_traffic_bytes_total{inbound,direction}` | counter | Bytes of an inbound since the metrics were enabled. |
+
+The bytes are the payload on the outbound side of the tunnel, as in `/traffic` and [user traffic](/Citrus/en/start/user-stats/): the overhead of the inbound protocol is not included.
+
+### Users (`per-user: true`)
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `citrus_users` | gauge | Users with a counter. |
+| `citrus_user_traffic_bytes_total{inbound,user,direction}` | counter | Bytes of the user, cumulative. |
+| `citrus_user_connections{inbound,user}` | gauge | Open connections and UDP sessions of the user. |
+| `citrus_user_online_ips{inbound,user}` | gauge | Online addresses of the user, counted as `max-ips` counts them (an address stays online for a minute after its last connection). |
+| `citrus_user_rejected_total{inbound,user,reason}` | counter | Connections refused by the [user limits](/Citrus/en/start/user-limits/), by `reason`: `expired`, `quota`, `max-conns`, `max-ips`. Only reasons that happened are listed. |
+
+`citrus_user_traffic_bytes_total` is cumulative: a panel that drains the counters with `GET /traffic/users?reset=true` does not affect it. A user's series disappear when its counter is dropped (no connections and idle for 10 minutes, or removed from the configuration) and start from zero when it comes back; Prometheus `rate()` and `increase()` treat that as a counter reset.
+
+### Proxies
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `citrus_proxy_alive{proxy}` | gauge | 1 when the last health check or delay test of the proxy succeeded. |
+| `citrus_proxy_delay_ms{proxy}` | gauge | Delay of the last check, when it succeeded. |
+| `citrus_chain_alive{chain}` | gauge | 1 when the last health check of a [chain group](/Citrus/en/start/chains/) got through all its hops. |
+| `citrus_chain_hop_alive{chain,hop,position}` | gauge | A hop of a chain after its last health check: 0 for the first hop that failed, 1 for the hops before it (all hops of a working chain). The hops after a failed one are not shown. |
+
+Only proxies and groups that have been tested at least once are listed, including the proxies of providers.
+
+### Event stream
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `citrus_event_subscribers` | gauge | Open [`GET /events`](/Citrus/en/start/events/) streams. |
+| `citrus_events_published_total{type}` | counter | Events delivered to at least one stream, by type. Events nobody subscribed to are not counted. |
+| `citrus_events_dropped_total` | counter | Events dropped for streams that read too slowly (an event dropped for two streams counts twice). |
+
+## Health probes
+
+| Path | 200 `ok` | 503 |
+| --- | --- | --- |
+| `GET /healthz` | The tunnel is running. | While the configuration is being (re)loaded: the body is `suspend` or `inner`. |
+| `GET /readyz` | The configuration is applied and every listener of the `listeners` section listens. | Before the first configuration is applied, during a reload, or when a listener failed to start (the port is taken, a certificate is missing). |
+
+The probes require the `secret` by default. With `health-without-auth: true` they answer without it: they return nothing but the state (`ok`, or the reason without names or addresses), and the rest of the API, `/metrics` included, still requires the secret. An open probe does tell a scanner that the port is a controller, which the 401 of any other route tells as well.
+
+A reload of the configuration takes a moment, during which `/healthz` answers 503: give a liveness probe a few failures before it restarts the core (for example `failureThreshold: 3` with `periodSeconds: 10` in Kubernetes).
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9090/readyz -H "Authorization: Bearer $SECRET"
+```
+
+## Grafana queries
+
+Traffic of each node, bits per second:
+
+```promql
+sum by (instance, direction) (rate(citrus_traffic_bytes_total[5m])) * 8
+```
+
+The ten users with the most traffic over the last day:
+
+```promql
+topk(10, sum by (inbound, user) (increase(citrus_user_traffic_bytes_total[1d])))
+```
+
+Users refused by their limits in the last hour, by reason:
+
+```promql
+sum by (inbound, user, reason) (increase(citrus_user_rejected_total[1h])) > 0
+```
+
+Proxies that are down, and the delay of the others:
+
+```promql
+citrus_proxy_alive == 0
+citrus_proxy_delay_ms
+```
+
+An alert on a node that is not ready:
+
+```promql
+citrus_ready == 0 or up{job="citrus"} == 0
+```
+
+## Cost
+
+Without a scrape the metrics cost nothing but the per-inbound counters (one atomic add per read or write, like the global totals). A scrape walks the counters: with `per-user` and 10 000 users it takes about 10 ms of CPU and produces about 3 MB of text (some 300 bytes per user, more with long inbound and user names). The endpoint compresses it with gzip when the client asks, as Prometheus does: about 200 KB. Without `per-user` a scrape is a few kilobytes whatever the number of users.

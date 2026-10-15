@@ -1078,7 +1078,7 @@ func (p *overrideExprParser) match(kind overrideTokenKind) bool {
 func (p *overrideExprParser) expect(kind overrideTokenKind, message string) (overrideToken, error) {
 	token := p.next()
 	if token.kind != kind {
-		return overrideToken{}, p.errorf(token, message)
+		return overrideToken{}, p.errorf(token, "%s", message)
 	}
 	return token, nil
 }
@@ -1552,6 +1552,25 @@ type overrideBatchStreamValueExpr interface {
 	evalAllInputs([]any) ([]any, error)
 }
 
+// maxOverrideStreamValues caps how many results one expression stream may
+// produce. Streams multiply (a binary operator over two streams yields their
+// Cartesian product), so without a cap a few short arrays in provider data
+// could grow into millions of intermediate values.
+const maxOverrideStreamValues = 1 << 16
+
+// maxOverrideRepeatBytes caps the length of a string built with '*'.
+const maxOverrideRepeatBytes = 16 << 20
+
+var errOverrideStreamTooLarge = fmt.Errorf("expression produces more than %d results", maxOverrideStreamValues)
+
+// appendOverrideStream appends values to results within the stream cap.
+func appendOverrideStream(results, values []any) ([]any, error) {
+	if len(values) > maxOverrideStreamValues-len(results) {
+		return nil, errOverrideStreamTooLarge
+	}
+	return append(results, values...), nil
+}
+
 func evalOverrideStream(expression overrideValueExpr, input any) ([]any, error) {
 	if expression, ok := expression.(overrideStreamValueExpr); ok {
 		return expression.evalAll(input)
@@ -1591,7 +1610,9 @@ func evalOverrideStreamInputs(expression overrideValueExpr, inputs []any) ([]any
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, values...)
+		if results, err = appendOverrideStream(results, values); err != nil {
+			return nil, err
+		}
 	}
 	return results, nil
 }
@@ -1642,7 +1663,9 @@ func (e overrideUnionExpr) evalAllInputs(inputs []any) ([]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, items...)
+		if results, err = appendOverrideStream(results, items); err != nil {
+			return nil, err
+		}
 	}
 	return results, nil
 }
@@ -1770,7 +1793,9 @@ func (e overrideArrayExpr) eval(input any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, items...)
+		if result, err = appendOverrideStream(result, items); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }
@@ -1871,7 +1896,9 @@ func (e overrideBinaryExpr) evalAll(input any) ([]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			results = append(results, rightValues...)
+			if results, err = appendOverrideStream(results, rightValues); err != nil {
+				return nil, err
+			}
 		}
 		if len(leftValues) == 0 {
 			return evalOverrideStream(e.right, input)
@@ -1897,6 +1924,9 @@ func (e overrideBinaryExpr) evalAll(input any) ([]any, error) {
 	rightValues, err := evalOverrideStream(e.right, input)
 	if err != nil {
 		return nil, err
+	}
+	if len(rightValues) > 0 && len(leftValues) > maxOverrideStreamValues/len(rightValues) {
+		return nil, errOverrideStreamTooLarge
 	}
 	results := make([]any, 0, len(leftValues)*len(rightValues))
 	for _, left := range leftValues {
@@ -1950,7 +1980,9 @@ func (e overrideStreamFunctionExpr) evalAll(input any) ([]any, error) {
 				if err != nil {
 					return nil, err
 				}
-				result = append(result, items...)
+				if result, err = appendOverrideStream(result, items); err != nil {
+					return nil, err
+				}
 			}
 			return []any{result}, nil
 		}
@@ -2084,7 +2116,9 @@ func evalOverrideExpressionList(expressions []overrideValueExpr, input any) ([]a
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, values...)
+		if results, err = appendOverrideStream(results, values); err != nil {
+			return nil, err
+		}
 	}
 	return results, nil
 }
@@ -2695,6 +2729,9 @@ func evaluateOverrideBinary(operator string, left, right any) (any, error) {
 			if count > 10000000 {
 				return nil, fmt.Errorf("string multiplier cannot exceed 10 million")
 			}
+			if len(value) > 0 && count > float64(maxOverrideRepeatBytes/len(value)) {
+				return nil, fmt.Errorf("repeated string would exceed %d bytes", maxOverrideRepeatBytes)
+			}
 			return strings.Repeat(value, int(count)), nil
 		}
 		if value, ok := right.(string); ok {
@@ -2704,6 +2741,9 @@ func evaluateOverrideBinary(operator string, left, right any) (any, error) {
 			}
 			if count > 10000000 {
 				return nil, fmt.Errorf("string multiplier cannot exceed 10 million")
+			}
+			if len(value) > 0 && count > float64(maxOverrideRepeatBytes/len(value)) {
+				return nil, fmt.Errorf("repeated string would exceed %d bytes", maxOverrideRepeatBytes)
 			}
 			return strings.Repeat(value, int(count)), nil
 		}

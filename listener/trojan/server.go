@@ -6,39 +6,46 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
+	"github.com/metacubex/mihomo/common/httputils"
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/authevent"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/jls"
 	"github.com/metacubex/mihomo/listener/reality"
 	"github.com/metacubex/mihomo/listener/restls"
 	"github.com/metacubex/mihomo/listener/shadowtls"
 	"github.com/metacubex/mihomo/listener/sing"
+	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/ntp"
 	"github.com/metacubex/mihomo/transport/gun"
 	"github.com/metacubex/mihomo/transport/shadowsocks/core"
 	"github.com/metacubex/mihomo/transport/socks5"
 	"github.com/metacubex/mihomo/transport/trojan"
-	mihomoVMess "github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 
 	"github.com/metacubex/http"
 	"github.com/metacubex/smux"
 	"github.com/metacubex/tls"
+	"golang.org/x/exp/slices"
 )
 
 type Listener struct {
 	closed     bool
 	config     LC.TrojanServer
 	listeners  []net.Listener
-	keys       map[[trojan.KeyLength]byte]string
+	users      *inbounduser.Set[[trojan.KeyLength]byte]
 	pickCipher core.Cipher
 	handler    *sing.ListenerHandler
+	realIP     httputils.RealIP
 }
 
 func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (sl *Listener, err error) {
@@ -58,10 +65,9 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		return nil, err
 	}
 
-	keys := make(map[[trojan.KeyLength]byte]string)
-	for _, user := range config.Users {
-		keys[trojan.Key(user.Password)] = user.Username
-	}
+	users, _ := inbounduser.New(userKey, utils.Map(config.Users, func(it LC.TrojanUser) C.InboundUser {
+		return C.InboundUser{Name: it.Username, Secret: it.Password}
+	})) // userKey never fails
 
 	var pickCipher core.Cipher
 	if config.TrojanSSOption.Enabled {
@@ -76,13 +82,24 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 			return nil, err
 		}
 	}
-	sl = &Listener{false, config, nil, keys, pickCipher, h}
+	realIP, err := httputils.NewRealIP(config.TrustedProxyHeader, config.TrustedProxies, false)
+	if err != nil {
+		return nil, err
+	}
+	if realIP.Header != "" && len(realIP.Trusted) == 0 {
+		log.Warnln("[Trojan] %s: trusted-proxy-header %q is ignored until trusted-proxies lists the reverse proxies", config.Listen, realIP.Header)
+	}
+
+	sl = &Listener{false, config, nil, users, pickCipher, h, realIP}
 
 	httpServer := http.Server{
 		IdleTimeout: 30 * time.Second,
-		Protocols:   new(http.Protocols),
+		// bounds the TLS handshake and the request header of ws/grpc/xhttp
+		// before the conn reaches serveConn and its own handshake deadline
+		ReadHeaderTimeout: handshakeTimeout.Load(),
+		Protocols:         new(http.Protocols),
 	}
-	tlsConfig := &tls.Config{Time: ntp.Now}
+	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
 	var shadowTLSBuilder *shadowtls.Builder
 	var restlsBuilder *restls.Builder
 	var jlsBuilder *jls.Builder
@@ -163,12 +180,12 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 	if config.WsPath != "" {
 		httpMux := http.NewServeMux()
 		httpMux.HandleFunc(config.WsPath, func(w http.ResponseWriter, r *http.Request) {
-			conn, err := mihomoVMess.StreamUpgradedWebsocketConn(w, r)
+			conn, err := v2ray.StreamUpgradedWebsocketConn(w, r)
 			if err != nil {
 				http.Error(w, err.Error(), 500)
 				return
 			}
-			sl.HandleConn(conn, tunnel, additions...)
+			sl.HandleHTTPConn(r, conn, tunnel, additions...)
 		})
 		httpServer.Handler = httpMux
 		httpServer.Protocols.SetHTTP1(true)
@@ -177,8 +194,8 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 	if config.GrpcServiceName != "" {
 		httpServer.Handler = gun.NewServerHandler(gun.ServerOption{
 			ServiceName: config.GrpcServiceName,
-			ConnHandler: func(conn net.Conn) {
-				sl.HandleConn(conn, tunnel, additions...)
+			ConnHandler: func(conn net.Conn, r *http.Request) {
+				sl.HandleHTTPConn(r, conn, tunnel, additions...)
 			},
 			HttpHandler: httpServer.Handler,
 		})
@@ -262,9 +279,43 @@ func (l *Listener) AddrList() (addrList []net.Addr) {
 	return
 }
 
+// userKey maps a user to its trojan key (the hex SHA-224 of the password).
+func userKey(user C.InboundUser) ([trojan.KeyLength]byte, error) {
+	return trojan.Key(user.Secret), nil
+}
+
+// Users returns the current users (Name = username, Secret = password).
+func (l *Listener) Users() []C.InboundUser { return l.users.Users() }
+
+// ReplaceUsers swaps the users without closing the listener; the sessions
+// of the removed and changed users are closed.
+func (l *Listener) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, error) {
+	if err := inbounduser.NoFlow("trojan", users); err != nil {
+		return inbounduser.Change{}, err
+	}
+	return l.users.Replace(users)
+}
+
+func (l *Listener) HandleHTTPConn(r *http.Request, conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
+	if ap := l.realIP.ClientAddrPort(r); ap.IsValid() {
+		additions = append(slices.Clip(additions), inbound.WithSrcAddrPort(ap))
+		l.serveConn(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), tunnel, additions...)
+		return
+	}
+	l.HandleConn(conn, tunnel, additions...)
+}
+
 func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
+	l.serveConn(conn, nil, tunnel, additions...)
+}
+
+// serveConn serves a trojan connection; client is the address of the client
+// behind a trusted reverse proxy, nil when the TCP peer is the client.
+func (l *Listener) serveConn(conn net.Conn, client net.Addr, tunnel C.Tunnel, additions ...inbound.Addition) {
 	defer conn.Close()
 
+	// cleared by handleConn once the request header is read
+	setHandshakeDeadline(conn)
 	if l.pickCipher != nil {
 		conn = l.pickCipher.StreamConn(conn)
 	}
@@ -275,10 +326,20 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 		return
 	}
 
-	if user, ok := l.keys[key]; ok {
-		additions = append(additions, inbound.WithInUser(user))
+	if entry, ok := l.users.Lookup(key); ok {
+		// the session dies with the user: removing or re-keying it closes conn
+		release, bound := l.users.Bind(entry, conn)
+		if !bound {
+			return
+		}
+		defer release()
+		additions = append(additions, inbound.WithInUser(entry.Name()))
 	} else {
 		//log.Warnln("no such key")
+		if client == nil {
+			client = conn.RemoteAddr()
+		}
+		authevent.EmitAddr("trojan", authevent.ReasonWrongCredentials, conn.LocalAddr(), client)
 		return
 	}
 
@@ -294,6 +355,9 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 func (l *Listener) handleConn(inMux bool, conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
 	if inMux {
 		defer conn.Close()
+		// a mux stream must send its command and target in time too; the
+		// outer conn's deadline was lifted when the session started
+		setHandshakeDeadline(conn)
 	}
 
 	command, err := socks5.ReadByte(conn)
@@ -322,6 +386,9 @@ func (l *Listener) handleConn(inMux bool, conn net.Conn, tunnel C.Tunnel, additi
 			return
 		}
 	}
+	// the header is read: lift the handshake deadline set by serveConn, or
+	// above for a mux stream
+	clearHandshakeDeadline(conn)
 
 	switch command {
 	case trojan.CommandTCP:
@@ -364,12 +431,23 @@ func (l *Listener) handleConn(inMux bool, conn net.Conn, tunnel C.Tunnel, additi
 			return
 		}
 		defer session.Close()
+		var streams atomic.Int32
 		for {
 			stream, err := session.AcceptStream()
 			if err != nil {
 				return
 			}
-			go l.handleConn(true, stream, tunnel, additions...)
+			if streams.Load() >= int32(maxMuxStreams) {
+				// too many open streams: refuse this one (the client sees it
+				// closed) rather than stall the session or spawn more
+				_ = stream.Close()
+				continue
+			}
+			streams.Add(1)
+			go func() {
+				defer streams.Add(-1)
+				l.handleConn(true, stream, tunnel, additions...)
+			}()
 		}
 	}
 }

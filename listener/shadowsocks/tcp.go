@@ -9,6 +9,7 @@ import (
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
 	C "github.com/metacubex/mihomo/constant"
+	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/jls"
 	"github.com/metacubex/mihomo/listener/restls"
@@ -178,6 +179,10 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 	if loaded {
 		additions = append(append([]inbound.Addition(nil), additions...), inbound.WithInUser(user))
 	}
+	// Until the salt, the first chunk and the target have been read the
+	// client is unauthenticated: cut it at the handshake deadline.
+	rawConn := conn
+	authStore.SetHandshakeDeadline(rawConn)
 	if l.simpleObfs != nil {
 		conn = l.simpleObfs(conn)
 	}
@@ -189,6 +194,7 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 		_ = conn.Close()
 		return
 	}
+	authStore.ClearHandshakeDeadline(rawConn)
 	l.handler.HandleSocket(target, conn, additions...)
 	//tunnel.HandleTCPConn(inbound.NewSocket(target, conn, C.SHADOWSOCKS, additions...))
 }

@@ -88,11 +88,9 @@ func (c *Config) EffectiveMode(hasReality bool) string {
 	return "packet-up"
 }
 
+// NormalizedPath returns the path part of Path (without the "?query" part), as Xray-core's GetNormalizedPath does.
 func (c *Config) NormalizedPath() string {
-	path := c.Path
-	if path == "" {
-		path = "/"
-	}
+	path, _, _ := strings.Cut(c.Path, "?")
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
@@ -103,6 +101,13 @@ func (c *Config) NormalizedPath() string {
 		}
 	}
 	return path
+}
+
+// NormalizedQuery returns the raw "?query" part of Path that is sent with every request,
+// as Xray-core's GetNormalizedQuery does. The server ignores it when matching the path.
+func (c *Config) NormalizedQuery() string {
+	_, query, _ := strings.Cut(c.Path, "?")
+	return query
 }
 
 func (c *Config) GetRequestHeader() http.Header {
@@ -117,7 +122,7 @@ func (c *Config) GetRequestHeader() http.Header {
 func (c *Config) GetRequestHeaderWithPayload(payload []byte, uplinkChunkSize Range) http.Header {
 	header := c.GetRequestHeader()
 
-	key := c.UplinkDataKey
+	key := c.GetNormalizedUplinkDataKey(PlacementHeader)
 	encodedData := base64.RawURLEncoding.EncodeToString(payload)
 
 	for i := 0; len(encodedData) > 0; i++ {
@@ -137,7 +142,7 @@ func (c *Config) GetRequestHeaderWithPayload(payload []byte, uplinkChunkSize Ran
 func (c *Config) GetRequestCookiesWithPayload(payload []byte, uplinkChunkSize Range) []*http.Cookie {
 	cookies := []*http.Cookie{}
 
-	key := c.UplinkDataKey
+	key := c.GetNormalizedUplinkDataKey(PlacementCookie)
 	encodedData := base64.RawURLEncoding.EncodeToString(payload)
 
 	for i := 0; len(encodedData) > 0; i++ {
@@ -164,7 +169,7 @@ func (c *Config) WriteResponseHeader(writer http.ResponseWriter, requestMethod s
 
 	if c.GetNormalizedSessionPlacement() == PlacementCookie ||
 		c.GetNormalizedSeqPlacement() == PlacementCookie ||
-		c.XPaddingPlacement == PlacementCookie ||
+		(c.XPaddingObfsMode && c.GetNormalizedXPaddingPlacement() == PlacementCookie) ||
 		c.GetNormalizedUplinkDataPlacement() == PlacementCookie {
 		writer.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
@@ -194,7 +199,7 @@ func (c *Config) GetNormalizedUplinkHTTPMethod() string {
 }
 
 func (c *Config) GetNormalizedScStreamUpServerSecs() (Range, error) {
-	r, err := ParseRange(c.ScStreamUpServerSecs, "20-80")
+	r, err := ParseRangeOrDefault(c.ScStreamUpServerSecs, "20-80")
 	if err != nil {
 		return Range{}, fmt.Errorf("invalid sc-stream-up-server-secs: %w", err)
 	}
@@ -202,34 +207,28 @@ func (c *Config) GetNormalizedScStreamUpServerSecs() (Range, error) {
 }
 
 func (c *Config) GetNormalizedScMaxBufferedPosts() (Range, error) {
-	r, err := ParseRange(c.ScMaxBufferedPosts, "30")
+	r, err := ParseRangeOrDefault(c.ScMaxBufferedPosts, "30")
 	if err != nil {
 		return Range{}, fmt.Errorf("invalid sc-max-buffered-posts: %w", err)
-	}
-	if r.Max == 0 {
-		return Range{}, fmt.Errorf("invalid sc-max-buffered-posts: must be greater than zero")
 	}
 	return r, nil
 }
 
 func (c *Config) GetNormalizedScMaxEachPostBytes() (Range, error) {
-	r, err := ParseRange(c.ScMaxEachPostBytes, "1000000")
+	r, err := ParseRangeOrDefault(c.ScMaxEachPostBytes, "1000000")
 	if err != nil {
 		return Range{}, fmt.Errorf("invalid sc-max-each-post-bytes: %w", err)
 	}
-	if r.Max == 0 {
+	if r.Min == 0 { // a zero-sized post would never carry any data
 		return Range{}, fmt.Errorf("invalid sc-max-each-post-bytes: must be greater than zero")
 	}
 	return r, nil
 }
 
 func (c *Config) GetNormalizedScMinPostsIntervalMs() (Range, error) {
-	r, err := ParseRange(c.ScMinPostsIntervalMs, "30")
+	r, err := ParseRangeOrDefault(c.ScMinPostsIntervalMs, "30")
 	if err != nil {
 		return Range{}, fmt.Errorf("invalid sc-min-posts-interval-ms: %w", err)
-	}
-	if r.Max == 0 {
-		return Range{}, fmt.Errorf("invalid sc-min-posts-interval-ms: must be greater than zero")
 	}
 	return r, nil
 }
@@ -284,6 +283,61 @@ func (c *Config) GetNormalizedUplinkDataPlacement() string {
 	return c.UplinkDataPlacement
 }
 
+// GetNormalizedServerUplinkDataPlacement is the placement the server reads
+// packet-up data from. Unset means "auto" (header, cookie and body together),
+// as in Xray-core, so a server without the option accepts every client.
+func (c *Config) GetNormalizedServerUplinkDataPlacement() string {
+	if c.UplinkDataPlacement == "" {
+		return PlacementAuto
+	}
+	return c.UplinkDataPlacement
+}
+
+// GetNormalizedUplinkDataKey matches Xray-core's defaults: "x_data" for
+// cookies, "X-Data" for headers.
+func (c *Config) GetNormalizedUplinkDataKey(placement string) string {
+	if c.UplinkDataKey != "" {
+		return c.UplinkDataKey
+	}
+	if placement == PlacementCookie {
+		return "x_data"
+	}
+	return "X-Data"
+}
+
+// The x-padding-obfs-mode defaults, as Xray-core fills them in.
+
+func (c *Config) GetNormalizedXPaddingKey() string {
+	if c.XPaddingKey == "" {
+		return "x_padding"
+	}
+	return c.XPaddingKey
+}
+
+func (c *Config) GetNormalizedXPaddingHeader() string {
+	if c.XPaddingHeader == "" {
+		return "X-Padding"
+	}
+	return c.XPaddingHeader
+}
+
+func (c *Config) GetNormalizedXPaddingPlacement() string {
+	if c.XPaddingPlacement == "" {
+		return PlacementQueryInHeader
+	}
+	return c.XPaddingPlacement
+}
+
+// xPaddingObfsPlacement is the obfs-mode padding placement of requests and responses.
+func (c *Config) xPaddingObfsPlacement(rawURL string) XPaddingPlacement {
+	return XPaddingPlacement{
+		Placement: c.GetNormalizedXPaddingPlacement(),
+		Key:       c.GetNormalizedXPaddingKey(),
+		Header:    c.GetNormalizedXPaddingHeader(),
+		RawURL:    rawURL,
+	}
+}
+
 func (c *Config) GetNormalizedSessionKey() string {
 	if c.SessionKey != "" {
 		return c.SessionKey
@@ -331,6 +385,19 @@ func ParseRange(s string, fallback string) (Range, error) {
 	return parseRange(s)
 }
 
+// ParseRangeOrDefault is like ParseRange, but also uses fallback when the range is "0" or "0-0".
+// Xray-core treats a range with To == 0 as unset and applies its default in that case.
+func ParseRangeOrDefault(s string, fallback string) (Range, error) {
+	r, err := ParseRange(s, fallback)
+	if err != nil {
+		return Range{}, err
+	}
+	if r.Max == 0 {
+		return parseRange(fallback)
+	}
+	return r, nil
+}
+
 func parseRange(s string) (Range, error) {
 	parts := strings.Split(strings.TrimSpace(s), "-")
 	if len(parts) == 1 {
@@ -356,6 +423,16 @@ func parseRange(s string) (Range, error) {
 		return Range{}, fmt.Errorf("invalid range: %s", s)
 	}
 	return Range{minVal, maxVal}, nil
+}
+
+// DefaultReuseConfig returns the reuse settings (aka XMUX) that Xray-core applies when "xmux" is left empty:
+// up to 3 connections, each one retired after 600-900 requests or 1800-3000 seconds.
+func DefaultReuseConfig() *ReuseConfig {
+	return &ReuseConfig{
+		MaxConnections:   "3",
+		HMaxRequestTimes: "600-900",
+		HMaxReusableSecs: "1800-3000",
+	}
 }
 
 func (c *ReuseConfig) ResolveManagerConfig() (Range, Range, error) {
@@ -500,12 +577,7 @@ func (c *Config) FillStreamRequest(req *http.Request, sessionID string) error {
 	config := XPaddingConfig{Length: length}
 
 	if c.XPaddingObfsMode {
-		config.Placement = XPaddingPlacement{
-			Placement: c.XPaddingPlacement,
-			Key:       c.XPaddingKey,
-			Header:    c.XPaddingHeader,
-			RawURL:    req.URL.String(),
-		}
+		config.Placement = c.xPaddingObfsPlacement(req.URL.String())
 		config.Method = PaddingMethod(c.XPaddingMethod)
 	} else {
 		config.Placement = XPaddingPlacement{
@@ -537,6 +609,9 @@ func (c *Config) FillPacketRequest(request *http.Request, sessionId string, seqS
 		request.Header = c.GetRequestHeader()
 		request.Body = io.NopCloser(bytes.NewReader(data))
 		request.ContentLength = int64(len(data))
+		request.GetBody = func() (io.ReadCloser, error) { // allow the transport to retry it (e.g. after a GOAWAY), like Xray-core
+			return io.NopCloser(bytes.NewReader(data)), nil
+		}
 	} else {
 		request.Body = nil
 		request.ContentLength = 0
@@ -567,12 +642,7 @@ func (c *Config) FillPacketRequest(request *http.Request, sessionId string, seqS
 	config := XPaddingConfig{Length: length}
 
 	if c.XPaddingObfsMode {
-		config.Placement = XPaddingPlacement{
-			Placement: c.XPaddingPlacement,
-			Key:       c.XPaddingKey,
-			Header:    c.XPaddingHeader,
-			RawURL:    request.URL.String(),
-		}
+		config.Placement = c.xPaddingObfsPlacement(request.URL.String())
 		config.Method = PaddingMethod(c.XPaddingMethod)
 	} else {
 		config.Placement = XPaddingPlacement{

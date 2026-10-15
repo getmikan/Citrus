@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"reflect"
+	"strings"
 	"unsafe"
 
 	"github.com/metacubex/mihomo/common/once"
@@ -40,7 +41,9 @@ func NewListener(inner net.Listener, config *Config) net.Listener {
 }
 
 func GetFingerprint(clientFingerprint string) (UClientHelloID, bool) {
-	if len(clientFingerprint) == 0 || clientFingerprint == "none" {
+	clientFingerprint = strings.ToLower(clientFingerprint) // like Xray
+	switch clientFingerprint {
+	case "", "none", "unsafe", "hellogolang": // "unsafe" and "hellogolang" are Xray's names for no uTLS
 		return UClientHelloID{}, false
 	}
 
@@ -75,6 +78,10 @@ var randomFingerprint = once.OnceValue(func() UClientHelloID {
 	return fingerprint
 })
 
+// chrome (Chrome 133), hellochrome_131, firefox (Firefox 148) and safari (Safari 26.3, both from
+// the getmikan/utls fork) carry an X25519MLKEM768 key share of their own; chrome_pq* carry the
+// obsolete X25519Kyber768Draft00; ios, android, edge, 360, qq and the older versions are classical
+// ones. REALITY injects an X25519MLKEM768 key share into those, see UClientWithX25519MLKEM768.
 var fingerprints = map[string]UClientHelloID{
 	"chrome":  utls.HelloChrome_Auto,
 	"firefox": utls.HelloFirefox_Auto,
@@ -98,16 +105,73 @@ var fingerprints = map[string]UClientHelloID{
 	"chrome_pq":                  utls.HelloChrome_115_PQ,
 	"chrome_pq_psk":              utls.HelloChrome_115_PQ_PSK,
 	"randomized":                 utls.HelloRandomized,
+	"randomizedalpn":             utls.HelloRandomizedALPN,
+	"randomizednoalpn":           utls.HelloRandomizedNoALPN,
+
+	// names used by Xray-core (the `fp` of share links), see Xray's transport/internet/tls/tls.go.
+	// The ones utls has no parrot for are mapped to the nearest available fingerprint.
+	"hellofirefox_120":                 utls.HelloFirefox_120,
+	"hellofirefox_148":                 utls.HelloFirefox_148,
+	"hellochrome_120":                  utls.HelloChrome_120,
+	"hellochrome_131":                  utls.HelloChrome_131,
+	"hellochrome_133":                  utls.HelloChrome_133,
+	"helloios_13":                      utls.HelloIOS_13,
+	"helloios_14":                      utls.HelloIOS_14,
+	"helloedge_106":                    utls.HelloEdge_Auto, // HelloEdge_106 seems to be incompatible with utls
+	"hellosafari_26_3":                 utls.HelloSafari_26_3,
+	"hello360_11_0":                    utls.Hello360_Auto, // Hello360_11_0 seems to be incompatible with utls
+	"helloqq_11_1":                     utls.HelloQQ_11_1,
+	"hellorandomized":                  utls.HelloRandomized,
+	"hellorandomizedalpn":              utls.HelloRandomizedALPN,
+	"hellorandomizednoalpn":            utls.HelloRandomizedNoALPN,
+	"hellofirefox_auto":                utls.HelloFirefox_Auto,
+	"hellofirefox_55":                  utls.HelloFirefox_55,
+	"hellofirefox_56":                  utls.HelloFirefox_56,
+	"hellofirefox_63":                  utls.HelloFirefox_63,
+	"hellofirefox_65":                  utls.HelloFirefox_65,
+	"hellofirefox_99":                  utls.HelloFirefox_99,
+	"hellofirefox_102":                 utls.HelloFirefox_102,
+	"hellofirefox_105":                 utls.HelloFirefox_105,
+	"hellochrome_auto":                 utls.HelloChrome_Auto,
+	"hellochrome_58":                   utls.HelloChrome_58,
+	"hellochrome_62":                   utls.HelloChrome_62,
+	"hellochrome_70":                   utls.HelloChrome_70,
+	"hellochrome_72":                   utls.HelloChrome_72,
+	"hellochrome_83":                   utls.HelloChrome_83,
+	"hellochrome_87":                   utls.HelloChrome_87,
+	"hellochrome_96":                   utls.HelloChrome_96,
+	"hellochrome_100":                  utls.HelloChrome_100,
+	"hellochrome_102":                  utls.HelloChrome_102,
+	"hellochrome_106_shuffle":          utls.HelloChrome_106_Shuffle,
+	"helloios_auto":                    utls.HelloIOS_Auto,
+	"helloios_11_1":                    utls.HelloIOS_11_1,
+	"helloios_12_1":                    utls.HelloIOS_12_1,
+	"helloandroid_11_okhttp":           utls.HelloAndroid_11_OkHttp,
+	"helloedge_85":                     utls.HelloEdge_85,
+	"helloedge_auto":                   utls.HelloEdge_Auto,
+	"hellosafari_16_0":                 utls.HelloSafari_16_0,
+	"hellosafari_auto":                 utls.HelloSafari_Auto,
+	"hello360_auto":                    utls.Hello360_Auto,
+	"hello360_7_5":                     utls.Hello360_7_5,
+	"helloqq_auto":                     utls.HelloQQ_Auto,
+	"hellochrome_100_psk":              utls.HelloChrome_100_PSK,
+	"hellochrome_112_psk_shuf":         utls.HelloChrome_112_PSK_Shuf,
+	"hellochrome_114_padding_psk_shuf": utls.HelloChrome_114_Padding_PSK_Shuf,
+	"hellochrome_115_pq":               utls.HelloChrome_115_PQ,
+	"hellochrome_115_pq_psk":           utls.HelloChrome_115_PQ_PSK,
+	"hellochrome_120_pq":               utls.HelloChrome_120_PQ,
 }
 
 func init() {
 	weights := utls.DefaultWeights
 	weights.TLSVersMax_Set_VersionTLS13 = 1
 	weights.FirstKeyShare_Set_CurveP256 = 0
-	randomized := utls.HelloRandomized
-	randomized.Seed, _ = utls.NewPRNGSeed()
-	randomized.Weights = &weights
-	fingerprints["randomized"] = randomized
+	for _, name := range []string{"randomized", "randomizedalpn", "randomizednoalpn", "hellorandomized", "hellorandomizedalpn", "hellorandomizednoalpn"} {
+		randomized := fingerprints[name]
+		randomized.Seed, _ = utls.NewPRNGSeed()
+		randomized.Weights = &weights
+		fingerprints[name] = randomized
+	}
 }
 
 type Certificate = utls.Certificate
@@ -303,6 +367,125 @@ func BuildRemovedX25519MLKEM768HandshakeState(c *UConn) error {
 		return err
 	}
 	return nil
+}
+
+// UClientWithX25519MLKEM768 returns a UConn with a built handshake state whose client hello
+// offers an X25519MLKEM768 key share placed before the X25519 one. The fingerprints carrying such
+// a key share themselves (chrome, firefox, safari) are used as they are, one is injected into
+// the others (ios, android, edge, 360, qq, randomized, older versions).
+func UClientWithX25519MLKEM768(c net.Conn, config *utls.Config, fingerprint UClientHelloID) (*UConn, error) {
+	spec, err := utls.UTLSIdToSpec(fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	if !NeedX25519MLKEM768(&spec) {
+		uConn := utls.UClient(c, config, fingerprint)
+		if err = uConn.BuildHandshakeState(); err != nil {
+			return nil, err
+		}
+		return uConn, nil
+	}
+	AddX25519MLKEM768(&spec)
+	uConn := utls.UClient(c, config, utls.HelloCustom)
+	// ApplyPreset generates the key of every key share without data,
+	// so the hybrid key of the injected X25519MLKEM768 share is a real one
+	if err = uConn.ApplyPreset(&spec); err != nil {
+		return nil, err
+	}
+	if err = uConn.BuildHandshakeState(); err != nil {
+		return nil, err
+	}
+	return uConn, nil
+}
+
+// NeedX25519MLKEM768 reports whether the spec has a key_share extension but lacks a single
+// X25519MLKEM768 key share placed before X25519 (in both supported_groups and key_share),
+// or still offers the obsolete X25519Kyber768Draft00, so AddX25519MLKEM768 has to fix it.
+func NeedX25519MLKEM768(spec *utls.ClientHelloSpec) bool {
+	var curves []utls.CurveID
+	var keyShares []utls.KeyShare
+	hasKeyShare := false
+	for _, extension := range spec.Extensions {
+		switch ext := extension.(type) {
+		case *utls.SupportedCurvesExtension:
+			curves = ext.Curves
+		case *utls.KeyShareExtension:
+			hasKeyShare = true
+			keyShares = ext.KeyShares
+		}
+	}
+	if !hasKeyShare {
+		return false
+	}
+	pqFirst := func(groups []utls.CurveID) bool {
+		pq, x25519 := -1, -1
+		for i, group := range groups {
+			switch group {
+			case utls.X25519Kyber768Draft00:
+				return false
+			case utls.X25519MLKEM768:
+				if pq >= 0 {
+					return false
+				}
+				pq = i
+			case utls.X25519:
+				if x25519 < 0 {
+					x25519 = i
+				}
+			}
+		}
+		return pq >= 0 && (x25519 < 0 || pq < x25519)
+	}
+	groups := make([]utls.CurveID, 0, len(keyShares))
+	for _, share := range keyShares {
+		groups = append(groups, share.Group)
+	}
+	return !pqFirst(curves) || !pqFirst(groups)
+}
+
+// AddX25519MLKEM768 makes the spec offer X25519MLKEM768 ahead of X25519 in both the
+// supported_groups and the key_share extensions, replacing the obsolete X25519Kyber768Draft00.
+// Xray REALITY servers since v26.9.8 drop any client hello without such a key share.
+// A spec without a key_share extension (TLS 1.2 only) is left as it is.
+func AddX25519MLKEM768(spec *utls.ClientHelloSpec) {
+	if !slices.ContainsFunc(spec.Extensions, func(extension utls.TLSExtension) bool {
+		_, ok := extension.(*utls.KeyShareExtension)
+		return ok
+	}) {
+		return
+	}
+	for _, extension := range spec.Extensions {
+		switch ext := extension.(type) {
+		case *utls.SupportedCurvesExtension:
+			curves := slices.DeleteFunc(slices.Clone(ext.Curves), func(curveID utls.CurveID) bool {
+				return curveID == utls.X25519MLKEM768 || curveID == utls.X25519Kyber768Draft00
+			})
+			i := pqInsertIndex(curves, func(curveID utls.CurveID) utls.CurveID { return curveID })
+			ext.Curves = slices.Insert(curves, i, utls.X25519MLKEM768)
+		case *utls.KeyShareExtension:
+			keyShares := slices.DeleteFunc(slices.Clone(ext.KeyShares), func(share utls.KeyShare) bool {
+				return share.Group == utls.X25519MLKEM768 || share.Group == utls.X25519Kyber768Draft00
+			})
+			i := pqInsertIndex(keyShares, func(share utls.KeyShare) utls.CurveID { return share.Group })
+			ext.KeyShares = slices.Insert(keyShares, i, utls.KeyShare{Group: utls.X25519MLKEM768})
+		}
+	}
+}
+
+// pqInsertIndex returns the position of X25519, or the first position after the leading GREASE values.
+func pqInsertIndex[T any](s []T, group func(T) utls.CurveID) int {
+	if i := slices.IndexFunc(s, func(v T) bool { return group(v) == utls.X25519 }); i >= 0 {
+		return i
+	}
+	i := 0
+	for i < len(s) && isGREASE(uint16(group(s[i]))) {
+		i++
+	}
+	return i
+}
+
+func isGREASE(v uint16) bool {
+	return v&0x0f0f == 0x0a0a && v&0xff == v>>8
 }
 
 func GetTLSConnectionState(conn net.Conn) (tlsState tls.ConnectionState) {

@@ -1,0 +1,66 @@
+{
+  "server": "xray",
+  "proto": "reality-tlsin",
+  "rep": 1,
+  "start": "2026-10-15T14:17:08.412166819Z",
+  "keyshare": "X25519MLKEM768",
+  "bulk": {
+    "dl1": {
+      "streams": 1,
+      "dir": "down",
+      "mbps": 1933.9986060010488,
+      "bytes": 19340558336,
+      "cpu_sec_per_gb": 0.42123861464926843,
+      "server_cpu_sec": 8.14699,
+      "server_cores": 0.8146748935254982,
+      "client_util": 0.09830446971267844,
+      "sink_util": 0.12632437452386053,
+      "window_sec": 10.000295903,
+      "errors": 0
+    },
+    "dl32": {
+      "streams": 32,
+      "dir": "down",
+      "mbps": 1475.5494134195103,
+      "bytes": 14755790848,
+      "cpu_sec_per_gb": 1.207047401489436,
+      "server_cpu_sec": 17.810939,
+      "server_cores": 1.7810580852372815,
+      "client_util": 0.1445964923525142,
+      "sink_util": 0.0585474226874414,
+      "window_sec": 10.000201087,
+      "errors": 0
+    },
+    "ul1": {
+      "streams": 1,
+      "dir": "up",
+      "mbps": 416.3678350454124,
+      "bytes": 4163895296,
+      "cpu_sec_per_gb": 2.1404981072799774,
+      "server_cpu_sec": 8.91281,
+      "server_cores": 0.891234562846967,
+      "client_util": 0.0999536919828468,
+      "sink_util": 0.0747774662724641,
+      "window_sec": 10.000521043,
+      "errors": 0
+    },
+    "ul32": {
+      "streams": 32,
+      "dir": "up",
+      "mbps": 2745.3677289008015,
+      "bytes": 27454898176,
+      "cpu_sec_per_gb": 0.6895815777073235,
+      "server_cpu_sec": 18.932392,
+      "server_cores": 1.8931550098821865,
+      "client_util": 0.22279378503928712,
+      "sink_util": 0.18479203215049664,
+      "window_sec": 10.000444708,
+      "errors": 0
+    }
+  },
+  "rss_start": 57368576,
+  "rss_end": 47431680,
+  "server_cpus": 2,
+  "client_cpus": 14,
+  "seconds": 92.351375209
+}

@@ -7,7 +7,7 @@ import (
 	"runtime"
 
 	"github.com/metacubex/mihomo/transport/tuic/common"
-	"github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 
 	"github.com/metacubex/http"
 	"github.com/metacubex/quic-go"
@@ -15,7 +15,7 @@ import (
 	"github.com/metacubex/tls"
 )
 
-func (c *Client) quicRoundTripper(tlsConfig *vmess.TLSConfig, congestionControlName string, cwnd int, bbrProfile string) error {
+func (c *Client) quicRoundTripper(tlsConfig *v2ray.TLSConfig, congestionControlName string, cwnd int, bbrProfile string) error {
 	stdConfig, err := tlsConfig.ToStdConfig()
 	if err != nil {
 		return err
@@ -45,14 +45,28 @@ func (c *Client) quicRoundTripper(tlsConfig *vmess.TLSConfig, congestionControlN
 	return nil
 }
 
-func (s *Service) configHTTP3Server(tlsConfig *tls.Config, udpConn net.PacketConn) error {
-	tlsConfig = http3.ConfigureTLSConfig(tlsConfig)
-	quicListener, err := quic.ListenEarly(udpConn, tlsConfig, &quic.Config{
+// serverMaxIncomingStreams bounds the concurrent HTTP/3 request streams of
+// one connection. Every CONNECT is one request stream, and streams are
+// opened before Proxy-Authorization is checked. Streams over the limit are
+// not refused: QUIC flow control (MAX_STREAMS) makes the client wait (the
+// HTTP/3 transport opens streams with OpenStreamSync). The client pools up
+// to 8 connections, and over HTTP/2 a connection already gets 250 concurrent
+// streams (the Go HTTP/2 server default), so 1024 is generous.
+const serverMaxIncomingStreams = 1024
+
+func serverQUICConfig() *quic.Config {
+	return &quic.Config{
 		Versions:           []quic.Version{quic.Version1},
 		MaxIdleTimeout:     DefaultQuicMaxIdleTimeout,
-		MaxIncomingStreams: 1 << 60,
+		KeepAlivePeriod:    quicKeepAlivePeriod,
+		MaxIncomingStreams: serverMaxIncomingStreams,
 		Allow0RTT:          true,
-	})
+	}
+}
+
+func (s *Service) configHTTP3Server(tlsConfig *tls.Config, udpConn net.PacketConn) error {
+	tlsConfig = http3.ConfigureTLSConfig(tlsConfig)
+	quicListener, err := quic.ListenEarly(udpConn, tlsConfig, serverQUICConfig())
 	if err != nil {
 		return err
 	}

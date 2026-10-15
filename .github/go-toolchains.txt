@@ -1,0 +1,13 @@
+# Go toolchains for CI, read by .github/scripts/setup-go.sh.
+# Format: <key> <Go version in the tarball's VERSION file> <tarball URL> <sha256>
+#
+# The MetaCubeX/go `build` release holds one patched toolchain per Go minor
+# version and replaces the assets in place when it is rebuilt. When that
+# happens setup-go.sh fails with a SHA-256 mismatch: look at what changed in
+# the release, then put the new version and digest here
+# (`gh release view build -R MetaCubeX/go --json assets`).
+#
+# loong64-abi1 is the Go 1.26.0 toolchain that builds for the old LoongArch
+# ABI (the loong64-abi1 release target).
+1.26 go1.26.9 https://github.com/MetaCubeX/go/releases/download/build/go1.26.linux-amd64.tar.gz 81e2e9465f2a248375afdd925a217e8b58eee84fcbc11776642a2e76415b2b3a
+loong64-abi1 go1.26.0 https://github.com/MetaCubeX/loongarch64-golang/releases/download/1.26.0/go1.26.0.linux-amd64.tar.gz 46af28946a57d4a33fe7b478728267f0fb734d893b2d857dbcd485aa7cb08974

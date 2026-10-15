@@ -1,0 +1,36 @@
+---
+// One news post, inside Starlight's page frame.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { render } from 'astro:content';
+import { dateFormat, page, strings, type Lang } from '../landing';
+import { feedLink, type Post } from '../news';
+
+interface Props {
+	lang: Lang;
+	post: Post;
+}
+
+const { lang, post } = Astro.props;
+const t = strings[lang].newsPage;
+const { Content, headings } = await render(post);
+---
+
+<StarlightPage frontmatter={{ title: post.data.title, description: post.data.description, tableOfContents: false, head: feedLink(lang) }} headings={headings}>
+	<p class="meta not-content">
+		<time datetime={post.data.date.toISOString().slice(0, 10)}>{dateFormat(lang, post.data.date)}</time>
+	</p>
+	<Content />
+	<p class="back"><a href={page(lang, 'news/')}>← {t.back}</a></p>
+</StarlightPage>
+
+<style>
+	.meta {
+		margin: 0;
+		font-family: var(--sl-font-mono);
+		font-size: 0.8125rem;
+		color: var(--ct-muted);
+	}
+	.back {
+		margin-top: 2.5rem;
+	}
+</style>

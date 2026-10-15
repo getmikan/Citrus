@@ -27,7 +27,31 @@ const (
 	tlsHandshakeTypeServerHello byte = 0x02
 )
 
+// FilterTLS inspects the first packets of either direction for the inner TLS
+// handshake. It is called from both the read and the write side, so the
+// filter state is guarded by filterMu; once filtering is over only an atomic
+// load is left on the hot path.
 func (vc *Conn) FilterTLS(buffer []byte) (index int) {
+	if vc.filterDone.Load() {
+		return 0
+	}
+	vc.filterMu.Lock()
+	defer vc.filterMu.Unlock()
+	index = vc.filterTLSLocked(buffer)
+	if vc.packetsToFilter <= 0 {
+		vc.filterDone.Store(true)
+	}
+	return
+}
+
+// filterState returns a consistent snapshot of the filter results for the writer.
+func (vc *Conn) filterState() (isTLS, isTLS12orAbove, enableXTLS bool, packetsToFilter int) {
+	vc.filterMu.Lock()
+	defer vc.filterMu.Unlock()
+	return vc.isTLS, vc.isTLS12orAbove, vc.enableXTLS, vc.packetsToFilter
+}
+
+func (vc *Conn) filterTLSLocked(buffer []byte) (index int) {
 	if vc.packetsToFilter <= 0 {
 		return 0
 	}

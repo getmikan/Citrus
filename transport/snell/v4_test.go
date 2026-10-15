@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math/rand"
 	"net"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/metacubex/mihomo/transport/shadowsocks/shadowaead"
@@ -405,4 +407,98 @@ func decodeV4HeaderForTest(t *testing.T, data []byte) (int, int) {
 		t.Fatalf("invalid v4 header: %x", header)
 	}
 	return int(binary.BigEndian.Uint16(header[3:5])), int(binary.BigEndian.Uint16(header[5:7]))
+}
+
+// recordConn collects everything written to it.
+type recordConn struct {
+	net.Conn
+	buf bytes.Buffer
+}
+
+func (c *recordConn) Write(b []byte) (int, error) { return c.buf.Write(b) }
+
+// countingConn serves a fixed byte stream and counts Read calls, standing in
+// for recv() syscalls on the underlying connection.
+type countingConn struct {
+	net.Conn
+	r     io.Reader
+	reads int
+}
+
+func (c *countingConn) Read(b []byte) (int, error) {
+	c.reads++
+	return c.r.Read(b)
+}
+
+// snellV4Wire encodes payload as a v4 stream written in chunks of chunkSize
+// and returns the wire bytes with the number of frames written.
+func snellV4Wire(t *testing.T, payload []byte, chunkSize int) ([]byte, int) {
+	t.Helper()
+	wire := &recordConn{}
+	client := newV4Conn(wire, []byte("password"))
+	frames := 0
+	for off := 0; off < len(payload); off += chunkSize {
+		end := off + chunkSize
+		if end > len(payload) {
+			end = len(payload)
+		}
+		if _, err := client.Write(payload[off:end]); err != nil {
+			t.Fatal(err)
+		}
+		frames++
+	}
+	return wire.buf.Bytes(), frames
+}
+
+func TestSnellV4ReaderIsBuffered(t *testing.T) {
+	payload := make([]byte, 1<<20)
+	rand.New(rand.NewSource(1)).Read(payload)
+	wire, frames := snellV4Wire(t, payload, 1000)
+
+	raw := &countingConn{r: bytes.NewReader(wire)}
+	server := newV4Conn(raw, []byte("password"))
+	got, err := io.ReadAll(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatal("payload mismatch")
+	}
+	// Unbuffered, every frame costs two reads (header, then body).
+	if raw.reads > frames/4 {
+		t.Fatalf("too many reads on the underlying conn: %d for %d frames", raw.reads, frames)
+	}
+}
+
+func TestSnellV4ReaderFragmentedStream(t *testing.T) {
+	payload := make([]byte, 64<<10)
+	rand.New(rand.NewSource(2)).Read(payload)
+	wire, _ := snellV4Wire(t, payload, 3000)
+
+	for name, r := range map[string]io.Reader{
+		"one byte":  iotest.OneByteReader(bytes.NewReader(wire)),
+		"half":      iotest.HalfReader(bytes.NewReader(wire)),
+		"data eof":  iotest.DataErrReader(bytes.NewReader(wire)),
+		"plain eof": bytes.NewReader(wire),
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := newV4Conn(&countingConn{r: r}, []byte("password"))
+			var out bytes.Buffer
+			// WriteTo is what relays use; it must see the same stream.
+			if _, err := server.WriteTo(&out); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(out.Bytes(), payload) {
+				t.Fatal("payload mismatch")
+			}
+		})
+	}
+}
+
+func TestSnellV4ReaderTruncatedFrame(t *testing.T) {
+	wire, _ := snellV4Wire(t, []byte("hello world"), 64)
+	server := newV4Conn(&countingConn{r: bytes.NewReader(wire[:len(wire)-1])}, []byte("password"))
+	if _, err := io.ReadAll(server); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("expected unexpected EOF on a truncated frame, got %v", err)
+	}
 }

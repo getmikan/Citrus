@@ -36,14 +36,13 @@ type TuicOption struct {
 	Name                  string   `proxy:"name"`
 	Server                string   `proxy:"server"`
 	Port                  int      `proxy:"port"`
-	Token                 string   `proxy:"token,omitempty"`
+	Token                 string   `proxy:"token,omitempty"` // TUIC v4, no longer supported; kept only to reject old configs with a clear error
 	UUID                  string   `proxy:"uuid,omitempty"`
 	Password              string   `proxy:"password,omitempty"`
 	Ip                    string   `proxy:"ip,omitempty"`
 	HeartbeatInterval     int      `proxy:"heartbeat-interval,omitempty"`
 	ALPN                  []string `proxy:"alpn,omitempty"`
 	ReduceRtt             bool     `proxy:"reduce-rtt,omitempty"`
-	RequestTimeout        int      `proxy:"request-timeout,omitempty"`
 	UdpRelayMode          string   `proxy:"udp-relay-mode,omitempty"`
 	CongestionController  string   `proxy:"congestion-controller,omitempty"`
 	DisableSni            bool     `proxy:"disable-sni,omitempty"`
@@ -119,6 +118,14 @@ func (t *Tuic) dial(ctx context.Context) (quicConn *quic.Conn, err error) {
 	return quicConn, nil
 }
 
+// Close implements C.ProxyAdapter
+func (t *Tuic) Close() error {
+	if t.client != nil {
+		return t.client.Close()
+	}
+	return nil
+}
+
 // ProxyInfo implements C.ProxyAdapter
 func (t *Tuic) ProxyInfo() C.ProxyInfo {
 	info := t.Base.ProxyInfo()
@@ -128,6 +135,9 @@ func (t *Tuic) ProxyInfo() C.ProxyInfo {
 
 func NewTuic(option TuicOption) (*Tuic, error) {
 	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
+	if len(option.Token) > 0 {
+		return nil, fmt.Errorf("tuic %s: %w", addr, tuic.ErrV4Unsupported)
+	}
 	serverName := option.Server
 	if option.SNI != "" {
 		serverName = option.SNI
@@ -154,10 +164,6 @@ func NewTuic(option TuicOption) (*Tuic, error) {
 		tlsConfig.NextProtos = []string{"h3"}
 	}
 
-	if option.RequestTimeout == 0 {
-		option.RequestTimeout = 8000
-	}
-
 	if option.HeartbeatInterval <= 0 {
 		option.HeartbeatInterval = 10000
 	}
@@ -179,10 +185,7 @@ func NewTuic(option TuicOption) (*Tuic, error) {
 		option.CWND = 32
 	}
 
-	packetOverHead := tuic.PacketOverHeadV4
-	if len(option.Token) == 0 {
-		packetOverHead = tuic.PacketOverHeadV5
-	}
+	packetOverHead := tuic.PacketOverHeadV5
 
 	if option.MaxDatagramFrameSize == 0 {
 		option.MaxDatagramFrameSize = option.MaxUdpRelayPacketSize + packetOverHead
@@ -268,33 +271,19 @@ func NewTuic(option TuicOption) (*Tuic, error) {
 		clientMaxOpenStreams = 1
 	}
 
-	if len(option.Token) > 0 {
-		tkn := tuic.GenTKN(option.Token)
-		clientOption := &tuic.ClientOptionV4{
-			Token:                 tkn,
-			UdpRelayMode:          udpRelayMode,
-			RequestTimeout:        time.Duration(option.RequestTimeout) * time.Millisecond,
-			MaxUdpRelayPacketSize: option.MaxUdpRelayPacketSize,
-			FastOpen:              option.FastOpen,
-			MaxOpenStreams:        clientMaxOpenStreams,
-		}
-
-		t.client = tuic.NewPoolClientV4(clientOption, t.dial)
-	} else {
-		maxUdpRelayPacketSize := option.MaxUdpRelayPacketSize
-		if maxUdpRelayPacketSize > tuic.MaxFragSizeV5 {
-			maxUdpRelayPacketSize = tuic.MaxFragSizeV5
-		}
-		clientOption := &tuic.ClientOptionV5{
-			Uuid:                  uuid.FromStringOrNil(option.UUID),
-			Password:              option.Password,
-			UdpRelayMode:          udpRelayMode,
-			MaxUdpRelayPacketSize: maxUdpRelayPacketSize,
-			MaxOpenStreams:        clientMaxOpenStreams,
-		}
-
-		t.client = tuic.NewPoolClientV5(clientOption, t.dial)
+	maxUdpRelayPacketSize := option.MaxUdpRelayPacketSize
+	if maxUdpRelayPacketSize > tuic.MaxFragSizeV5 {
+		maxUdpRelayPacketSize = tuic.MaxFragSizeV5
 	}
+	clientOption := &tuic.ClientOptionV5{
+		Uuid:                  uuid.FromStringOrNil(option.UUID),
+		Password:              option.Password,
+		UdpRelayMode:          udpRelayMode,
+		MaxUdpRelayPacketSize: maxUdpRelayPacketSize,
+		MaxOpenStreams:        clientMaxOpenStreams,
+	}
+
+	t.client = tuic.NewPoolClientV5(clientOption, t.dial)
 
 	return t, nil
 }

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/transport/anytls/pipe"
@@ -21,8 +22,8 @@ type Stream struct {
 	writeDeadline pipe.PipeDeadline
 
 	dieOnce sync.Once
-	dieHook func()
-	dieErr  error
+	dieHook func()                // set before the stream is published, run once by whoever wins dieOnce
+	dieErr  atomic.Pointer[error] // set once in dieOnce, read by Read/Write from other goroutines
 
 	reportOnce sync.Once
 }
@@ -40,10 +41,20 @@ func newStream(id uint32, sess *Session) *Stream {
 // Read implements net.Conn
 func (s *Stream) Read(b []byte) (n int, err error) {
 	n, err = s.pipeR.Read(b)
-	if n == 0 && s.dieErr != nil {
-		err = s.dieErr
+	if n == 0 {
+		if dieErr := s.closeErr(); dieErr != nil {
+			err = dieErr
+		}
 	}
 	return
+}
+
+// closeErr returns the error the Stream was closed with, or nil if it is open.
+func (s *Stream) closeErr() error {
+	if p := s.dieErr.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // Write implements net.Conn
@@ -53,8 +64,8 @@ func (s *Stream) Write(b []byte) (n int, err error) {
 		return 0, os.ErrDeadlineExceeded
 	default:
 	}
-	if s.dieErr != nil {
-		return 0, s.dieErr
+	if dieErr := s.closeErr(); dieErr != nil {
+		return 0, dieErr
 	}
 	n, err = s.sess.writeDataFrame(s.id, b)
 	return
@@ -69,7 +80,8 @@ func (s *Stream) Close() error {
 func (s *Stream) closeLocally() {
 	var once bool
 	s.dieOnce.Do(func() {
-		s.dieErr = net.ErrClosed
+		dieErr := net.ErrClosed
+		s.dieErr.Store(&dieErr)
 		s.pipeR.Close()
 		once = true
 	})
@@ -84,7 +96,7 @@ func (s *Stream) closeLocally() {
 func (s *Stream) closeWithError(err error) error {
 	var once bool
 	s.dieOnce.Do(func() {
-		s.dieErr = err
+		s.dieErr.Store(&err)
 		s.pipeR.Close()
 		once = true
 	})
@@ -96,7 +108,7 @@ func (s *Stream) closeWithError(err error) error {
 		}
 		return err
 	} else {
-		return s.dieErr
+		return s.closeErr()
 	}
 }
 
@@ -140,7 +152,7 @@ func (s *Stream) HandshakeFailure(err error) error {
 	s.reportOnce.Do(func() {
 		once = true
 	})
-	if once && err != nil && s.sess.peerVersion >= 2 {
+	if once && err != nil && s.sess.peerVersion.Load() >= 2 {
 		f := newFrame(cmdSYNACK, s.id)
 		f.data = []byte(err.Error())
 		if _, err := s.sess.writeControlFrame(f); err != nil {
@@ -156,7 +168,7 @@ func (s *Stream) HandshakeSuccess() error {
 	s.reportOnce.Do(func() {
 		once = true
 	})
-	if once && s.sess.peerVersion >= 2 {
+	if once && s.sess.peerVersion.Load() >= 2 {
 		if _, err := s.sess.writeControlFrame(newFrame(cmdSYNACK, s.id)); err != nil {
 			return err
 		}

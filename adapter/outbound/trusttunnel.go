@@ -2,13 +2,15 @@ package outbound
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	N "github.com/metacubex/mihomo/common/net"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/trusttunnel"
-	"github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 )
 
 type TrustTunnel struct {
@@ -44,6 +46,28 @@ type TrustTunnelOption struct {
 	MaxConnections int `proxy:"max-connections,omitempty"`
 	MinStreams     int `proxy:"min-streams,omitempty"`
 	MaxStreams     int `proxy:"max-streams,omitempty"`
+	// HTTP/2 session timers, in seconds; 0 means the default.
+	PingInterval     int `proxy:"ping-interval,omitempty"` // -1 disables pings
+	PingTimeout      int `proxy:"ping-timeout,omitempty"`
+	HandshakeTimeout int `proxy:"handshake-timeout,omitempty"` // TCP dial and TLS handshake
+}
+
+// sessionTimers converts the HTTP/2 session timers of option to durations,
+// leaving zero for the transport defaults and -1 for pings turned off.
+func (option *TrustTunnelOption) sessionTimers() (pingInterval, pingTimeout, handshakeTimeout time.Duration, err error) {
+	if option.PingInterval < -1 {
+		return 0, 0, 0, fmt.Errorf("trusttunnel %s: ping-interval must be -1 (no pings), 0 (default) or at least 1 second, got %d", option.Name, option.PingInterval)
+	}
+	if option.PingTimeout < 0 {
+		return 0, 0, 0, fmt.Errorf("trusttunnel %s: ping-timeout must be 0 (default) or at least 1 second, got %d", option.Name, option.PingTimeout)
+	}
+	if option.HandshakeTimeout < 0 {
+		return 0, 0, 0, fmt.Errorf("trusttunnel %s: handshake-timeout must be 0 (default) or at least 1 second, got %d", option.Name, option.HandshakeTimeout)
+	}
+	return time.Duration(option.PingInterval) * time.Second,
+		time.Duration(option.PingTimeout) * time.Second,
+		time.Duration(option.HandshakeTimeout) * time.Second,
+		nil
 }
 
 func (t *TrustTunnel) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
@@ -85,6 +109,10 @@ func (t *TrustTunnel) Close() error {
 }
 
 func NewTrustTunnel(option TrustTunnelOption) (*TrustTunnel, error) {
+	pingInterval, pingTimeout, handshakeTimeout, err := option.sessionTimers()
+	if err != nil {
+		return nil, err
+	}
 	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
 	outbound := &TrustTunnel{
 		Base: NewBase(BaseOption{
@@ -117,12 +145,15 @@ func NewTrustTunnel(option TrustTunnelOption) (*TrustTunnel, error) {
 		MaxConnections:        option.MaxConnections,
 		MinStreams:            option.MinStreams,
 		MaxStreams:            option.MaxStreams,
+		PingInterval:          pingInterval,
+		PingTimeout:           pingTimeout,
+		HandshakeTimeout:      handshakeTimeout,
 	}
 	echConfig, err := option.ECHOpts.Parse()
 	if err != nil {
 		return nil, err
 	}
-	tlsConfig := &vmess.TLSConfig{
+	tlsConfig := &v2ray.TLSConfig{
 		Host:              option.SNI,
 		SkipCertVerify:    option.SkipCertVerify,
 		NameCertVerify:    option.NameCertVerify,

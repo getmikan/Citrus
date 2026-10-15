@@ -1,0 +1,155 @@
+---
+title: Метрики и здоровье
+description: Метрики ядра для Prometheus (GET /metrics) и проверки здоровья GET /healthz и GET /readyz.
+---
+
+Ядро отдаёт метрики в текстовом формате Prometheus на контроллере (`external-controller`), рядом с остальным API: трафик, соединения, входящие, пользователи, проверки прокси и сам процесс. Две проверки, `/healthz` и `/readyz`, говорят балансировщику или оркестратору, работает ли ядро и готово ли оно.
+
+Библиотека-клиент Prometheus ядру не нужна: текст пишет небольшой встроенный модуль.
+
+## Конфиг
+
+```yaml
+metrics:
+  enable: true    # GET /metrics; по умолчанию выключено
+  per-user: false # ряды по каждому пользователю входящих; по умолчанию выключено
+health-without-auth: false # /healthz и /readyz без secret; по умолчанию выключено
+```
+
+- `enable` включает `GET /metrics` (пока выключено, ответ 404) и учёт трафика по входящим. Счётчики входящих стоят одно атомарное сложение на чтение или запись; соединения, открытые при выключенных метриках, по входящим не считаются.
+- `per-user` добавляет ряды по пользователям. Их пять на пользователя, так что 10 000 пользователей — около 50 000 рядов: включайте, только если ваш Prometheus готов к такой кардинальности. Данные берутся из счётчиков [трафика пользователей](/Citrus/start/user-stats/), поэтому `user-stats` должен оставаться включённым.
+
+Перезагрузка конфига применяет настройки сразу, без перезапуска контроллера.
+
+## Авторизация
+
+`/metrics` закрыт `secret` контроллера, как и остальные пути. Prometheus передаёт его как bearer-токен:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: citrus
+    scrape_interval: 30s
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/citrus-secret # secret контроллера
+    static_configs:
+      - targets: ['node1.example.com:9090', 'node2.example.com:9090']
+        labels: { cluster: eu }
+```
+
+Если контроллер слушает публичный адрес, используйте `external-controller-tls` и `scheme: https` в настройке сбора.
+
+## Метрики
+
+### Процесс
+
+| Метрика | Тип | Смысл |
+| --- | --- | --- |
+| `citrus_build_info{version,go_version}` | gauge | Всегда 1; версия — в метках. |
+| `citrus_start_time_seconds`, `citrus_uptime_seconds` | gauge | Время запуска (unix) и секунды с запуска. |
+| `citrus_goroutines` | gauge | Горутины. |
+| `citrus_heap_bytes` | gauge | Объекты кучи, живые и ещё не подметённые. |
+| `citrus_resident_memory_bytes` | gauge | Резидентная память (RSS). |
+| `citrus_memory_limit_bytes` | gauge | Мягкий лимит памяти рантайма Go (`GOMEMLIMIT`), 0 — без лимита. |
+| `citrus_open_fds`, `citrus_max_fds` | gauge | Открытые файловые дескрипторы и их лимит (только Linux). |
+| `citrus_gc_cycles_total` | counter | Завершённые циклы GC. |
+| `citrus_gc_pause_seconds` | histogram | Паузы GC с остановкой мира, свёрнутые из `runtime/metrics` (сумма — оценка). |
+| `citrus_live`, `citrus_ready` | gauge | 1, когда `/healthz` и `/readyz` ответили бы 200. |
+| `citrus_listeners_failed` | gauge | Входящие из секции `listeners`, которые не смогли запуститься. |
+
+### Трафик и соединения
+
+| Метрика | Тип | Смысл |
+| --- | --- | --- |
+| `citrus_traffic_bytes_total{direction}` | counter | Байты через туннель с запуска, `direction` — `up` или `down` (итоги `/traffic`). |
+| `citrus_connections` | gauge | Открытые соединения и UDP-сессии. |
+| `citrus_connections_opened_total` | counter | Соединения и UDP-сессии, открытые с запуска. |
+| `citrus_inbound_connections{inbound}` | gauge | Открытые соединения входящего. |
+| `citrus_inbound_traffic_bytes_total{inbound,direction}` | counter | Байты входящего с момента включения метрик. |
+
+Байты — полезная нагрузка на исходящей стороне туннеля, как в `/traffic` и [трафике пользователей](/Citrus/start/user-stats/): накладные расходы входящего протокола не входят.
+
+### Пользователи (`per-user: true`)
+
+| Метрика | Тип | Смысл |
+| --- | --- | --- |
+| `citrus_users` | gauge | Пользователи со счётчиком. |
+| `citrus_user_traffic_bytes_total{inbound,user,direction}` | counter | Байты пользователя, накопительно. |
+| `citrus_user_connections{inbound,user}` | gauge | Открытые соединения и UDP-сессии пользователя. |
+| `citrus_user_online_ips{inbound,user}` | gauge | Адреса пользователя онлайн — так, как их считает `max-ips` (адрес остаётся онлайн минуту после последнего соединения). |
+| `citrus_user_rejected_total{inbound,user,reason}` | counter | Соединения, отклонённые [лимитами пользователя](/Citrus/start/user-limits/), по причине `reason`: `expired`, `quota`, `max-conns`, `max-ips`. Выводятся только случившиеся причины. |
+
+`citrus_user_traffic_bytes_total` накопительный: панель, которая забирает счётчики через `GET /traffic/users?reset=true`, на него не влияет. Ряды пользователя пропадают, когда его счётчик удаляется (нет соединений и 10 минут простоя, или пользователь убран из конфига), и начинаются с нуля, когда он возвращается; `rate()` и `increase()` в Prometheus считают это сбросом счётчика.
+
+### Прокси
+
+| Метрика | Тип | Смысл |
+| --- | --- | --- |
+| `citrus_proxy_alive{proxy}` | gauge | 1, если последняя проверка здоровья или замер задержки прокси прошли успешно. |
+| `citrus_proxy_delay_ms{proxy}` | gauge | Задержка последней проверки, если она прошла. |
+| `citrus_chain_alive{chain}` | gauge | 1, если последняя проверка здоровья [группы-цепочки](/Citrus/start/chains/) прошла через все узлы. |
+| `citrus_chain_hop_alive{chain,hop,position}` | gauge | Узел цепочки после её последней проверки: 0 у первого отказавшего узла, 1 у узлов до него (у всех узлов работающей цепочки). Узлы после отказавшего не выводятся. |
+
+Выводятся только прокси и группы, которые проверялись хотя бы раз, включая прокси из провайдеров.
+
+### Поток событий
+
+| Метрика | Тип | Смысл |
+| --- | --- | --- |
+| `citrus_event_subscribers` | gauge | Открытые потоки [`GET /events`](/Citrus/start/events/). |
+| `citrus_events_published_total{type}` | counter | События, доставленные хотя бы одному потоку, по типам. События без подписчиков не считаются. |
+| `citrus_events_dropped_total` | counter | События, потерянные для слишком медленных потоков (событие, потерянное для двух потоков, считается дважды). |
+
+## Проверки здоровья
+
+| Путь | 200 `ok` | 503 |
+| --- | --- | --- |
+| `GET /healthz` | Туннель работает. | Пока конфиг загружается или перезагружается: в теле `suspend` или `inner`. |
+| `GET /readyz` | Конфиг применён, и каждый входящий из секции `listeners` слушает. | До применения первого конфига, во время перезагрузки или если входящий не запустился (порт занят, нет сертификата). |
+
+По умолчанию проверки требуют `secret`. С `health-without-auth: true` они отвечают без него: возвращают только состояние (`ok` или причину без имён и адресов), а остальной API, включая `/metrics`, по-прежнему требует secret. Открытая проверка подсказывает сканеру, что на порту контроллер, — но то же подсказывает и 401 на любом другом пути.
+
+Перезагрузка конфига занимает какое-то время, и всё это время `/healthz` отвечает 503: дайте liveness-проверке несколько неудач до перезапуска ядра (например, `failureThreshold: 3` при `periodSeconds: 10` в Kubernetes).
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9090/readyz -H "Authorization: Bearer $SECRET"
+```
+
+## Запросы для Grafana
+
+Трафик каждой ноды, бит в секунду:
+
+```promql
+sum by (instance, direction) (rate(citrus_traffic_bytes_total[5m])) * 8
+```
+
+Десять пользователей с наибольшим трафиком за сутки:
+
+```promql
+topk(10, sum by (inbound, user) (increase(citrus_user_traffic_bytes_total[1d])))
+```
+
+Пользователи, которых отклоняли лимиты за последний час, по причинам:
+
+```promql
+sum by (inbound, user, reason) (increase(citrus_user_rejected_total[1h])) > 0
+```
+
+Упавшие прокси и задержка остальных:
+
+```promql
+citrus_proxy_alive == 0
+citrus_proxy_delay_ms
+```
+
+Алерт на неготовую ноду:
+
+```promql
+citrus_ready == 0 or up{job="citrus"} == 0
+```
+
+## Стоимость
+
+Пока метрики никто не собирает, они ничего не стоят, кроме счётчиков входящих (одно атомарное сложение на чтение или запись, как у общих итогов). Сбор обходит счётчики: с `per-user` и 10 000 пользователей это около 10 мс процессора и около 3 МБ текста (порядка 300 байт на пользователя, больше при длинных именах входящих и пользователей). Если клиент просит gzip — а Prometheus просит, — ответ сжимается примерно до 200 КБ. Без `per-user` сбор занимает несколько килобайт при любом числе пользователей.

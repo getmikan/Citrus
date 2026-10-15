@@ -42,6 +42,14 @@ const (
 	ipStackMips   = "mips"
 )
 
+var (
+	wireGuardSerial       atomic.Uint64
+	wireGuardDevicesMutex sync.Mutex
+	wireGuardDevices      = make(map[string]*WireGuard) // deviceKey -> outbound running that device
+
+	errWireGuardOutdated = errors.New("wireguard device is running in a newer outbound")
+)
+
 type wireguardGoDevice interface {
 	Close()
 	IpcSet(uapiConf string) error
@@ -54,6 +62,7 @@ type WireGuard struct {
 	tunDevice wireguardDevice
 	resolver  resolver.Resolver
 
+	serial        uint64 // creation order, a newer outbound takes over the device of an older one
 	runCtx        context.Context
 	runCancel     context.CancelFunc
 	deviceMutex   sync.Mutex
@@ -363,6 +372,7 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
 		}),
+		serial: wireGuardSerial.Add(1),
 	}
 	outbound.dialer = option.NewDialer(outbound.DialOptions())
 	singDialer := proxydialer.NewSingDialer(proxydialer.NewSlowDownDialer(outbound.dialer, slowdown.New()))
@@ -542,6 +552,9 @@ func (w *WireGuard) init0(ctx context.Context) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
+	if err = w.takeOverDevice(); err != nil {
+		return err
+	}
 
 	stack, err := newIPStack(w.option.IPStack, w.localPrefixes, uint32(w.option.MTU))
 	if err != nil {
@@ -603,6 +616,91 @@ func (w *WireGuard) init0(ctx context.Context) (err error) {
 	}
 	w.device, w.tunDevice = wgDevice, tunDevice
 	w.initOk.Store(true)
+	return nil
+}
+
+// deviceKey identifies the proxy this outbound belongs to and the device it runs,
+// as seen by the peer: the private key, and the public key and endpoint of each peer.
+func (w *WireGuard) deviceKey() string {
+	key := w.option.ProviderName + "\x00" + w.option.Name + "\x00" + w.option.PrivateKey
+	if len(w.option.Peers) > 0 {
+		for _, peer := range w.option.Peers {
+			key += "\x00" + peer.PublicKey + "@" + peer.Addr().String()
+		}
+	} else {
+		key += "\x00" + w.option.PublicKey + "@" + w.option.Addr().String()
+	}
+	return key
+}
+
+// takeOverDevice must be called before the device is brought up.
+// A config reload or provider update replaces the outbound, but the old one is only
+// closed by the GC, which can take minutes and doesn't happen at all while a connection
+// still uses it. Two devices with the same private key make the peer switch its endpoint
+// between them, so the newer outbound closes the older one's device first.
+func (w *WireGuard) takeOverDevice() error {
+	key := w.deviceKey()
+	wireGuardDevicesMutex.Lock()
+	old := wireGuardDevices[key]
+	if old != nil && old.serial > w.serial {
+		wireGuardDevicesMutex.Unlock()
+		return errWireGuardOutdated
+	}
+	wireGuardDevices[key] = w
+	wireGuardDevicesMutex.Unlock()
+
+	if old != nil && old != w {
+		log.Debugln("[WG](%s) closing the device of the outdated outbound", w.option.Name)
+		_ = old.Close()
+	}
+	return nil
+}
+
+// WireGuardSerial returns the serial of the newest WireGuard outbound created so far.
+// Take it before collecting the proxies passed to CloseWireGuardDevicesExcept.
+func WireGuardSerial() uint64 {
+	return wireGuardSerial.Load()
+}
+
+// CloseWireGuardDevicesExcept closes the running devices of the WireGuard outbounds
+// created up to serial that are not among proxies. A proxy removed or renamed by a config
+// reload has no replacement to take its device over, and its outbound is otherwise closed
+// only by the GC, which doesn't happen while a connection still uses it.
+// Outbounds created after serial (e.g. by a provider update in the meantime) are kept.
+func CloseWireGuardDevicesExcept(serial uint64, proxies []C.Proxy) {
+	current := make(map[*WireGuard]struct{})
+	for _, proxy := range proxies {
+		if w := unwrapWireGuard(proxy.Adapter()); w != nil {
+			current[w] = struct{}{}
+		}
+	}
+
+	var outdated []*WireGuard
+	wireGuardDevicesMutex.Lock()
+	for _, w := range wireGuardDevices {
+		if _, ok := current[w]; !ok && w.serial <= serial {
+			outdated = append(outdated, w)
+		}
+	}
+	wireGuardDevicesMutex.Unlock()
+
+	for _, w := range outdated {
+		log.Debugln("[WG](%s) closing the device of the removed outbound", w.option.Name)
+		_ = w.Close()
+	}
+}
+
+func unwrapWireGuard(adapter C.ProxyAdapter) *WireGuard {
+	for adapter != nil {
+		switch a := adapter.(type) {
+		case *WireGuard:
+			return a
+		case *autoCloseProxyAdapter:
+			adapter = a.ProxyAdapter
+		default:
+			return nil
+		}
+	}
 	return nil
 }
 
@@ -805,6 +903,11 @@ func (w *WireGuard) genIpcConf(ctx context.Context, updateOnly bool) (string, er
 // Close implements C.ProxyAdapter
 func (w *WireGuard) Close() error {
 	w.runCancel()
+	wireGuardDevicesMutex.Lock()
+	if key := w.deviceKey(); wireGuardDevices[key] == w {
+		delete(wireGuardDevices, key)
+	}
+	wireGuardDevicesMutex.Unlock()
 	w.deviceMutex.Lock()
 	wgDevice := w.device
 	w.deviceMutex.Unlock()

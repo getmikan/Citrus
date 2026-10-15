@@ -1,0 +1,25 @@
+metric,unit,proto,server,n,median,min,max,values
+dl1_mbps,MB/s,reality-tlsin,xray,4,1946,1776,1985,1776 1934 1959 1985
+dl1_mbps,MB/s,reality-tlsin,mihomo,4,2473,1960,2505,1960 2466 2479 2505
+dl1_mbps,MB/s,reality-tlsin,citrus,4,2532,2053,2543,2053 2524 2540 2543
+ul1_mbps,MB/s,reality-tlsin,xray,4,419,416,420,416 419 420 420
+ul1_mbps,MB/s,reality-tlsin,mihomo,4,396,393,400,393 396 396 400
+ul1_mbps,MB/s,reality-tlsin,citrus,4,398,393,3159,393 394 402 3159
+dl32_mbps,MB/s,reality-tlsin,xray,4,1353,1219,1881,1219 1231 1476 1881
+dl32_mbps,MB/s,reality-tlsin,mihomo,4,8427,8030,10856,8030 8339 8515 10856
+dl32_mbps,MB/s,reality-tlsin,citrus,4,9520,9319,10828,9319 9421 9619 10828
+ul32_mbps,MB/s,reality-tlsin,xray,4,2893,2174,3142,2174 2745 3042 3142
+ul32_mbps,MB/s,reality-tlsin,mihomo,4,5551,5301,7197,5301 5398 5704 7197
+ul32_mbps,MB/s,reality-tlsin,citrus,4,5545,4604,7911,4604 5527 5564 7911
+dl1_cpu_gb,CPU s/GB,reality-tlsin,xray,4,0.42,0.42,0.59,0.42 0.42 0.42 0.59
+dl1_cpu_gb,CPU s/GB,reality-tlsin,mihomo,4,0.39,0.39,0.42,0.39 0.39 0.40 0.42
+dl1_cpu_gb,CPU s/GB,reality-tlsin,citrus,4,0.39,0.39,0.43,0.39 0.39 0.39 0.43
+dl32_cpu_gb,CPU s/GB,reality-tlsin,xray,4,1.34,0.93,1.50,0.93 1.21 1.47 1.50
+dl32_cpu_gb,CPU s/GB,reality-tlsin,mihomo,4,0.22,0.17,0.24,0.17 0.22 0.23 0.24
+dl32_cpu_gb,CPU s/GB,reality-tlsin,citrus,4,0.20,0.17,0.20,0.17 0.20 0.20 0.20
+ul32_cpu_gb,CPU s/GB,reality-tlsin,xray,4,0.65,0.60,0.86,0.60 0.62 0.69 0.86
+ul32_cpu_gb,CPU s/GB,reality-tlsin,mihomo,4,0.34,0.26,0.36,0.26 0.33 0.35 0.36
+ul32_cpu_gb,CPU s/GB,reality-tlsin,citrus,4,0.34,0.23,0.41,0.23 0.34 0.34 0.41
+client_util_max,%,reality-tlsin,xray,4,22,22,22,22 22 22 22
+client_util_max,%,reality-tlsin,mihomo,4,46,42,53,42 42 50 53
+client_util_max,%,reality-tlsin,citrus,4,46,45,55,45 45 47 55

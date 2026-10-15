@@ -55,7 +55,7 @@ func (s *server) checkRealmToken(r *http.Request) bool {
 }
 
 func (s *server) requestIP(r *http.Request) string {
-	return clientIP(r, s.proxyHeader)
+	return clientIP(r, s.realIP)
 }
 
 func (s *server) realmID(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -110,8 +110,10 @@ func (s *server) register(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusTooManyRequests, errIPLimit, "per-ip realm limit reached")
 		return
 	}
+	token := randToken()
 	sess := &session{
-		id:        randToken(),
+		id:        token,
+		logID:     sessionLogID(token),
 		realmID:   id,
 		addresses: req.Addresses,
 		expires:   time.Now().Add(sessionTTL),
@@ -124,7 +126,7 @@ func (s *server) register(w http.ResponseWriter, r *http.Request) {
 	s.sessions[sess.id] = sess
 	s.ipCounts[ip]++
 	s.mu.Unlock()
-	debugf("registered realm=%s session=%s addresses=%d remote=%s", id, sess.id, len(req.Addresses), ip)
+	debugf("registered realm=%s session=%s addresses=%d remote=%s", id, sess.logID, len(req.Addresses), ip)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session_id": sess.id,
@@ -144,7 +146,7 @@ func (s *server) deregister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, errInvalidToken, "invalid session token")
 		return
 	}
-	debugf("deregistered realm=%s session=%s remote=%s", id, sess.id, remote)
+	debugf("deregistered realm=%s session=%s remote=%s", id, sess.logID, remote)
 	s.removeSession(sess)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -179,7 +181,7 @@ func (s *server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	if sess.closed {
 		s.mu.Unlock()
-		debugf("heartbeat closed realm=%s session=%s remote=%s", id, sess.id, remote)
+		debugf("heartbeat closed realm=%s session=%s remote=%s", id, sess.logID, remote)
 		writeErr(w, http.StatusUnauthorized, errInvalidToken, "invalid session token")
 		return
 	}
@@ -188,9 +190,9 @@ func (s *server) heartbeat(w http.ResponseWriter, r *http.Request) {
 		sess.addresses = append([]string(nil), req.Addresses...)
 	}
 	s.mu.Unlock()
-	debugf("heartbeat realm=%s session=%s addressesUpdated=%t remote=%s", id, sess.id, req.Addresses != nil, remote)
+	debugf("heartbeat realm=%s session=%s addressesUpdated=%t remote=%s", id, sess.logID, req.Addresses != nil, remote)
 	if !s.sendEvent(sess, sessionEvent{kind: "heartbeat_ack", data: map[string]any{"ttl": int(sessionTTL.Seconds())}}) {
-		debugf("heartbeat ack dropped realm=%s session=%s remote=%s", id, sess.id, remote)
+		debugf("heartbeat ack dropped realm=%s session=%s remote=%s", id, sess.logID, remote)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ttl": int(sessionTTL.Seconds())})
 }
@@ -207,12 +209,19 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, errInvalidToken, "invalid session token")
 		return
 	}
-	debugf("events connected realm=%s session=%s remote=%s", id, sess.id, remote)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeErr(w, http.StatusInternalServerError, errBadRequest, "streaming not supported")
 		return
 	}
+	// One events stream per session: a new one replaces the previous.
+	replaced, ok := s.acquireStream(sess)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, errInvalidToken, "invalid session token")
+		return
+	}
+	defer s.releaseStream(sess, replaced)
+	debugf("events connected realm=%s session=%s remote=%s", id, sess.logID, remote)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -223,10 +232,13 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ctx.Done():
-			debugf("events disconnected realm=%s session=%s remote=%s", id, sess.id, remote)
+			debugf("events disconnected realm=%s session=%s remote=%s", id, sess.logID, remote)
 			return
 		case <-sess.done:
-			debugf("events closed realm=%s session=%s remote=%s", id, sess.id, remote)
+			debugf("events closed realm=%s session=%s remote=%s", id, sess.logID, remote)
+			return
+		case <-replaced:
+			debugf("events replaced realm=%s session=%s remote=%s", id, sess.logID, remote)
 			return
 		case ev := <-sess.events:
 			data, _ := json.Marshal(ev.data)
@@ -284,16 +296,16 @@ func (s *server) connect(w http.ResponseWriter, r *http.Request) {
 	// so a fast Hysteria server can never deliver before we're ready.
 	respCh, ok := s.registerPending(sess, req.Nonce)
 	if !ok {
-		debugf("connect rate limited (pending) realm=%s session=%s remote=%s", id, sess.id, remote)
+		debugf("connect rate limited (pending) realm=%s session=%s remote=%s", id, sess.logID, remote)
 		writeErr(w, http.StatusServiceUnavailable, errRateLimited, "too many in-flight connect attempts")
 		return
 	}
 	defer s.cancelPending(sess, req.Nonce)
 
 	if s.sendEvent(sess, sessionEvent{kind: "punch", data: punchEvent{Addresses: req.Addresses, Nonce: req.Nonce, Obfs: req.Obfs}}) {
-		debugf("connect notified realm=%s session=%s clientAddresses=%d serverAddresses=%d remote=%s", id, sess.id, len(req.Addresses), len(serverAddrs), remote)
+		debugf("connect notified realm=%s session=%s clientAddresses=%d serverAddresses=%d remote=%s", id, sess.logID, len(req.Addresses), len(serverAddrs), remote)
 	} else {
-		debugf("connect rate limited realm=%s session=%s remote=%s", id, sess.id, remote)
+		debugf("connect rate limited realm=%s session=%s remote=%s", id, sess.logID, remote)
 		writeErr(w, http.StatusServiceUnavailable, errRateLimited, "server event buffer full")
 		return
 	}
@@ -304,18 +316,18 @@ func (s *server) connect(w http.ResponseWriter, r *http.Request) {
 	select {
 	case payload, ok := <-respCh:
 		if !ok {
-			debugf("connect canceled realm=%s session=%s remote=%s", id, sess.id, remote)
+			debugf("connect canceled realm=%s session=%s remote=%s", id, sess.logID, remote)
 			writeErr(w, http.StatusNotFound, errRealmNotFound, "realm not registered")
 			return
 		}
 		if len(payload.addresses) > 0 {
 			serverAddrs = payload.addresses
-			debugf("connect fresh addresses realm=%s session=%s addresses=%d remote=%s", id, sess.id, len(serverAddrs), remote)
+			debugf("connect fresh addresses realm=%s session=%s addresses=%d remote=%s", id, sess.logID, len(serverAddrs), remote)
 		}
 	case <-timer.C:
-		debugf("connect response timed out realm=%s session=%s remote=%s", id, sess.id, remote)
+		debugf("connect response timed out realm=%s session=%s remote=%s", id, sess.logID, remote)
 	case <-sess.done:
-		debugf("connect canceled realm=%s session=%s remote=%s", id, sess.id, remote)
+		debugf("connect canceled realm=%s session=%s remote=%s", id, sess.logID, remote)
 		writeErr(w, http.StatusNotFound, errRealmNotFound, "realm not registered")
 		return
 	case <-r.Context().Done():
@@ -359,10 +371,10 @@ func (s *server) connectResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.deliverPending(sess, nonce, punchResponsePayload{addresses: req.Addresses}) {
-		debugf("connect-response no pending realm=%s session=%s nonce=%s remote=%s", id, sess.id, nonce, remote)
+		debugf("connect-response no pending realm=%s session=%s nonce=%s remote=%s", id, sess.logID, nonce, remote)
 		writeErr(w, http.StatusNotFound, errAttemptNotFound, "no pending attempt for nonce")
 		return
 	}
-	debugf("connect-response delivered realm=%s session=%s addresses=%d remote=%s", id, sess.id, len(req.Addresses), remote)
+	debugf("connect-response delivered realm=%s session=%s addresses=%d remote=%s", id, sess.logID, len(req.Addresses), remote)
 	w.WriteHeader(http.StatusNoContent)
 }

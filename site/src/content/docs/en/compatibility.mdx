@@ -1,0 +1,96 @@
+---
+title: Compatibility
+description: Which mihomo and Xray clients work with a Citrus server, what the automated tests check, and which protocols are gone.
+---
+
+Two integration suites in `test/interop` check Citrus. Both run real binaries of other projects against Citrus built from the branch, and both run in CI on every PR that touches transports, TLS, listeners or outbounds.
+
+- **mihomo clients → Citrus server.** Official mihomo releases as the client, the way the apps of Mikan users work (Mikan, ClashFest, Clash Verge and the like).
+- **Xray ↔ Citrus.** Xray v26.10.10 in both directions: a Citrus client against an Xray server and an Xray client against a Citrus server.
+
+The binaries are pinned by version and SHA-256, so a swapped release fails the job.
+
+## mihomo clients
+
+CI runs two mihomo releases: **v1.19.32** (the one the panel targets and the latest stable release) and **v1.19.31**. **v1.19.24** (April 2026) was run once locally and is not in CI.
+
+Each case sends a GET and a 256 KiB POST through the tunnel to a local echo server and checks the SHA-256 of the body. Where the protocol carries UDP, datagrams of 16, 512 and 1200 bytes make a round trip. The server log confirms the traffic went through the Citrus inbound. For VLESS, Trojan, multi-user Shadowsocks 2022 and Hysteria2 the test also reads `GET /traffic/users`: the traffic is recorded for the user who sent it and nobody else.
+
+| Citrus inbound ← mihomo outbound | TCP | UDP | Stats | v1.19.32 | v1.19.31 | v1.19.24 |
+| --- | --- | --- | --- | --- | --- | --- |
+| VLESS + REALITY + Vision, classic X25519 | ✓ | ✓ | ✓ | pass | pass | pass |
+| VLESS + REALITY + Vision, client with `support-x25519mlkem768` | ✓ | ✓ | | pass | pass | pass |
+| VLESS + REALITY + Vision, server with `mldsa65-seed`, classic client | ✓ | ✓ | | pass | pass | pass |
+| same, client with `support-x25519mlkem768` | ✓ | ✓ | | pass | pass | pass |
+| REALITY with `require-x25519mlkem768` and `mldsa65-seed`, client with ML-KEM | ✓ | | | pass | pass | pass |
+| REALITY with `require-x25519mlkem768`, classic client | — | | | refused, as it should be | refused | refused |
+| VLESS XHTTP stream-one over TLS (h2) | ✓ | ✓ | | pass | pass | pass |
+| VLESS XHTTP packet-up over TLS (h2) | ✓ | ✓ | | pass | pass | pass |
+| VLESS XHTTP packet-up over TLS (HTTP/1.1) | ✓ | ✓ | | pass | pass | pass |
+| VLESS WebSocket + TLS | ✓ | ✓ | | pass | pass | pass |
+| VLESS gRPC + TLS | ✓ | ✓ | | pass | pass | pass |
+| VLESS Vision + TLS | ✓ | ✓ | | pass | pass | pass |
+| Trojan TLS | ✓ | ✓ | ✓ | pass | pass | pass |
+| Shadowsocks 2022 (`2022-blake3-aes-128-gcm`), single user | ✓ | ✓ | | pass | pass | pass |
+| Shadowsocks 2022, multi-user (EIH, `iPSK:uPSK`) | ✓ | ✓ | ✓ | pass | pass | pass |
+| Hysteria2 | ✓ | ✓ | ✓ | pass | pass | pass |
+| TUIC v5 | ✓ | ✓ | | pass | pass | pass |
+| AnyTLS | ✓ | ✓ | | pass | pass | pass |
+| TrustTunnel over HTTP/2 | ✓ | ✓ | | pass | pass | pass |
+| TrustTunnel over QUIC | ✓ | ✓ | | pass | pass | pass |
+| Snell v3 | ✓ | ✓ | | pass | pass | pass |
+| Snell v4 | ✓ | ✓ | | pass | pass | fail (client) |
+| Snell v5 | ✓ | ✓ | | pass | pass | fail (client) |
+| Mieru, TCP transport | ✓ | ✓ | | pass | pass | pass |
+| Mieru, UDP transport | ✓ | ✓ | | pass | pass | pass |
+| Sudoku | ✓ | ✓ | | pass | pass | pass |
+| HTTP with authentication | ✓ | | | pass | pass | pass |
+| SOCKS5 with authentication | ✓ | ✓ | | pass | pass | pass |
+| mixed with authentication, as HTTP | ✓ | | | pass | pass | pass |
+| mixed with authentication, as SOCKS5 | ✓ | ✓ | | pass | pass | pass |
+| SOCKS5 with a wrong password | — | | | refused, as it should be | refused | refused |
+
+No incompatibility on the Citrus side was found.
+
+### What subscriptions should account for
+
+- **Snell v4 and v5 need a recent client.** mihomo v1.19.24 knows only v1–v3 and refuses its own config with `version: 4`. From v1.19.31 on, v4 and v5 work. The mihomo client defaults to `version: 1` and the Citrus server to `version: 4`, so a subscription has to state the version, and should pick v3 for older clients.
+- **`require-x25519mlkem768` admits only clients with ML-KEM.** A client without `support-x25519mlkem768` sends only a classic X25519 key share, and a server with `require-x25519mlkem768: true` will not let it in. That is by design. Turn the requirement on only when every client can do X25519MLKEM768: Citrus does by default, mihomo with `support-x25519mlkem768: true`.
+- **`mldsa65-seed` on the server does not bother older clients.** mihomo clients have no `mldsa65-verify` and simply do not check the extra signature.
+
+### Outside the matrix
+
+- Protocols Citrus removed (see below): connections with them will fail.
+- Protocols Citrus has no inbound for: SSH, WireGuard, MASQUE, OpenVPN, Tailscale, EasyTier, ZeroTier, gost relay. In Citrus these are outbounds only, or servers of other projects.
+- ShadowQUIC: Citrus has the inbound, but it is not in the matrix yet.
+
+## Xray
+
+The suite runs against Xray v26.10.10. Keys come from Xray itself (`xray x25519`, `mldsa65`, `uuid`, `tls ech`), and the REALITY target is a local TLS 1.3 server with a chain over 4 KB, so the ML-DSA-65 signature fits in the certificate.
+
+| Case | Variants |
+| --- | --- |
+| Citrus client → Xray server: VLESS + Vision + REALITY with `mldsa65Seed` | chrome, firefox, safari, ios fingerprints; a wrong `mldsa65-verify` must fail |
+| Xray client → Citrus server: `mldsa65-seed` and `require-x25519mlkem768` | chrome, firefox; a wrong `mldsa65Verify` must fail |
+| Citrus client → Xray server: XHTTP (REALITY, h2) | packet-up, stream-one, stream-up, a path with `?query`, `x-padding-bytes: "0-0"` |
+| Xray client → Citrus server: XHTTP | packet-up, GET uplink, data in headers |
+| ECH in both directions (Xray `echServerKeys`, Citrus `ech-key`) | the right and a wrong config; the wrong one must fail, which proves ECH was really used |
+| VLESS + gRPC over REALITY in both directions | |
+
+Checked separately, not in CI: 64 MiB uploads and downloads over XHTTP stream-one, stream-up and packet-up with Xray in both roles.
+
+## Removed protocols
+
+Citrus dropped protocols that a VPN service does not need and that have a modern replacement.
+
+| Removed | Use instead |
+| --- | --- |
+| VMess (with the mKCP, mekya and TLSMirror transports) | VLESS: Vision, REALITY, VLESS Encryption, WebSocket, gRPC and XHTTP transports |
+| ShadowsocksR | Shadowsocks with an AEAD cipher or `2022-blake3-*` |
+| Shadowsocks stream ciphers (rc4-md5, aes-ctr, aes-cfb, chacha20, chacha20-ietf, xchacha20, table, rc4) | AEAD (`aes-128-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`) or `2022-blake3-*` |
+| v2ray-plugin | VLESS or Trojan over WebSocket and TLS |
+| Hysteria v1 | Hysteria2 |
+| TUIC v4 (`token`) | TUIC v5 (`uuid` and `password`) |
+| mKCP | QUIC-based protocols: Hysteria2, TUIC v5 |
+
+How old configs and subscriptions behave is covered in [migrating from mihomo](/Citrus/en/migration/#removed-protocols).

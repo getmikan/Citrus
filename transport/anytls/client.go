@@ -11,7 +11,7 @@ import (
 	"github.com/metacubex/mihomo/common/buf"
 	"github.com/metacubex/mihomo/transport/anytls/padding"
 	"github.com/metacubex/mihomo/transport/anytls/session"
-	"github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 
 	M "github.com/metacubex/sing/common/metadata"
 	N "github.com/metacubex/sing/common/network"
@@ -26,12 +26,12 @@ type ClientConfig struct {
 	DisableReuse             bool
 	Server                   M.Socksaddr
 	Dialer                   N.Dialer
-	TLSConfig                *vmess.TLSConfig
+	TLSConfig                *v2ray.TLSConfig
 }
 
 type Client struct {
 	passwordSha256 []byte
-	tlsConfig      *vmess.TLSConfig
+	tlsConfig      *v2ray.TLSConfig
 	dialer         N.Dialer
 	server         M.Socksaddr
 	sessionClient  *session.Client
@@ -84,7 +84,7 @@ func (c *Client) createOutboundTLSConnection(ctx context.Context) (net.Conn, err
 		b.WriteZeroN(paddingLen)
 	}
 
-	tlsConn, err := vmess.StreamTLSConn(ctx, conn, c.tlsConfig)
+	tlsConn, err := v2ray.StreamTLSConn(ctx, conn, c.tlsConfig)
 	if err != nil {
 		conn.Close()
 		return nil, err

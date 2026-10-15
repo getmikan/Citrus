@@ -19,7 +19,7 @@ import (
 	"github.com/metacubex/mihomo/transport/shadowsocks/core"
 	"github.com/metacubex/mihomo/transport/shadowtls"
 	"github.com/metacubex/mihomo/transport/trojan"
-	"github.com/metacubex/mihomo/transport/vmess"
+	"github.com/metacubex/mihomo/transport/v2ray"
 
 	"github.com/metacubex/http"
 	"github.com/metacubex/tls"
@@ -80,7 +80,7 @@ func (t *Trojan) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.
 	case "ws":
 		host, port, _ := net.SplitHostPort(t.addr)
 
-		wsOpts := &vmess.WebsocketConfig{
+		wsOpts := &v2ray.WebsocketConfig{
 			Host:                     host,
 			Port:                     port,
 			Path:                     t.option.WSOpts.Path,
@@ -109,7 +109,7 @@ func (t *Trojan) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.
 		}
 
 		if t.shadowTLSConfig != nil || t.restlsConfig != nil || t.jlsConfig != nil {
-			c, err = vmess.StreamTLSConn(ctx, c, &vmess.TLSConfig{
+			c, err = v2ray.StreamTLSConn(ctx, c, &v2ray.TLSConfig{
 				Host:              t.option.SNI,
 				SkipCertVerify:    t.option.SkipCertVerify,
 				NameCertVerify:    t.option.NameCertVerify,
@@ -144,7 +144,7 @@ func (t *Trojan) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.
 			}
 		}
 
-		c, err = vmess.StreamWebsocketConn(ctx, c, wsOpts)
+		c, err = v2ray.StreamWebsocketConn(ctx, c, wsOpts)
 	case "grpc":
 		break // already handle in dialContext
 	default:
@@ -154,7 +154,7 @@ func (t *Trojan) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.
 		if t.option.ALPN != nil { // structure's Decode will ensure value not nil when input has value even it was set an empty array
 			alpn = t.option.ALPN
 		}
-		c, err = vmess.StreamTLSConn(ctx, c, &vmess.TLSConfig{
+		c, err = v2ray.StreamTLSConn(ctx, c, &v2ray.TLSConfig{
 			Host:              t.option.SNI,
 			SkipCertVerify:    t.option.SkipCertVerify,
 			NameCertVerify:    t.option.NameCertVerify,
@@ -366,7 +366,7 @@ func NewTrojan(option TrojanOption) (*Trojan, error) {
 			return c, nil
 		}
 
-		tlsConfig := &vmess.TLSConfig{
+		tlsConfig := &v2ray.TLSConfig{
 			Host:              option.SNI,
 			SkipCertVerify:    option.SkipCertVerify,
 			NameCertVerify:    option.NameCertVerify,

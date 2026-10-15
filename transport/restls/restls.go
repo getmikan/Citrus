@@ -39,17 +39,13 @@ type ServerConfig = tls.RestlsServerConfig
 var Server = tls.RestlsServer
 
 func SetFingerprint(config *Config, fingerprint string, nameCertVerify string) (err error) {
-	verifier, err := ca.NewFingerprintVerifier(fingerprint, ntp.Now)
+	verifier, err := ca.NewFingerprintNameVerifier(fingerprint, nameCertVerify, ntp.Now)
 	if err != nil {
 		return err
 	}
 	config.InsecureSkipVerify = true
 	config.VerifyConnection = func(state tls.ConnectionState) error {
-		serverName := state.ServerName
-		if nameCertVerify != "" {
-			serverName = nameCertVerify
-		}
-		return verifier(state.PeerCertificates, serverName)
+		return verifier(state.PeerCertificates, state.ServerName)
 	}
 	return nil
 }

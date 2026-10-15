@@ -1,0 +1,85 @@
+---
+title: User traffic
+description: Per-user traffic accounting for inbounds and its controller API.
+---
+
+The core counts the traffic of every inbound user: the pair of the inbound name and the user, as the `IN-NAME` and `IN-USER` rules see them. Connections of an authenticated user are counted: VLESS, Trojan, Hysteria2, TUIC, AnyTLS, multi-user Shadowsocks, SOCKS/HTTP with a password and others. Connections without a user (TUN, redir, anonymous inbounds) are not counted and cost next to nothing.
+
+## What is counted
+
+- `up` and `down` are the payload bytes the user exchanged with the destinations, on the outbound side of the tunnel. They are the same bytes as in the global `/traffic` totals and in `/connections`. The overhead of the inbound protocol (TLS, VLESS/Trojan headers, mux frames, TCP/IP) is not included.
+- Mux sub-streams (sing-mux, XUDP) belong to the user of the connection that carries them.
+- `conns` is the number of the user's open TCP connections and UDP sessions.
+- `ips` lists the addresses the user is connected from, with the number of connections from each and the time of the last connect or disconnect. An address stays listed for a minute after its last connection closes.
+- `lastActive` is the last seen activity (a connection opened or closed, bytes moved by the time of a query); it is accurate to a minute.
+- `rejected` and `rejectReasons` are the connections refused by the [user's limits](/Citrus/en/start/user-limits/), in total and by reason (`expired`, `quota`, `max-conns`, `max-ips`).
+
+The counters live in memory and start over when the core restarts.
+
+## Config
+
+```yaml
+user-stats: true # the default; false stops counting new connections
+```
+
+## API
+
+Requests go to the `external-controller` with the same `secret` as the rest of the API.
+
+### `GET /traffic/users`
+
+Parameters (all optional):
+
+| Parameter | Meaning |
+| --- | --- |
+| `inbound` | Only this inbound. |
+| `user` | Only this user. |
+| `reset=true` | Return the bytes since the previous reset and start a new period: "query with reset", as in Xray. Only the filtered users are reset; no byte is lost or returned twice. |
+
+Without `reset`, `up` and `down` are cumulative since the counter appeared.
+
+```bash
+curl -H "Authorization: Bearer $SECRET" "http://127.0.0.1:9090/traffic/users?inbound=vless-in&reset=true"
+```
+
+```json
+[
+  {
+    "inbound": "vless-in",
+    "user": "alice",
+    "up": 1048576,
+    "down": 52428800,
+    "conns": 3,
+    "ips": [{ "ip": "203.0.113.7", "conns": 3, "lastSeen": "2026-10-12T20:01:02Z" }],
+    "lastActive": "2026-10-12T20:01:02Z",
+    "rejected": 2,
+    "rejectReasons": { "max-ips": 2 }
+  }
+]
+```
+
+A panel that collects traffic every N seconds calls it with `reset=true` and adds the result to its own totals.
+
+### `DELETE /connections?inbound=…&user=…`
+
+Closes the connections of a user (or of a whole inbound when only `inbound` is given). Without parameters it closes all connections, as before. To keep a user from connecting again, remove the user from the config or [at runtime](/Citrus/en/start/inbound-users/), or give it an `expire-at` in the past (see [user limits](/Citrus/en/start/user-limits/)).
+
+## Go API
+
+For embedding the core:
+
+```go
+users := statistic.DefaultManager.Users()
+all := users.Snapshot()   // cumulative counters
+delta := users.Drain()    // bytes since the previous Drain
+s, ok := users.Get(statistic.UserKey{Inbound: "vless-in", User: "alice"})
+```
+
+## Memory
+
+A counter is removed when the user has no connections, its bytes were collected with `reset`/`Drain`, and:
+
+- the user was removed [at runtime](/Citrus/en/start/inbound-users/), or the user or the inbound was removed from the config on a reload (for the inbounds that know their user list: VLESS, Trojan, AnyTLS, TrustTunnel, TUIC, Shadowsocks, SOCKS/HTTP/mixed; the built-in `DEFAULT-*` inbounds and the others rely on the idle timeout), or
+- the user has been idle for more than 10 minutes.
+
+If the traffic is never collected, the counter of an idle user is removed after 20 minutes. The cleanup runs once a minute.

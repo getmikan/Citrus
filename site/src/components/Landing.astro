@@ -1,0 +1,607 @@
+---
+import { Image } from 'astro:assets';
+import { Code } from '@astrojs/starlight/components';
+import citrus from '../assets/citrus.webp';
+import { dateFormat, links, page, runCommand, strings, type Lang } from '../landing';
+import { getPosts } from '../news';
+
+interface Props {
+	lang: Lang;
+}
+
+const { lang } = Astro.props;
+const t = strings[lang];
+const posts = (await getPosts(lang)).slice(0, 3);
+---
+
+<div class="landing not-content">
+	<section class="hero" aria-labelledby="hero-title">
+		<div class="hero-copy">
+			<h1 id="hero-title">{t.hero.title}</h1>
+			<p class="lead">{t.hero.lead}</p>
+			<div class="install">
+				<Code code={runCommand} lang="bash" frame="none" />
+			</div>
+			<p class="req">{t.hero.note}</p>
+			<div class="actions">
+				<a class="btn btn-primary" href={page(lang, 'start/getting-started/')}>
+					{t.hero.primary}
+					<svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+				</a>
+				<a class="btn btn-ghost" href="#download">{t.hero.secondary}</a>
+				<a class="btn btn-ghost" href={links.github}>GitHub</a>
+			</div>
+		</div>
+		<div class="hero-art">
+			<Image src={citrus} alt={t.hero.art} widths={[210, 420, 600]} sizes="(min-width: 50rem) 300px, 168px" loading="eager" fetchpriority="high" class="fruit" />
+			<span class="shade" aria-hidden="true"></span>
+		</div>
+	</section>
+
+	<section class="block" aria-labelledby="why-title">
+		<header class="block-head">
+			<h2 id="why-title">{t.why.title}</h2>
+			<p>{t.why.lead}</p>
+		</header>
+		<ul class="features">
+			{
+				t.why.items.map((f) => (
+					<li>
+						<h3>{f.title}</h3>
+						<p>{f.text}</p>
+					</li>
+				))
+			}
+		</ul>
+	</section>
+
+	<section class="block" aria-labelledby="compare-title">
+		<header class="block-head">
+			<h2 id="compare-title">{t.compare.title}</h2>
+			<p>{t.compare.lead}</p>
+		</header>
+		<div class="matrix-wrap">
+			<table class="matrix compare">
+				<thead>
+					<tr>{t.compare.headers.map((h) => <th scope="col">{h}</th>)}</tr>
+				</thead>
+				<tbody>
+					{
+						t.compare.rows.map(([what, citrus, mihomo]) => (
+							<tr>
+								<th scope="row">{what}</th>
+								<td>{citrus}</td>
+								<td>{mihomo}</td>
+							</tr>
+						))
+					}
+				</tbody>
+			</table>
+		</div>
+		<p class="news-links">
+			<a class="more" href={page(lang, 'compatibility/')}>{t.compare.more}</a>
+		</p>
+	</section>
+
+	<section class="block" aria-labelledby="features-title">
+		<header class="block-head">
+			<h2 id="features-title">{t.features.title}</h2>
+		</header>
+		<ul class="features">
+			{
+				t.features.items.map((f) => (
+					<li>
+						<h3>{f.title}</h3>
+						<p>{f.text}</p>
+					</li>
+				))
+			}
+		</ul>
+	</section>
+
+	<section class="block split" id="download" aria-labelledby="download-title">
+		<header class="block-head">
+			<h2 id="download-title">{t.download.title}</h2>
+			<p>
+				{t.download.lead} <code>{t.download.naming}</code>{t.download.naming2}
+			</p>
+			<div class="actions">
+				<a class="btn btn-accent" href={links.releases}>{t.download.button}</a>
+				<a class="btn btn-ghost" href={page(lang, 'start/getting-started/')}>{t.download.docs}</a>
+			</div>
+		</header>
+		<div>
+			<div class="matrix-wrap">
+				<table class="matrix">
+					<thead>
+						<tr>{t.download.headers.map((h) => <th scope="col">{h}</th>)}</tr>
+					</thead>
+					<tbody>
+						{
+							t.download.channels.map(([name, from, what]) => (
+								<tr>
+									<th scope="row">
+										<a href={name === 'release' ? links.latest : name === 'Prerelease-main' ? links.prereleaseMain : links.prereleaseDev}>
+											<code>{name}</code>
+										</a>
+									</th>
+									<td>{from}</td>
+									<td>{what}</td>
+								</tr>
+							))
+						}
+					</tbody>
+				</table>
+			</div>
+			<p class="note">{t.download.arch}</p>
+		</div>
+	</section>
+
+	<section class="block mikan" aria-labelledby="mikan-title">
+		<div class="mikan-copy">
+			<h2 id="mikan-title">{t.mikan.title}</h2>
+			<p>{t.mikan.text}</p>
+			<div class="actions">
+				<a class="btn btn-primary" href={links.mikan}>{t.mikan.site}</a>
+				<a class="btn btn-ghost" href={links.mikanRepo}>{t.mikan.code}</a>
+			</div>
+		</div>
+	</section>
+
+	<section class="block" aria-labelledby="quick-title">
+		<header class="block-head">
+			<h2 id="quick-title">{t.quick.title}</h2>
+		</header>
+		<ul class="features quick">
+			{
+				t.quick.items.map((q) => (
+					<li>
+						<h3>
+							<a href={page(lang, q.path)}>{q.title}</a>
+						</h3>
+						<p>{q.text}</p>
+					</li>
+				))
+			}
+		</ul>
+	</section>
+
+	{
+		posts.length > 0 && (
+			<section class="block news" aria-labelledby="news-title">
+				<header class="block-head">
+					<h2 id="news-title">{t.news.title}</h2>
+				</header>
+				<ul class="posts">
+					{posts.map((p) => (
+						<li>
+							<time datetime={p.data.date.toISOString().slice(0, 10)}>{dateFormat(lang, p.data.date)}</time>
+							<h3>
+								<a href={page(lang, `news/${p.slug}/`)}>{p.data.title}</a>
+							</h3>
+							<p>{p.data.description}</p>
+						</li>
+					))}
+				</ul>
+				<p class="news-links">
+					<a class="more" href={page(lang, 'news/')}>{t.news.all}</a>
+					<a class="more" href={page(lang, 'news/rss.xml')}>{t.news.rss}</a>
+				</p>
+			</section>
+		)
+	}
+</div>
+
+<style>
+	.landing {
+		--gap: clamp(3.5rem, 2rem + 6vw, 7rem);
+		color: var(--ct-text);
+		padding-bottom: 1rem;
+	}
+
+	.landing h1,
+	.landing h2 {
+		font-family: var(--ct-font-display);
+		font-weight: 600;
+		letter-spacing: -0.03em;
+		color: var(--ct-ink);
+		text-wrap: balance;
+	}
+
+	.landing h2 {
+		font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.25rem);
+		line-height: 1.15;
+		margin: 0;
+	}
+
+	.landing p {
+		margin: 0;
+		text-wrap: pretty;
+	}
+
+	.landing p code,
+	.matrix code {
+		font-family: var(--sl-font-mono);
+		font-size: 0.875em;
+		padding: 0.1em 0.375em;
+		border-radius: 6px;
+		background: var(--ct-surface-2);
+		border: 1px solid var(--ct-hairline);
+		color: var(--ct-ink);
+		overflow-wrap: anywhere;
+	}
+
+	/* ---------- hero ---------- */
+
+	.hero {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 1.5rem;
+		padding-block: clamp(1rem, 4vw, 3.5rem) 0;
+	}
+
+	.hero-art {
+		position: relative;
+		order: -1;
+		justify-self: start;
+		width: 168px;
+	}
+
+	/* The logo is a painting on a navy tile: keep the tile, round it like an app icon. */
+	.fruit {
+		display: block;
+		width: 100%;
+		height: auto;
+		position: relative;
+		z-index: 1;
+		border-radius: 22%;
+		animation: float 7s ease-in-out infinite;
+		box-shadow: 0 18px 32px -12px rgba(20, 30, 60, 0.45);
+	}
+
+	.shade {
+		position: absolute;
+		left: 18%;
+		right: 22%;
+		bottom: -8%;
+		height: 7%;
+		border-radius: 50%;
+		background: rgba(40, 50, 20, 0.2);
+		filter: blur(6px);
+		animation: shade 7s ease-in-out infinite;
+	}
+
+	:global([data-theme='dark']) .shade {
+		background: rgba(0, 0, 0, 0.55);
+	}
+
+	@keyframes float {
+		50% {
+			transform: translateY(-8px) rotate(-1.5deg);
+		}
+	}
+
+	@keyframes shade {
+		50% {
+			transform: scaleX(0.86);
+			opacity: 0.7;
+		}
+	}
+
+	.hero h1 {
+		font-size: clamp(2.125rem, 1.3rem + 3.6vw, 3.75rem);
+		line-height: 1.04;
+		margin: 0;
+		max-width: 14ch;
+	}
+
+	.lead {
+		margin-top: 1.25rem !important;
+		font-size: clamp(1.0625rem, 1rem + 0.3vw, 1.25rem);
+		line-height: 1.55;
+		max-width: 36rem;
+		color: var(--ct-text);
+	}
+
+	.install {
+		margin-top: 1.75rem;
+		max-width: 36rem;
+	}
+
+	.req {
+		margin-top: 0.75rem !important;
+		font-size: 0.875rem;
+		color: var(--ct-muted);
+		max-width: 40rem;
+	}
+
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+		margin-top: 1.75rem;
+	}
+
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-height: 2.75rem;
+		padding: 0 1.25rem;
+		border-radius: 12px;
+		font-weight: 600;
+		font-size: 0.9375rem;
+		text-decoration: none;
+		transition:
+			background-color 0.2s var(--ct-ease),
+			border-color 0.2s var(--ct-ease),
+			transform 0.12s var(--ct-ease);
+	}
+
+	.btn:active {
+		transform: translateY(1px);
+	}
+
+	.btn-primary {
+		background: var(--ct-fill);
+		color: var(--ct-on-fill);
+	}
+
+	.btn-primary:hover {
+		background: color-mix(in srgb, var(--ct-fill) 86%, var(--ct-accent));
+	}
+
+	.btn-ghost {
+		border: 1px solid var(--ct-hairline-strong);
+		color: var(--ct-ink);
+		background: var(--ct-surface);
+	}
+
+	.btn-ghost:hover {
+		border-color: color-mix(in srgb, var(--ct-accent) 60%, transparent);
+	}
+
+	.btn-accent {
+		background: var(--ct-accent);
+		color: #1b1006;
+	}
+
+	.btn-accent:hover {
+		background: color-mix(in srgb, var(--ct-accent) 88%, #fff);
+	}
+
+	@media (min-width: 50rem) {
+		.hero {
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: center;
+			gap: 3rem;
+		}
+		.hero-art {
+			order: 0;
+			width: 300px;
+			justify-self: end;
+			margin-inline-end: 1rem;
+		}
+	}
+
+	/* ---------- blocks ---------- */
+
+	.block {
+		margin-top: var(--gap);
+	}
+
+	.block-head {
+		max-width: 40rem;
+		margin-bottom: 1.75rem;
+	}
+
+	.block-head p {
+		margin-top: 0.75rem;
+		font-size: 1.0625rem;
+	}
+
+	.more {
+		display: inline-block;
+		color: var(--ct-accent-text);
+		font-weight: 600;
+		text-decoration: underline;
+		text-decoration-color: color-mix(in srgb, var(--ct-accent-text) 40%, transparent);
+		text-underline-offset: 0.25em;
+	}
+
+	.more:hover {
+		text-decoration-color: currentColor;
+	}
+
+	/* ---------- features ---------- */
+
+	.features {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+		column-gap: 2.5rem;
+	}
+
+	.features li {
+		padding-block: 1.25rem 1.5rem;
+		border-top: 1px solid var(--ct-hairline-strong);
+	}
+
+	.features h3 {
+		margin: 0 0 0.5rem;
+		font-size: 1.0625rem;
+		font-weight: 650;
+		line-height: 1.35;
+		color: var(--ct-ink);
+	}
+
+	.features p {
+		font-size: 0.9375rem;
+		line-height: 1.6;
+	}
+
+	/* ---------- download ---------- */
+
+	.split {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.5rem 4rem;
+		scroll-margin-top: calc(var(--sl-nav-height) + 1.5rem);
+	}
+
+	@media (min-width: 60rem) {
+		.split {
+			grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+			align-items: start;
+		}
+		.split h2 {
+			font-size: clamp(1.5rem, 1rem + 1vw, 1.875rem);
+		}
+	}
+
+	.matrix-wrap {
+		position: relative;
+		overflow-x: auto;
+		border: 1px solid var(--ct-hairline);
+		border-radius: var(--ct-radius);
+		background: var(--ct-surface);
+	}
+
+	.matrix {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.9375rem;
+	}
+
+	.matrix :is(th, td) {
+		padding: 0.625rem 1rem;
+		border-bottom: 1px solid var(--ct-hairline);
+		text-align: start;
+		vertical-align: top;
+	}
+
+	.matrix tbody tr:last-child :is(th, td) {
+		border-bottom: 0;
+	}
+
+	.matrix thead th {
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--ct-muted);
+		vertical-align: bottom;
+	}
+
+	.matrix tbody th {
+		font-weight: 500;
+		white-space: nowrap;
+	}
+
+	.matrix tbody th a {
+		text-decoration: none;
+	}
+
+	.matrix tbody th a:hover code {
+		border-color: color-mix(in srgb, var(--ct-accent) 60%, transparent);
+	}
+
+	.compare tbody th {
+		white-space: normal;
+		min-width: 9rem;
+	}
+
+	.compare td {
+		min-width: 11rem;
+	}
+
+	.quick h3 a {
+		color: var(--ct-ink);
+		text-decoration: none;
+	}
+
+	.quick h3 a:hover {
+		color: var(--ct-accent-text);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
+	}
+
+	.note {
+		margin-top: 1rem !important;
+		font-size: 0.875rem;
+		color: var(--ct-muted);
+	}
+
+	/* ---------- Mikan ---------- */
+
+	.mikan {
+		padding: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+		border-radius: var(--ct-radius-lg);
+		background: var(--ct-accent-soft);
+		border: 1px solid color-mix(in srgb, var(--ct-accent) 25%, transparent);
+	}
+
+	.mikan-copy {
+		max-width: 44rem;
+	}
+
+	.mikan-copy p {
+		margin-top: 0.75rem;
+		font-size: 1.0625rem;
+	}
+
+	.mikan .actions {
+		margin-top: 1.5rem;
+	}
+
+	/* ---------- news ---------- */
+
+	.posts {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+		column-gap: 2.5rem;
+	}
+
+	.posts li {
+		padding-block: 1.25rem 1.5rem;
+		border-top: 1px solid var(--ct-hairline-strong);
+	}
+
+	.posts time {
+		font-family: var(--sl-font-mono);
+		font-size: 0.8125rem;
+		color: var(--ct-muted);
+	}
+
+	.posts h3 {
+		margin: 0.375rem 0 0.5rem;
+		font-size: 1.0625rem;
+		font-weight: 650;
+		line-height: 1.35;
+	}
+
+	.posts h3 a {
+		color: var(--ct-ink);
+		text-decoration: none;
+	}
+
+	.posts h3 a:hover {
+		color: var(--ct-accent-text);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
+	}
+
+	.posts p {
+		font-size: 0.9375rem;
+		line-height: 1.6;
+	}
+
+	.news-links {
+		display: flex;
+		gap: 1.5rem;
+		margin-top: 0.5rem !important;
+	}
+</style>

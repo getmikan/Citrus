@@ -29,7 +29,6 @@ const (
 	SOCKS5
 	SHADOWSOCKS
 	SNELL
-	VMESS
 	VLESS
 	REDIR
 	TPROXY
@@ -96,8 +95,6 @@ func (t Type) String() string {
 		return "ShadowSocks"
 	case SNELL:
 		return "Snell"
-	case VMESS:
-		return "Vmess"
 	case VLESS:
 		return "Vless"
 	case REDIR:
@@ -146,8 +143,6 @@ func ParseType(t string) (*Type, error) {
 		res = SHADOWSOCKS
 	case "SNELL":
 		res = SNELL
-	case "VMESS":
-		res = VMESS
 	case "VLESS":
 		res = VLESS
 	case "REDIR":
@@ -217,10 +212,27 @@ type Metadata struct {
 	RawDstAddr net.Addr `json:"-"`
 	// Only domain rule
 	SniffHost string `json:"sniffHost"`
+	// Only PROTOCOL rule, the application protocol reported by a protocol sniffer
+	SniffProtocol string `json:"sniffProtocol"`
+	// DstIPChecked is set when DstIP was resolved from Host during rule
+	// matching because an IP-based rule asked for it. The rule decision was
+	// made against that address, so DIRECT must dial it rather than resolve
+	// Host again (which could return a different address).
+	DstIPChecked bool `json:"-"`
 }
 
 func (m *Metadata) RemoteAddress() string {
 	return net.JoinHostPort(m.String(), strconv.FormatUint(uint64(m.DstPort), 10))
+}
+
+// LogAddress is RemoteAddress for the connection logs: when a sniffed domain
+// is not the destination (no override-destination), it follows in brackets,
+// "1.2.3.4:443 (example.com)"; the connection still goes to RemoteAddress.
+func (m *Metadata) LogAddress() string {
+	if m.SniffHost == "" || m.SniffHost == m.Host {
+		return m.RemoteAddress()
+	}
+	return m.RemoteAddress() + " (" + m.SniffHost + ")"
 }
 
 func (m *Metadata) SourceAddress() string {

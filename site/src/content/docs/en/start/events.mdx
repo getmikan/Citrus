@@ -1,0 +1,60 @@
+---
+title: Event stream
+description: GET /events pushes what happens in the core (logins, user limits, user changes, reloads, provider updates, listeners, chain health) so a panel does not have to poll.
+---
+
+`GET /events` on the controller streams the events of the core as they happen: a panel learns that a user ran out of quota, that a listener failed to start or that a provider update failed without polling `/traffic/users`, `/limits/users` and the rest.
+
+## Connecting
+
+The stream works like `/logs` and `/traffic`:
+
+- **WebSocket** when the request asks for an upgrade: one JSON event per text message. A browser passes the secret as `?token=`.
+- **Server-Sent Events** with `Accept: text/event-stream`: `event: <type>` and `data: <json>` lines.
+- **Newline-delimited JSON** otherwise: a chunked `application/x-ndjson` response, one event per line.
+
+It is behind the controller `secret` and the `external-controller-cors` rules like every other route.
+
+```bash
+curl -N -H "Authorization: Bearer $SECRET" 'http://127.0.0.1:9090/events?types=user.limit,inbound.state'
+```
+
+`?types=` takes a comma-separated list of types; without it every type is streamed. An unknown type answers 400.
+
+## Events
+
+Every event is a JSON object with `type`, `time` (RFC 3339) and `data`:
+
+```json
+{"type":"user.limit","time":"2026-10-14T12:00:00.123Z","data":{"inbound":"vless-in","user":"alice","reason":"quota","action":"closed","detail":"quota of 1000000000 bytes used up"}}
+```
+
+| Type | When | `data` |
+| --- | --- | --- |
+| `auth` | A rejected authentication on an inbound, or a user seen from a new address. | `result` (`success`, `failure`), `count`; a failure: `protocol`, `local`, `remote`, `reason` (`no_credentials`, `wrong_credentials`, `rejected_handshake`, `authentication_timeout`); a success: `inbound`, `user`, `remote`; `repeated`, `overflow` (see below). |
+| `user.limit` | A user used up its quota or expired (its connections are closed), or a connection was refused by `expired`, `quota`, `max-conns` or `max-ips`. | `inbound`, `user`, `reason`, `action` (`closed`, `rejected`), `detail`, `remote` (a rejection), `suppressed`. |
+| `user.changed` | The users of an inbound changed: the [runtime users API](/Citrus/en/start/inbound-users/), or a reload that updated the users in place. | `inbound`, `added`, `removed`, `changed` (names). |
+| `config.reload` | A configuration was applied, or a new one failed to parse (`PUT /configs`, SIGHUP). | `status` (`ok`, `error`), `error`. |
+| `provider.update` | A proxy or rule provider was fetched (on its interval, on a file change, or through the API). | `name`, `kind` (`proxy`, `rule`), `vehicle`, `status` (`ok`, `error`), `changed` (false when the content is the same), `error`. |
+| `inbound.state` | A listener of the `listeners` section started, failed to listen, or stopped (removed or recreated by a reload). | `inbound`, `type`, `state` (`started`, `failed`, `stopped`), `error`. |
+| `chain.health` | The health check of a [chain group](/Citrus/en/start/chains/) found it in another state than before: it broke, a different hop failed, or it works again. The first check reports only a broken chain. | `chain`, `alive`, `failedHop`, `position` (from 1), `error`. |
+| `dropped` | The stream read too slowly and events were dropped for it; sent every 5 seconds while it happens, whatever the filter. | `count`. |
+
+### Aggregation of `auth`
+
+A scanner must not flood the stream, so `auth` events are aggregated in windows of 5 seconds. The first attempt of a client address (the port is ignored) with a given outcome is sent at once with `count: 1`; its repetitions in the window are sent in one event with `repeated: true` and their `count` when the window ends. Up to 256 clients are tracked per window; the attempts of the others are summed into one event per result with `overflow: true`.
+
+A success is a user whose counter sees an address that is not online for it yet (the address of `max-ips`), so it is reported only while [user traffic](/Citrus/en/start/user-stats/) or [user limits](/Citrus/en/start/user-limits/) are on. Every connection of a user is not an event.
+
+A `user.limit` rejection is reported at most once a second per user, like the log line; `suppressed` is the number of rejections in between (they are all counted in `/traffic/users`).
+
+## Delivery
+
+Events are best-effort: each stream has a buffer of 256 events, and a stream that falls behind loses events instead of slowing the core, which the `dropped` event reports. Events that happened while no stream was open are not kept: after a reconnect, read the state from `/traffic/users`, `/limits/users` and `/inbounds/{name}/users`.
+
+With no stream open the hooks cost one atomic load. The [metrics](/Citrus/en/start/metrics/) report `citrus_event_subscribers`, `citrus_events_published_total{type}` and `citrus_events_dropped_total`.
+
+## Not reported
+
+- Speed limits (`speed-up`, `speed-down`) shape traffic continuously and have no moment worth an event.
+- The proxy health checks: their state is in `/proxies` and in `citrus_proxy_alive`.

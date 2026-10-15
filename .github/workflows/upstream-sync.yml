@@ -1,0 +1,65 @@
+# Weekly merge of MetaCubeX/mihomo `Alpha` into `dev`.
+#
+# If upstream has commits that dev lacks, the job merges them on
+# `chore/upstream-sync-<YYYYMMDD>` (dev + `git merge --no-ff upstream/Alpha`),
+# checks `go build ./...` and `go mod tidy`, pushes the branch and opens a PR
+# to dev. If the merge conflicts, nothing is pushed: the job opens an issue
+# "Upstream sync conflicts <date>" (or updates the open one) with the
+# conflicting files and the steps to resolve them by hand. The logic is in
+# .github/scripts/upstream-sync.sh; `DRY_RUN=1` runs it locally without
+# pushing or calling gh.
+#
+# Notes for maintainers:
+# - The repository setting "Allow GitHub Actions to create and approve pull
+#   requests" (Settings > Actions > General > Workflow permissions) must be on,
+#   or `gh pr create` fails.
+# - A PR opened with GITHUB_TOKEN does not trigger other workflows, so Test
+#   and Build do not run on it by themselves. Push an empty commit to the sync
+#   branch (`git commit --allow-empty -m "ci: run checks"`), or close and
+#   reopen the PR, to run them.
+# - While a sync branch that already has the latest upstream commit exists,
+#   the job does nothing. Delete that branch to make the job try again.
+# - Merge sync PRs with a merge commit, not squash: otherwise the next sync
+#   sees the same upstream commits again.
+name: Upstream sync
+
+on:
+  schedule:
+    - cron: "0 5 * * 1" # Monday 05:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'getmikan/Citrus'
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 0
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Set up Go
+        run: bash .github/scripts/setup-go.sh 1.26
+
+      - name: Merge upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: dev
+          UPSTREAM_URL: https://github.com/MetaCubeX/mihomo
+          UPSTREAM_BRANCH: Alpha
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash .github/scripts/upstream-sync.sh

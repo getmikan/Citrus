@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"net/url"
 	"strings"
 	"time"
 
@@ -25,11 +24,9 @@ import (
 	"github.com/metacubex/mihomo/transport/tuic/common"
 
 	"github.com/metacubex/http"
-	"github.com/metacubex/http/httputil"
 	"github.com/metacubex/quic-go"
 	"github.com/metacubex/sing-quic/hysteria2"
 	"github.com/metacubex/sing-quic/hysteria2/realm"
-	E "github.com/metacubex/sing/common/exceptions"
 	"github.com/metacubex/tls"
 )
 
@@ -117,43 +114,11 @@ func New(config LC.Hysteria2Server, lc C.InboundListenConfig, tunnel C.Tunnel, a
 			return nil, fmt.Errorf("unknown obfs type: %s", config.Obfs)
 		}
 	}
-	var masqueradeHandler http.Handler
-	if config.Masquerade != "" {
-		masqueradeURL, err := url.Parse(config.Masquerade)
-		if err != nil {
-			return nil, E.Cause(err, "parse masquerade URL")
-		}
-		switch masqueradeURL.Scheme {
-		case "file":
-			masqueradeHandler = http.FileServer(http.Dir(masqueradeURL.Path))
-		case "http", "https":
-			masqueradeHandler = &httputil.ReverseProxy{
-				Rewrite: func(r *httputil.ProxyRequest) {
-					r.SetURL(masqueradeURL)
-					r.Out.Host = r.In.Host
-				},
-				ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-					w.WriteHeader(http.StatusBadGateway)
-				},
-				Transport: &http.Transport{
-					// fellow hysteria2's code skip verify
-					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: true,
-					},
-					// from http.DefaultTransport
-					ForceAttemptHTTP2:     true,
-					MaxIdleConns:          100,
-					IdleConnTimeout:       90 * time.Second,
-					TLSHandshakeTimeout:   10 * time.Second,
-					ExpectContinueTimeout: 1 * time.Second,
-					DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-						return inner.HandleTcp(tunnel, address, "")
-					},
-				},
-			}
-		default:
-			return nil, E.New("unknown masquerade URL scheme: ", masqueradeURL.Scheme)
-		}
+	masqueradeHandler, err := newMasqueradeHandler(config.Masquerade, config.MasqueradeSkipCertVerify, func(ctx context.Context, network, address string) (net.Conn, error) {
+		return inner.HandleTcp(tunnel, address, "")
+	})
+	if err != nil {
+		return nil, err
 	}
 	var realmOptions *realm.Options
 	if config.RealmOpts.Enable {
@@ -212,6 +177,8 @@ func New(config LC.Hysteria2Server, lc C.InboundListenConfig, tunnel C.Tunnel, a
 		InitialConnectionReceiveWindow: config.InitialConnectionReceiveWindow,
 		MaxConnectionReceiveWindow:     config.MaxConnectionReceiveWindow,
 	}
+
+	masqueradeHandler = authEventHandler(masqueradeHandler, utils.StringToBps(config.Down), config.IgnoreClientBandwidth)
 
 	service, err := hysteria2.NewService[string](hysteria2.ServiceOptions{
 		Context:               context.Background(),

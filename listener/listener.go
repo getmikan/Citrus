@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
+	"github.com/metacubex/mihomo/component/eventbus"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/http"
@@ -16,7 +17,6 @@ import (
 	embedSS "github.com/metacubex/mihomo/listener/shadowsocks"
 	"github.com/metacubex/mihomo/listener/sing_shadowsocks"
 	"github.com/metacubex/mihomo/listener/sing_tun"
-	"github.com/metacubex/mihomo/listener/sing_vmess"
 	"github.com/metacubex/mihomo/listener/socks"
 	"github.com/metacubex/mihomo/listener/tproxy"
 	"github.com/metacubex/mihomo/listener/tuic"
@@ -42,9 +42,10 @@ var (
 	tunnelTCPListeners  = map[string]*LT.Listener{}
 	tunnelUDPListeners  = map[string]*LT.PacketConn{}
 	inboundListeners    = map[string]C.InboundListener{}
+	runtimeUsers        = map[string]struct{}{} // listeners whose users changed at runtime
+	failedListeners     = map[string]struct{}{} // listeners of the configuration that failed to listen
 	tunLister           *sing_tun.Listener
 	shadowSocksListener C.MultiAddrListener
-	vmessListener       *sing_vmess.Listener
 	tuicListener        *tuic.Listener
 
 	// lock for recreate function
@@ -57,7 +58,6 @@ var (
 	inboundMux sync.Mutex
 	tunMux     sync.Mutex
 	ssMux      sync.Mutex
-	vmessMux   sync.Mutex
 	tuicMux    sync.Mutex
 
 	LastTunConf  LC.Tun
@@ -71,7 +71,6 @@ type Ports struct {
 	TProxyPort        int    `json:"tproxy-port"`
 	MixedPort         int    `json:"mixed-port"`
 	ShadowSocksConfig string `json:"ss-config"`
-	VmessConfig       string `json:"vmess-config"`
 }
 
 func GetTunConf() LC.Tun {
@@ -293,58 +292,6 @@ func ReCreateShadowSocks(shadowSocksConfig string, tunnel C.Tunnel) {
 
 	for _, addr := range shadowSocksListener.AddrList() {
 		log.Infoln("ShadowSocks proxy listening at: %s", addr.String())
-	}
-	return
-}
-
-func ReCreateVmess(vmessConfig string, tunnel C.Tunnel) {
-	vmessMux.Lock()
-	defer vmessMux.Unlock()
-
-	var err error
-	defer func() {
-		if err != nil {
-			log.Errorln("Start Vmess server error: %s", err.Error())
-		}
-	}()
-
-	var vsConfig LC.VmessServer
-	if addr, username, password, err := sing_vmess.ParseVmessURL(vmessConfig); err == nil {
-		vsConfig = LC.VmessServer{
-			Enable: len(vmessConfig) > 0,
-			Listen: addr,
-			Users:  []LC.VmessUser{{Username: username, UUID: password, AlterID: 1}},
-		}
-	}
-
-	shouldIgnore := false
-
-	if vmessListener != nil {
-		if vmessListener.Config() != vsConfig.String() {
-			vmessListener.Close()
-			vmessListener = nil
-		} else {
-			shouldIgnore = true
-		}
-	}
-
-	if shouldIgnore {
-		return
-	}
-
-	if !vsConfig.Enable {
-		return
-	}
-
-	listener, err := sing_vmess.New(vsConfig, inbound.NewListenConfig(), tunnel)
-	if err != nil {
-		return
-	}
-
-	vmessListener = listener
-
-	for _, addr := range vmessListener.AddrList() {
-		log.Infoln("Vmess proxy listening at: %s", addr.String())
 	}
 	return
 }
@@ -630,27 +577,89 @@ func PatchInboundListeners(newListenerMap map[string]C.InboundListener, tunnel C
 
 	for name, newListener := range newListenerMap {
 		if oldListener, ok := inboundListeners[name]; ok {
-			if !oldListener.Config().Equal(newListener.Config()) {
-				_ = oldListener.Close()
-			} else {
+			if updateUsersInPlace(name, oldListener, newListener) {
 				continue
 			}
+			_ = oldListener.Close()
+			delete(runtimeUsers, name)
+			publishInboundState(name, oldListener, eventbus.InboundStopped, nil)
 		}
 		if err := newListener.Listen(tunnel); err != nil {
 			log.Errorln("Listener %s listen err: %s", name, err.Error())
+			failedListeners[name] = struct{}{}
+			publishInboundState(name, newListener, eventbus.InboundFailed, err)
 			continue
 		}
+		delete(failedListeners, name)
 		inboundListeners[name] = newListener
+		publishInboundState(name, newListener, eventbus.InboundStarted, nil)
 	}
 
 	if dropOld {
+		for name := range failedListeners {
+			if _, ok := newListenerMap[name]; !ok {
+				delete(failedListeners, name)
+			}
+		}
 		for name, oldListener := range inboundListeners {
 			if _, ok := newListenerMap[name]; !ok {
 				_ = oldListener.Close()
 				delete(inboundListeners, name)
+				delete(runtimeUsers, name)
+				publishInboundState(name, oldListener, eventbus.InboundStopped, nil)
 			}
 		}
 	}
+}
+
+// publishInboundState reports a listener of the `listeners:` section that
+// started, failed to listen or stopped.
+func publishInboundState(name string, l C.InboundListener, state string, err error) {
+	if !eventbus.Enabled(eventbus.TypeInboundState) {
+		return
+	}
+	d := eventbus.InboundState{Inbound: name, Type: inboundTypeOf(l), State: state}
+	if err != nil {
+		d.Error = err.Error()
+	}
+	eventbus.Publish(eventbus.TypeInboundState, d)
+}
+
+// FailedInboundListeners returns the number of listeners of the last applied
+// configuration that failed to listen (the port is taken, a certificate is
+// missing and so on); readiness requires it to be zero.
+func FailedInboundListeners() int {
+	inboundMux.Lock()
+	defer inboundMux.Unlock()
+	return len(failedListeners)
+}
+
+// updateUsersInPlace reports whether oldListener can stay for newListener:
+// when their configurations are equal, or differ only in the users and
+// oldListener takes the users of the new configuration in place. The users
+// changed at runtime are replaced by those of the configuration as well.
+// When it reports false, oldListener must be closed and newListener started.
+func updateUsersInPlace(name string, oldListener, newListener C.InboundListener) bool {
+	equal := oldListener.Config().Equal(newListener.Config())
+	_, touched := runtimeUsers[name]
+	oldUpdater, ok := oldListener.(C.InboundUserUpdater)
+	if !ok || (equal && !touched) {
+		return equal
+	}
+	newUpdater, ok := newListener.(C.InboundUserUpdater)
+	if !ok || !(equal || oldUpdater.SameExceptUsers(newListener.Config())) {
+		return false
+	}
+	users := newUpdater.Users() // the users of the configuration: it does not listen
+	if !sameUsers(oldUpdater.Users(), users) {
+		if err := oldUpdater.SetUsers(users); err != nil {
+			log.Warnln("Listener %s: cannot set the users in place, recreating it: %s", name, err)
+			return false
+		}
+		log.Infoln("Listener %s: users updated in place", name)
+	}
+	delete(runtimeUsers, name)
+	return true
 }
 
 // GetPorts return the ports of proxy servers
@@ -689,10 +698,6 @@ func GetPorts() *Ports {
 
 	if shadowSocksListener != nil {
 		ports.ShadowSocksConfig = shadowSocksListener.Config()
-	}
-
-	if vmessListener != nil {
-		ports.VmessConfig = vmessListener.Config()
 	}
 
 	return ports

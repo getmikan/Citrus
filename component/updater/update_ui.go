@@ -15,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
 )
@@ -46,6 +47,50 @@ func (t compressionType) String() string {
 	}
 }
 
+// Limits for downloading and unpacking an external UI archive. Current
+// dashboards (metacubexd, zashboard, yacd) ship as 1-10 MiB archives that
+// unpack to a few hundred files and well under 50 MiB, so these leave a wide
+// margin while stopping a decompression bomb or an endless body from
+// exhausting memory, disk or inodes.
+const (
+	// maxUIArchiveSize caps the downloaded archive, which is held in memory.
+	maxUIArchiveSize int64 = 64 << 20
+	// maxUIExtractedSize caps the sum of all extracted file sizes.
+	maxUIExtractedSize int64 = 256 << 20
+	// maxUIEntries caps the number of archive entries (files and dirs).
+	maxUIEntries = 10000
+)
+
+// extractBudget tracks how much an archive may still unpack.
+type extractBudget struct {
+	maxBytes, bytesLeft int64
+	maxEntries, entries int
+}
+
+func newExtractBudget(maxBytes int64, maxEntries int) *extractBudget {
+	return &extractBudget{maxBytes: maxBytes, bytesLeft: maxBytes, maxEntries: maxEntries}
+}
+
+// entry accounts for one more archive entry.
+func (b *extractBudget) entry() error {
+	b.entries++
+	if b.entries > b.maxEntries {
+		return fmt.Errorf("archive has more than %d entries", b.maxEntries)
+	}
+	return nil
+}
+
+// copy writes src to dst within the remaining byte budget.
+func (b *extractBudget) copy(dst io.Writer, src io.Reader) error {
+	n, err := utils.CopyLimit(dst, src, b.bytesLeft)
+	b.bytesLeft -= n
+	var limitErr *utils.SizeLimitError
+	if errors.As(err, &limitErr) {
+		return fmt.Errorf("archive unpacks to more than %d bytes", b.maxBytes)
+	}
+	return err
+}
+
 var DefaultUiUpdater = &UIUpdater{}
 
 func NewUiUpdater(externalUI, externalUIURL, externalUIName string) *UIUpdater {
@@ -67,6 +112,11 @@ func NewUiUpdater(externalUI, externalUIURL, externalUIName string) *UIUpdater {
 
 	if externalUIURL != "" {
 		updater.externalUIURL = externalUIURL
+		// The dashboard runs with the controller's origin and sees its
+		// secret; over plain HTTP anyone on the path can replace it.
+		if strings.HasPrefix(strings.ToLower(externalUIURL), "http://") {
+			log.Warnln("external-ui-url %s uses plain HTTP: the downloaded dashboard can be replaced in transit", externalUIURL)
+		}
 	}
 	return updater
 }
@@ -113,7 +163,13 @@ func detectFileType(data []byte) compressionType {
 }
 
 func (u *UIUpdater) downloadUI() error {
-	data, err := downloadForBytes(u.externalUIURL)
+	// Checked here, with symlinks resolved, because the directory is about
+	// to be emptied and refilled: a link planted under the UI path must not
+	// redirect that outside the safe paths.
+	if !C.Path.IsSafePath(u.externalUIPath) {
+		return C.Path.ErrNotSafePath(u.externalUIPath)
+	}
+	data, err := downloadForBytes(u.externalUIURL, maxUIArchiveSize)
 	if err != nil {
 		return fmt.Errorf("can't download file: %w", err)
 	}
@@ -123,11 +179,14 @@ func (u *UIUpdater) downloadUI() error {
 
 	os.RemoveAll(tmpDir) // cleanup tmp dir before extract
 	log.Debugln("extractedFolder: %s", tmpDir)
-	err = extract(data, tmpDir)
+	err = extract(data, tmpDir, newExtractBudget(maxUIExtractedSize, maxUIEntries))
 	if err != nil {
 		return fmt.Errorf("can't extract compressed file: %w", err)
 	}
 
+	if C.Path.HoldsCoreState(u.externalUIPath) { // never empty the home or config directory
+		return fmt.Errorf("refusing to replace %s: it holds the files of the core", u.externalUIPath)
+	}
 	log.Debugln("cleanupFolder: %s", u.externalUIPath)
 	err = cleanup(u.externalUIPath) // cleanup files in dir don't remove dir itself
 	if err != nil {
@@ -159,7 +218,7 @@ func (u *UIUpdater) prepareUIPath() error {
 	return nil
 }
 
-func unzip(data []byte, dest string) error {
+func unzip(data []byte, dest string, budget *extractBudget) error {
 	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return err
@@ -168,6 +227,9 @@ func unzip(data []byte, dest string) error {
 	// check whether or not only exists singleRoot dir
 
 	for _, f := range r.File {
+		if err = budget.entry(); err != nil {
+			return err
+		}
 		fpath := filepath.Join(dest, f.Name)
 
 		if !inDest(fpath, dest) {
@@ -181,6 +243,11 @@ func unzip(data []byte, dest string) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			continue // disallow symlink
 		}
+		// The declared size can lie (the copy below enforces the real one),
+		// but an honest oversized entry is rejected before anything is written.
+		if f.UncompressedSize64 > uint64(budget.bytesLeft) {
+			return fmt.Errorf("archive unpacks to more than %d bytes", budget.maxBytes)
+		}
 		if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
 			return err
 		}
@@ -192,7 +259,7 @@ func unzip(data []byte, dest string) error {
 		if err != nil {
 			return err
 		}
-		_, err = io.Copy(outFile, rc)
+		err = budget.copy(outFile, rc)
 		outFile.Close()
 		rc.Close()
 		if err != nil {
@@ -202,7 +269,7 @@ func unzip(data []byte, dest string) error {
 	return nil
 }
 
-func untgz(data []byte, dest string) error {
+func untgz(data []byte, dest string, budget *extractBudget) error {
 	gzr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -217,6 +284,9 @@ func untgz(data []byte, dest string) error {
 			break
 		}
 		if err != nil {
+			return err
+		}
+		if err = budget.entry(); err != nil {
 			return err
 		}
 
@@ -239,7 +309,7 @@ func untgz(data []byte, dest string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(outFile, tr); err != nil {
+			if err := budget.copy(outFile, tr); err != nil {
 				outFile.Close()
 				return err
 			}
@@ -249,14 +319,14 @@ func untgz(data []byte, dest string) error {
 	return nil
 }
 
-func extract(data []byte, dest string) error {
+func extract(data []byte, dest string, budget *extractBudget) error {
 	fileType := detectFileType(data)
 	log.Debugln("compression Type: %s", fileType)
 	switch fileType {
 	case typeZip:
-		return unzip(data, dest)
+		return unzip(data, dest, budget)
 	case typeTarGzip:
-		return untgz(data, dest)
+		return untgz(data, dest, budget)
 	default:
 		return fmt.Errorf("unknown or unsupported file type")
 	}

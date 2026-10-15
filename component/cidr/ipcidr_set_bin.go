@@ -3,10 +3,23 @@ package cidr
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net/netip"
 
 	"go4.org/netipx"
+)
+
+const (
+	// MaxBinLength bounds the range count stored in a binary IpCidrSet. Full
+	// country/ASN lists hold well under a million ranges; the cap only keeps
+	// a corrupt or hostile int64 header from reaching make.
+	MaxBinLength = 1 << 26
+
+	// binPreallocLength is how many ranges are allocated up front; the slice
+	// grows as ranges are actually read, so memory follows the data present
+	// rather than the length the header claims.
+	binPreallocLength = 1 << 14
 )
 
 func (ss *IpCidrSet) WriteBin(w io.Writer) (err error) {
@@ -54,10 +67,14 @@ func ReadIpCidrSet(r io.Reader) (ss *IpCidrSet, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if length < 1 {
-		return nil, errors.New("length is invalid")
+	if length < 1 || length > MaxBinLength {
+		return nil, fmt.Errorf("length %d is invalid", length)
 	}
-	ss.rr = make([]netipx.IPRange, length)
+	prealloc := length
+	if prealloc > binPreallocLength {
+		prealloc = binPreallocLength
+	}
+	ss.rr = make([]netipx.IPRange, 0, prealloc)
 	for i := int64(0); i < length; i++ {
 		var a16 [16]byte
 		err = binary.Read(r, binary.BigEndian, &a16)
@@ -70,7 +87,7 @@ func ReadIpCidrSet(r io.Reader) (ss *IpCidrSet, err error) {
 			return nil, err
 		}
 		to := netip.AddrFrom16(a16).Unmap()
-		ss.rr[i] = netipx.IPRangeFrom(from, to)
+		ss.rr = append(ss.rr, netipx.IPRangeFrom(from, to))
 	}
 
 	return ss, nil

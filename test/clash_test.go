@@ -27,17 +27,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Test images are pinned by digest (the comment names the tag the digest was
+// taken from), so a moved or hijacked tag cannot run different code with host
+// networking. To update one, resolve the tag's new digest and replace it here.
 const (
-	ImageShadowsocks     = "mritd/shadowsocks:latest"
-	ImageShadowsocksRust = "ghcr.io/shadowsocks/ssserver-rust:latest"
-	ImageVmess           = "v2fly/v2fly-core:v4.45.2"
-	ImageVmessLatest     = "sagernet/v2fly-core:latest"
-	ImageVless           = "teddysun/xray:latest"
-	ImageTrojan          = "trojangfw/trojan:latest"
-	ImageTrojanGo        = "p4gefau1t/trojan-go:latest"
-	ImageSnell           = "ghcr.io/icpz/snell-server:latest"
-	ImageXray            = "teddysun/xray:latest"
-	ImageHysteria        = "tobyxdd/hysteria:latest"
+	ImageShadowsocks     = "mritd/shadowsocks@sha256:7b6d3b887eb2bf5de27bc164580653baff9f6b9e8a460baaf23e100ca0353405"                 // latest
+	ImageShadowsocksRust = "ghcr.io/shadowsocks/ssserver-rust@sha256:22240c07d8ce3a36421ede770bd775dcc5fc56d5d829943196957b05452dc36f" // latest
+	ImageV2fly           = "v2fly/v2fly-core@sha256:e81a0735f724b06d795aa37f19e3e02e3dfcfeb12246e62e536f7de1b12de78c"                  // v4.45.2
+	ImageVless           = "teddysun/xray@sha256:6423f1815b3a7a1fc71c7cddbf13477d0cdc86ab53a845b9f842f6e85a26f745"                     // latest
+	ImageTrojan          = "trojangfw/trojan@sha256:5b36c2b9046c6412af9d4e3145611d323b532bcc9fd5a230ad5a52b12d98b5f7"                  // latest
+	ImageTrojanGo        = "p4gefau1t/trojan-go@sha256:05d55cda063b218aa968086ff91b68c425fa59db1a890391136c56af06374e66"               // latest
+	ImageSnell           = "ghcr.io/icpz/snell-server@sha256:70053f77ffa95b0f6fdbac334d26a1cf827b63157b464e76dc7b87a987345467"         // latest
+	ImageXray            = "teddysun/xray@sha256:6423f1815b3a7a1fc71c7cddbf13477d0cdc86ab53a845b9f842f6e85a26f745"                     // latest
 )
 
 var (
@@ -92,6 +93,11 @@ func init() {
 					return true
 				}
 			}
+			for _, digest := range item.RepoDigests {
+				if image == digest {
+					return true
+				}
+			}
 		}
 		return false
 	}
@@ -99,13 +105,12 @@ func init() {
 	images := []string{
 		ImageShadowsocks,
 		ImageShadowsocksRust,
-		ImageVmess,
+		ImageV2fly,
 		ImageVless,
 		ImageTrojan,
 		ImageTrojanGo,
 		ImageSnell,
 		ImageXray,
-		ImageHysteria,
 	}
 
 	for _, image := range images {

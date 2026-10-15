@@ -18,12 +18,11 @@ import (
 	shadowsocks "github.com/metacubex/sing-shadowsocks"
 	"github.com/metacubex/sing-shadowsocks/shadowaead"
 	"github.com/metacubex/sing-shadowsocks/shadowaead_2022"
-	"github.com/metacubex/sing-shadowsocks/shadowstream"
 	"github.com/stretchr/testify/assert"
 )
 
 var noneList = []string{shadowsocks.MethodNone}
-var shadowsocksCipherLists = [][]string{noneList, shadowaead.List, shadowaead_2022.List, shadowstream.List}
+var shadowsocksCipherLists = [][]string{noneList, shadowaead.List, shadowaead_2022.List}
 var shadowsocksCipherShortLists = [][]string{noneList, shadowaead.List[:5]} // for test shadowTLS and kcptun
 var shadowsocksPassword32 string
 var shadowsocksPassword16 string
@@ -264,4 +263,39 @@ func TestInboundShadowSocks_KcpTun(t *testing.T) {
 		PluginOpts: map[string]any{"key": shadowsocksPassword16},
 	}
 	testInboundShadowSocks(t, inboundOptions, outboundOptions, shadowsocksCipherShortLists, false)
+}
+
+func TestInboundShadowSocks_StreamCipherRejected(t *testing.T) {
+	for _, cipher := range []string{"rc4-md5", "aes-128-cfb", "aes-256-ctr", "chacha20-ietf", "xchacha20"} {
+		t.Run(cipher, func(t *testing.T) {
+			_, err := outbound.NewShadowSocks(outbound.ShadowSocksOption{
+				Name:     "shadowsocks_outbound",
+				Server:   "127.0.0.1",
+				Port:     8388,
+				Password: shadowsocksPassword32,
+				Cipher:   cipher,
+			})
+			assert.ErrorContains(t, err, "stream ciphers are no longer supported")
+
+			in, err := inbound.NewShadowSocks(&inbound.ShadowSocksOption{
+				BaseOption: inbound.BaseOption{
+					NameStr: "shadowsocks_inbound",
+					Listen:  "127.0.0.1",
+					Port:    "0",
+				},
+				Password: shadowsocksPassword32,
+				Cipher:   cipher,
+			})
+			if !assert.NoError(t, err) {
+				return
+			}
+			tunnel := NewHttpTestTunnel()
+			defer tunnel.Close()
+			err = in.Listen(tunnel)
+			if err == nil {
+				_ = in.Close()
+			}
+			assert.ErrorContains(t, err, "stream ciphers are no longer supported")
+		})
+	}
 }

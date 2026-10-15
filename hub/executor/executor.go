@@ -7,16 +7,19 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	_ "unsafe"
 
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/adapter/inbound"
+	"github.com/metacubex/mihomo/adapter/outbound"
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
 	"github.com/metacubex/mihomo/component/auth"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/eventbus"
 	"github.com/metacubex/mihomo/component/geodata"
 	mihomoHttp "github.com/metacubex/mihomo/component/http"
 	"github.com/metacubex/mihomo/component/iface"
@@ -32,6 +35,7 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
 	"github.com/metacubex/mihomo/dns"
+	"github.com/metacubex/mihomo/hub/metrics"
 	"github.com/metacubex/mihomo/listener"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
@@ -40,6 +44,7 @@ import (
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/ntp/ntp"
 	"github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
 var mux sync.Mutex
@@ -85,6 +90,7 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	mux.Lock()
 	defer mux.Unlock()
 	log.SetLevel(cfg.General.LogLevel)
+	log.SetFormat(cfg.General.LogFormat, cfg.General.LogTimestampFormat)
 
 	tunnel.OnSuspend()
 
@@ -96,6 +102,7 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	}
 
 	updateExperimental(cfg.Experimental)
+	updateMetrics(cfg.Metrics)
 	updateUsers(cfg.Users)
 	updateProxies(cfg.Proxies, cfg.Providers)
 	updateRules(cfg.Rules, cfg.SubRules, cfg.RuleProviders)
@@ -105,6 +112,8 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	updateDNS(cfg.DNS, cfg.General.IPv6)
 	updateNTP(cfg.NTP) // initialize NTP after DNS because an NTP server may be a hostname.
 	updateListeners(cfg.General, cfg.Listeners, force)
+	retireUsers(cfg.Listeners)
+	updateUserLimits(cfg.UserLimits)
 	updateTun(cfg.General) // tun should not care "force"
 	updateIPTables(cfg)
 	updateTunnels(cfg.Tunnels)
@@ -113,6 +122,7 @@ func ApplyConfig(cfg *config.Config, force bool) {
 
 	initInnerTcp()
 	loadProvider(cfg.Providers)
+	closeRemovedWireGuardDevices(cfg.Proxies, cfg.Providers)
 	updateProfile(cfg)
 	loadProvider(cfg.RuleProviders)
 	runtime.GC()
@@ -120,6 +130,52 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	updateUpdater(cfg)
 
 	resolver.ResetConnection()
+	eventbus.PublishConfigReload(nil)
+}
+
+// updateUserLimits replaces the per-user limits with those of the
+// configuration; the limits set through the API are dropped, and the quota
+// usage of a user that keeps a limit survives.
+func updateUserLimits(limits []statistic.UserLimit) {
+	if err := statistic.DefaultManager.Users().SetConfigLimits(limits); err != nil {
+		log.Errorln("user-limits: %s", err)
+	}
+}
+
+// retireUsers marks the per-user traffic counters of the listeners and users
+// that the new configuration no longer has, so they are dropped once their
+// connections are closed and their bytes drained. The built-in inbounds
+// (DEFAULT-*) and the listeners that cannot list their users rely on the idle
+// timeout instead.
+func retireUsers(listeners map[string]C.InboundListener) {
+	retireUsersIn(statistic.DefaultManager.Users(), listeners)
+}
+
+func retireUsersIn(um *statistic.UserManager, listeners map[string]C.InboundListener) {
+	known := make(map[string]map[string]struct{})
+	um.Retire(func(key statistic.UserKey) bool {
+		if strings.HasPrefix(key.Inbound, "DEFAULT-") {
+			return true
+		}
+		l, ok := listeners[key.Inbound]
+		if !ok {
+			return false
+		}
+		lister, ok := l.(C.InboundUserLister)
+		if !ok {
+			return true
+		}
+		users, ok := known[key.Inbound]
+		if !ok {
+			users = make(map[string]struct{})
+			for _, user := range lister.InboundUsers() {
+				users[user] = struct{}{}
+			}
+			known[key.Inbound] = users
+		}
+		_, ok = users[key.User]
+		return ok
+	})
 }
 
 func initInnerTcp() {
@@ -143,7 +199,6 @@ func GetGeneral() *config.General {
 			Tun:               listener.GetTunConf(),
 			TuicServer:        listener.GetTuicConf(),
 			ShadowSocksConfig: ports.ShadowSocksConfig,
-			VmessConfig:       ports.VmessConfig,
 			Authentication:    authenticator,
 			SkipAuthPrefixes:  inbound.SkipAuthPrefixes(),
 			LanAllowedIPs:     inbound.AllowedIPs(),
@@ -171,6 +226,7 @@ func GetGeneral() *config.General {
 		GeodataLoader:     geodata.LoaderName(),
 		GeositeMatcher:    geodata.SiteMatcherName(),
 		TCPConcurrent:     dialer.GetTcpConcurrent(),
+		TCPConnectTimeout: tunnel.TCPConnectTimeout().Milliseconds(),
 		FindProcessMode:   tunnel.FindProcessMode(),
 		Sniffing:          tunnel.IsSniffing(),
 		GlobalUA:          mihomoHttp.UA(),
@@ -178,33 +234,50 @@ func GetGeneral() *config.General {
 		KeepAliveInterval: int(keepalive.KeepAliveInterval() / time.Second),
 		KeepAliveIdle:     int(keepalive.KeepAliveIdle() / time.Second),
 		DisableKeepAlive:  keepalive.DisableKeepAlive(),
+		UserStats:         statistic.UserStatsEnabled(),
 	}
+	general.LogFormat, general.LogTimestampFormat = log.Format()
 
 	return general
 }
 
+// updateListeners applies the listeners of the configuration. The access
+// policy of the built-in listeners (allow-lan, bind-address,
+// skip-auth-prefixes, lan-allowed-ips, lan-disallowed-ips) and the built-in
+// ShadowSocks and TUIC servers, with their credentials, always come from the
+// new configuration: a reload that tightens them must not leave the old ones
+// in force. Without force the built-in http, socks, redir, tproxy and mixed
+// listeners keep the ports they run on (a client may have changed them with
+// PATCH /configs); they are still rebound when allow-lan or bind-address
+// changed.
 func updateListeners(general *config.General, listeners map[string]C.InboundListener, force bool) {
 	listener.PatchInboundListeners(listeners, tunnel.Tunnel, true)
-	if !force {
-		return
-	}
 
-	allowLan := general.AllowLan
-	listener.SetAllowLan(allowLan)
 	inbound.SetSkipAuthPrefixes(general.SkipAuthPrefixes)
 	inbound.SetAllowedIPs(general.LanAllowedIPs)
 	inbound.SetDisAllowedIPs(general.LanDisAllowedIPs)
+	listener.SetAllowLan(general.AllowLan)
+	listener.SetBindAddress(general.BindAddress)
 
-	bindAddress := general.BindAddress
-	listener.SetBindAddress(bindAddress)
-	listener.ReCreateHTTP(general.Port, tunnel.Tunnel)
-	listener.ReCreateSocks(general.SocksPort, tunnel.Tunnel)
-	listener.ReCreateRedir(general.RedirPort, tunnel.Tunnel)
-	listener.ReCreateTProxy(general.TProxyPort, tunnel.Tunnel)
-	listener.ReCreateMixed(general.MixedPort, tunnel.Tunnel)
+	port, socksPort, redirPort, tproxyPort, mixedPort := general.Port, general.SocksPort, general.RedirPort, general.TProxyPort, general.MixedPort
+	if !force {
+		ports := listener.GetPorts()
+		port, socksPort, redirPort, tproxyPort, mixedPort = ports.Port, ports.SocksPort, ports.RedirPort, ports.TProxyPort, ports.MixedPort
+	}
+	listener.ReCreateHTTP(port, tunnel.Tunnel)
+	listener.ReCreateSocks(socksPort, tunnel.Tunnel)
+	listener.ReCreateRedir(redirPort, tunnel.Tunnel)
+	listener.ReCreateTProxy(tproxyPort, tunnel.Tunnel)
+	listener.ReCreateMixed(mixedPort, tunnel.Tunnel)
 	listener.ReCreateShadowSocks(general.ShadowSocksConfig, tunnel.Tunnel)
-	listener.ReCreateVmess(general.VmessConfig, tunnel.Tunnel)
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
+}
+
+func updateMetrics(c *config.Metrics) {
+	if c == nil {
+		c = &config.Metrics{}
+	}
+	metrics.SetOptions(metrics.Options{Enable: c.Enable, PerUser: c.PerUser, HealthWithoutAuth: c.HealthWithoutAuth})
 }
 
 func updateTun(general *config.General) {
@@ -263,6 +336,10 @@ func updateDNS(c *config.DNS, generalIPv6 bool) {
 		DirectFollowPolicy:   c.DirectFollowPolicy,
 		CacheAlgorithm:       c.CacheAlgorithm,
 		CacheMaxSize:         c.CacheMaxSize,
+
+		ServeExpired:              c.ServeExpired,
+		ServeExpiredTTL:           c.ServeExpiredTTL,
+		ServeExpiredClientTimeout: c.ServeExpiredClientTimeout,
 	})
 	m := dns.NewEnhancer(dns.EnhancerConfig{
 		IPv6:          ipv6,
@@ -309,6 +386,20 @@ func updateHosts(tree *trie.DomainTrie[resolver.HostValue]) {
 
 func updateProxies(proxies map[string]C.Proxy, providers map[string]P.ProxyProvider) {
 	tunnel.UpdateProxies(proxies, providers)
+}
+
+// closeRemovedWireGuardDevices closes the devices of the WireGuard proxies that the new
+// config no longer has. A replaced proxy closes the old device itself when it starts.
+func closeRemovedWireGuardDevices(proxies map[string]C.Proxy, providers map[string]P.ProxyProvider) {
+	serial := outbound.WireGuardSerial()
+	current := make([]C.Proxy, 0, len(proxies))
+	for _, proxy := range proxies {
+		current = append(current, proxy)
+	}
+	for _, pd := range providers {
+		current = append(current, pd.Proxies()...)
+	}
+	outbound.CloseWireGuardDevicesExcept(serial, current)
 }
 
 func updateRules(rules []C.Rule, subRules map[string][]C.Rule, ruleProviders map[string]P.RuleProvider) {
@@ -396,6 +487,7 @@ func updateGeneral(general *config.General, logging bool) {
 	resolver.DisableIPv6 = !general.IPv6
 
 	dialer.SetTcpConcurrent(general.TCPConcurrent)
+	_ = tunnel.SetTCPConnectTimeout(general.TCPConnectTimeout)
 	if logging && general.TCPConcurrent {
 		log.Infoln("Use tcp concurrent")
 	}
@@ -408,6 +500,7 @@ func updateGeneral(general *config.General, logging bool) {
 	keepalive.SetDisableKeepAlive(general.DisableKeepAlive)
 
 	adapter.UnifiedDelay.Store(general.UnifiedDelay)
+	statistic.SetUserStatsEnabled(general.UserStats)
 
 	dialer.DefaultInterface.Store(general.Interface)
 	dialer.DefaultRoutingMark.Store(int32(general.RoutingMark))

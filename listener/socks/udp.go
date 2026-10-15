@@ -3,11 +3,13 @@ package socks
 import (
 	"context"
 	"net"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/sockopt"
 	C "github.com/metacubex/mihomo/constant"
+	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/transport/socks5"
@@ -16,7 +18,7 @@ import (
 type UDPListener struct {
 	packetConn net.PacketConn
 	addr       string
-	closed     bool
+	closed     atomic.Bool
 }
 
 // RawAddress implements C.Listener
@@ -31,7 +33,7 @@ func (l *UDPListener) Address() string {
 
 // Close implements C.Listener
 func (l *UDPListener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	return l.packetConn.Close()
 }
 
@@ -40,7 +42,9 @@ func NewUDP(addr string, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPLi
 }
 
 func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
+	isDefault := false
 	if len(additions) == 0 {
+		isDefault = true
 		additions = []inbound.Addition{
 			inbound.WithInName("DEFAULT-SOCKS"),
 			inbound.WithSpecialRules(""),
@@ -59,6 +63,24 @@ func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.T
 		packetConn: l,
 		addr:       config.Listen,
 	}
+	store := config.AuthStore
+	if store == nil {
+		store = authStore.Nil
+	}
+	// The same source checks as the TCP listener: the LAN allow/deny lists on the
+	// default listeners, and authentication through an open UDP ASSOCIATE,
+	// whose user the datagram is relayed as.
+	accept := func(remoteAddr net.Addr) (user string, ok bool) {
+		applyDefault := isDefault || store == authStore.Default
+		if applyDefault && !inbound.IsRemoteAddrDisAllowed(remoteAddr) {
+			return "", false
+		}
+		if store.Authenticator() == nil || (applyDefault && inbound.SkipAuthRemoteAddr(remoteAddr)) {
+			return "", true
+		}
+		return lookupAssociation(l.LocalAddr(), remoteAddr)
+	}
+
 	conn := N.NewEnhancePacketConn(l)
 	go func() {
 		for {
@@ -67,12 +89,23 @@ func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.T
 				if put != nil {
 					put()
 				}
-				if sl.closed {
+				if sl.closed.Load() {
 					break
 				}
 				continue
 			}
-			handleSocksUDP(l, tunnel, data, put, remoteAddr, additions...)
+			user, ok := accept(remoteAddr)
+			if !ok {
+				if put != nil {
+					put()
+				}
+				continue
+			}
+			packetAdditions := additions
+			if user != "" {
+				packetAdditions = append(additions[:len(additions):len(additions)], inbound.WithInUser(user))
+			}
+			handleSocksUDP(l, tunnel, data, put, remoteAddr, packetAdditions...)
 		}
 	}()
 

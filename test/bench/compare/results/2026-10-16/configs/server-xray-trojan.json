@@ -1,0 +1,44 @@
+{
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "trojan",
+      "settings": {
+        "clients": [
+          {
+            "password": "<redacted>"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "raw",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/cfg/cert.pem",
+              "keyFile": "/cfg/key.pem"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "log": {
+    "access": "none",
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "finalRules": [
+          {
+            "action": "allow"
+          }
+        ]
+      }
+    }
+  ]
+}

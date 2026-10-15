@@ -40,6 +40,7 @@ import (
 	RP "github.com/metacubex/mihomo/rules/provider"
 	RW "github.com/metacubex/mihomo/rules/wrapper"
 	T "github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/tunnel/statistic"
 
 	"golang.org/x/exp/slices"
 )
@@ -60,6 +61,7 @@ type General struct {
 	GeodataLoader     string                  `json:"geodata-loader"`
 	GeositeMatcher    string                  `json:"geosite-matcher"`
 	TCPConcurrent     bool                    `json:"tcp-concurrent"`
+	TCPConnectTimeout int64                   `json:"tcp-connect-timeout"`
 	FindProcessMode   process.FindProcessMode `json:"find-process-mode"`
 	Sniffing          bool                    `json:"sniffing"`
 	GlobalUA          string                  `json:"global-ua"`
@@ -67,6 +69,10 @@ type General struct {
 	KeepAliveIdle     int                     `json:"keep-alive-idle"`
 	KeepAliveInterval int                     `json:"keep-alive-interval"`
 	DisableKeepAlive  bool                    `json:"disable-keep-alive"`
+	UserStats         bool                    `json:"user-stats"`
+
+	LogFormat          log.LogFormat `json:"log-format"`
+	LogTimestampFormat string        `json:"log-timestamp-format"`
 }
 
 // Inbound config
@@ -79,7 +85,6 @@ type Inbound struct {
 	Tun               LC.Tun         `json:"tun"`
 	TuicServer        LC.TuicServer  `json:"tuic-server"`
 	ShadowSocksConfig string         `json:"ss-config"`
-	VmessConfig       string         `json:"vmess-config"`
 	Authentication    []string       `json:"authentication"`
 	SkipAuthPrefixes  []netip.Prefix `json:"skip-auth-prefixes"`
 	LanAllowedIPs     []netip.Prefix `json:"lan-allowed-ips"`
@@ -111,6 +116,7 @@ type Controller struct {
 	ExternalDohServer             string
 	Secret                        string
 	Cors                          Cors
+	AllowInsecure                 bool
 }
 
 type Cors struct {
@@ -145,23 +151,28 @@ type NTP struct {
 
 // DNS config
 type DNS struct {
-	Enable                bool
-	PreferH3              bool
-	IPv6                  bool
-	IPv6Timeout           uint
-	UseHosts              bool
-	UseSystemHosts        bool
-	NameServer            []dns.NameServer
-	Fallback              []dns.NameServer
-	FallbackIPFilter      []C.IpMatcher
-	FallbackDomainFilter  []C.DomainMatcher
-	FallbackLazyQuery     bool
-	Listen                string
-	ListenRoutingMark     int
-	EnhancedMode          C.DNSMode
-	DefaultNameserver     []dns.NameServer
-	CacheAlgorithm        string
-	CacheMaxSize          int
+	Enable               bool
+	PreferH3             bool
+	IPv6                 bool
+	IPv6Timeout          uint
+	UseHosts             bool
+	UseSystemHosts       bool
+	NameServer           []dns.NameServer
+	Fallback             []dns.NameServer
+	FallbackIPFilter     []C.IpMatcher
+	FallbackDomainFilter []C.DomainMatcher
+	FallbackLazyQuery    bool
+	Listen               string
+	ListenRoutingMark    int
+	EnhancedMode         C.DNSMode
+	DefaultNameserver    []dns.NameServer
+	CacheAlgorithm       string
+	CacheMaxSize         int
+
+	ServeExpired              bool
+	ServeExpiredTTL           time.Duration
+	ServeExpiredClientTimeout time.Duration
+
 	FakeIPRange           netip.Prefix
 	FakeIPPool            *fakeip.Pool
 	FakeIPRange6          netip.Prefix
@@ -211,6 +222,33 @@ type Config struct {
 	Tunnels       []LC.Tunnel
 	Sniffer       *sniffer.Config
 	TLS           *TLS
+	UserLimits    []statistic.UserLimit
+	Metrics       *Metrics
+}
+
+// Metrics is the `metrics` section and `health-without-auth`.
+type Metrics struct {
+	// Enable serves GET /metrics on the controller and counts the traffic
+	// per inbound.
+	Enable bool `json:"enable"`
+	// PerUser adds the series of every inbound user (high cardinality).
+	PerUser bool `json:"per-user"`
+	// HealthWithoutAuth serves GET /healthz and GET /readyz without the
+	// controller secret.
+	HealthWithoutAuth bool `json:"health-without-auth"`
+}
+
+func parseMetrics(rawCfg *RawConfig) *Metrics {
+	return &Metrics{
+		Enable:            rawCfg.Metrics.Enable,
+		PerUser:           rawCfg.Metrics.PerUser,
+		HealthWithoutAuth: rawCfg.HealthWithoutAuth,
+	}
+}
+
+type RawMetrics struct {
+	Enable  bool `yaml:"enable" json:"enable"`
+	PerUser bool `yaml:"per-user" json:"per-user"`
 }
 
 type RawCors struct {
@@ -241,6 +279,9 @@ type RawDNS struct {
 	DefaultNameserver            []string                            `yaml:"default-nameserver" json:"default-nameserver"`
 	CacheAlgorithm               string                              `yaml:"cache-algorithm" json:"cache-algorithm"`
 	CacheMaxSize                 int                                 `yaml:"cache-max-size" json:"cache-max-size"`
+	ServeExpired                 bool                                `yaml:"serve-expired" json:"serve-expired"`
+	ServeExpiredTTL              uint                                `yaml:"serve-expired-ttl" json:"serve-expired-ttl"`
+	ServeExpiredClientTimeout    uint                                `yaml:"serve-expired-client-timeout" json:"serve-expired-client-timeout"`
 	NameServerPolicy             *orderedmap.OrderedMap[string, any] `yaml:"nameserver-policy" json:"nameserver-policy"`
 	ProxyServerNameserver        []string                            `yaml:"proxy-server-nameserver" json:"proxy-server-nameserver"`
 	ProxyServerNameserverPolicy  *orderedmap.OrderedMap[string, any] `yaml:"proxy-server-nameserver-policy" json:"proxy-server-nameserver-policy"`
@@ -382,6 +423,7 @@ type RawSniffer struct {
 	Ports           []string `yaml:"port-whitelist" json:"port-whitelist"`
 	ForceDnsMapping bool     `yaml:"force-dns-mapping" json:"force-dns-mapping"`
 	ParsePureIp     bool     `yaml:"parse-pure-ip" json:"parse-pure-ip"`
+	SkipThreshold   *int     `yaml:"skip-threshold" json:"skip-threshold"`
 
 	Sniff map[string]RawSniffingConfig `yaml:"sniff" json:"sniff"`
 }
@@ -407,7 +449,7 @@ type RawConfig struct {
 	TProxyPort                    int                     `yaml:"tproxy-port" json:"tproxy-port"`
 	MixedPort                     int                     `yaml:"mixed-port" json:"mixed-port"`
 	ShadowSocksConfig             string                  `yaml:"ss-config" json:"ss-config"`
-	VmessConfig                   string                  `yaml:"vmess-config" json:"vmess-config"`
+	VmessConfig                   string                  `yaml:"vmess-config" json:"vmess-config"` // removed with VMess, rejected when set
 	InboundTfo                    bool                    `yaml:"inbound-tfo" json:"inbound-tfo"`
 	InboundMPTCP                  bool                    `yaml:"inbound-mptcp" json:"inbound-mptcp"`
 	Authentication                []string                `yaml:"authentication" json:"authentication"`
@@ -419,6 +461,8 @@ type RawConfig struct {
 	Mode                          T.TunnelMode            `yaml:"mode" json:"mode"`
 	UnifiedDelay                  bool                    `yaml:"unified-delay" json:"unified-delay"`
 	LogLevel                      log.LogLevel            `yaml:"log-level" json:"log-level"`
+	LogFormat                     log.LogFormat           `yaml:"log-format" json:"log-format"`
+	LogTimestampFormat            string                  `yaml:"log-timestamp-format" json:"log-timestamp-format"`
 	IPv6                          bool                    `yaml:"ipv6" json:"ipv6"`
 	ExternalController            string                  `yaml:"external-controller" json:"external-controller"`
 	ExternalControllerRoutingMark int                     `yaml:"external-controller-routing-mark" json:"external-controller-routing-mark"`
@@ -426,6 +470,7 @@ type RawConfig struct {
 	ExternalControllerUnix        string                  `yaml:"external-controller-unix" json:"external-controller-unix"`
 	ExternalControllerTLS         string                  `yaml:"external-controller-tls" json:"external-controller-tls"`
 	ExternalControllerCors        RawCors                 `yaml:"external-controller-cors" json:"external-controller-cors"`
+	ExternalControllerInsecure    bool                    `yaml:"external-controller-allow-insecure" json:"external-controller-allow-insecure"`
 	ExternalUI                    string                  `yaml:"external-ui" json:"external-ui"`
 	ExternalUIURL                 string                  `yaml:"external-ui-url" json:"external-ui-url"`
 	ExternalUIName                string                  `yaml:"external-ui-name" json:"external-ui-name"`
@@ -440,6 +485,9 @@ type RawConfig struct {
 	GeodataLoader                 string                  `yaml:"geodata-loader" json:"geodata-loader"`
 	GeositeMatcher                string                  `yaml:"geosite-matcher" json:"geosite-matcher"`
 	TCPConcurrent                 bool                    `yaml:"tcp-concurrent" json:"tcp-concurrent"`
+	UserStats                     bool                    `yaml:"user-stats" json:"user-stats"`
+	HealthWithoutAuth             bool                    `yaml:"health-without-auth" json:"health-without-auth"`
+	TCPConnectTimeout             int64                   `yaml:"tcp-connect-timeout" json:"tcp-connect-timeout"`
 	FindProcessMode               process.FindProcessMode `yaml:"find-process-mode" json:"find-process-mode"`
 	GlobalClientFingerprint       string                  `yaml:"global-client-fingerprint" json:"global-client-fingerprint"`
 	GlobalUA                      string                  `yaml:"global-ua" json:"global-ua"`
@@ -455,6 +503,8 @@ type RawConfig struct {
 	Rule          []string                  `yaml:"rules" json:"rule"`
 	SubRules      map[string][]string       `yaml:"sub-rules" json:"sub-rules"`
 	Listeners     []map[string]any          `yaml:"listeners" json:"listeners"`
+	UserLimits    []map[string]any          `yaml:"user-limits" json:"user-limits"`
+	Metrics       RawMetrics                `yaml:"metrics" json:"metrics"`
 	Hosts         map[string]any            `yaml:"hosts" json:"hosts"`
 	DNS           RawDNS                    `yaml:"dns" json:"dns"`
 	NTP           RawNTP                    `yaml:"ntp" json:"ntp"`
@@ -499,6 +549,8 @@ func DefaultRawConfig() *RawConfig {
 		Proxy:             []map[string]any{},
 		ProxyGroup:        []map[string]any{},
 		TCPConcurrent:     false,
+		UserStats:         true,
+		TCPConnectTimeout: 5000,
 		FindProcessMode:   process.FindProcessStrict,
 		GlobalUA:          "clash.meta/" + C.Version,
 		ETagSupport:       true,
@@ -511,6 +563,15 @@ func DefaultRawConfig() *RawConfig {
 			EnhancedMode:   C.DNSMapping,
 			FakeIPRange:    "198.18.0.1/16",
 			FakeIPTTL:      1,
+
+			// The defaults keep the resolver's existing behaviour: an expired
+			// entry is answered at once (TTL 1) and refreshed in the background,
+			// with no age limit. Set a TTL and client timeout to opt into the
+			// RFC 8767 style, or serve-expired: false to never answer stale.
+			ServeExpired:              true,
+			ServeExpiredTTL:           0,
+			ServeExpiredClientTimeout: 0,
+
 			FallbackFilter: RawFallbackFilter{
 				GeoIP:     true,
 				GeoIPCode: "CN",
@@ -643,6 +704,7 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 	config.Controller = controller
+	config.Metrics = parseMetrics(rawCfg)
 
 	experimental, err := parseExperimental(rawCfg)
 	if err != nil {
@@ -686,6 +748,12 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 	config.Listeners = listeners
+
+	userLimits, err := parseUserLimits(rawCfg.UserLimits, listeners)
+	if err != nil {
+		return nil, err
+	}
+	config.UserLimits = userLimits
 
 	log.Infoln("Geodata Loader mode: %s", geodata.LoaderName())
 	log.Infoln("Geosite Matcher implementation: %s", geodata.SiteMatcherName())
@@ -731,7 +799,10 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 
-	config.Users = parseAuthentication(rawCfg.Authentication)
+	config.Users, err = parseAuthentication(rawCfg.Authentication)
+	if err != nil {
+		return nil, err
+	}
 
 	config.Tunnels = rawCfg.Tunnels
 	// verify tunnels
@@ -761,6 +832,16 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
 	if cfg.GlobalClientFingerprint != "" {
 		log.Errorln("The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead")
 	}
+	if cfg.VmessConfig != "" {
+		return nil, fmt.Errorf("vmess-config: %w", C.ErrVMessRemoved)
+	}
+	if err := T.ValidateTCPConnectTimeout(cfg.TCPConnectTimeout); err != nil {
+		return nil, fmt.Errorf("invalid tcp-connect-timeout: %w", err)
+	}
+	logTimestampFormat := cfg.LogTimestampFormat
+	if logTimestampFormat == "" {
+		logTimestampFormat = log.DefaultTimestampFormat
+	}
 	return &General{
 		Inbound: Inbound{
 			Port:              cfg.Port,
@@ -769,7 +850,6 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
 			TProxyPort:        cfg.TProxyPort,
 			MixedPort:         cfg.MixedPort,
 			ShadowSocksConfig: cfg.ShadowSocksConfig,
-			VmessConfig:       cfg.VmessConfig,
 			AllowLan:          cfg.AllowLan,
 			SkipAuthPrefixes:  cfg.SkipAuthPrefixes,
 			LanAllowedIPs:     cfg.LanAllowedIPs,
@@ -796,13 +876,35 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
 		GeodataLoader:     cfg.GeodataLoader,
 		GeositeMatcher:    cfg.GeositeMatcher,
 		TCPConcurrent:     cfg.TCPConcurrent,
+		TCPConnectTimeout: cfg.TCPConnectTimeout,
 		FindProcessMode:   cfg.FindProcessMode,
 		GlobalUA:          cfg.GlobalUA,
 		ETagSupport:       cfg.ETagSupport,
 		KeepAliveIdle:     cfg.KeepAliveIdle,
 		KeepAliveInterval: cfg.KeepAliveInterval,
 		DisableKeepAlive:  cfg.DisableKeepAlive,
+		UserStats:         cfg.UserStats,
+
+		LogFormat:          cfg.LogFormat,
+		LogTimestampFormat: logTimestampFormat,
 	}, nil
+}
+
+// CheckExternalUI refuses an external-ui directory (with external-ui-name)
+// that is the home directory, the config directory, a SAFE_PATHS root or an
+// ancestor of one of them: the UI update empties the directory before it
+// installs the new files, and /ui serves it without the secret.
+func CheckExternalUI(externalUI, externalUIName string) error {
+	dir := externalUI
+	if dir == "" {
+		dir = "ui" // the updater's default, below the home directory
+	}
+	for _, d := range []string{externalUI, filepath.Join(C.Path.Resolve(dir), externalUIName)} {
+		if d != "" && C.Path.HoldsCoreState(d) {
+			return fmt.Errorf("external-ui %s would hold the files of the core (home directory, config directory, a SAFE_PATHS root or their parent): use a subdirectory such as ui", C.Path.Resolve(d))
+		}
+	}
+	return nil
 }
 
 func parseController(cfg *RawConfig) (*Controller, error) {
@@ -811,6 +913,9 @@ func parseController(cfg *RawConfig) (*Controller, error) {
 	}
 	if uiName := cfg.ExternalUIName; uiName != "" && !filepath.IsLocal(uiName) {
 		return nil, fmt.Errorf("external UI name is not local: %s", uiName)
+	}
+	if err := CheckExternalUI(cfg.ExternalUI, cfg.ExternalUIName); err != nil {
+		return nil, err
 	}
 	return &Controller{
 		ExternalController:            cfg.ExternalController,
@@ -827,6 +932,7 @@ func parseController(cfg *RawConfig) (*Controller, error) {
 			AllowOrigins:        cfg.ExternalControllerCors.AllowOrigins,
 			AllowPrivateNetwork: cfg.ExternalControllerCors.AllowPrivateNetwork,
 		},
+		AllowInsecure: cfg.ExternalControllerInsecure,
 	}, nil
 }
 
@@ -879,6 +985,12 @@ func parseTLS(cfg *RawConfig) (*TLS, error) {
 func parseProxies(cfg *RawConfig) (proxies map[string]C.Proxy, providersMap map[string]P.ProxyProvider, err error) {
 	proxies = make(map[string]C.Proxy)
 	providersMap = make(map[string]P.ProxyProvider)
+
+	// chain groups: wire their hops with dialer-proxy before anything is parsed
+	if err := expandChains(cfg); err != nil {
+		return nil, nil, err
+	}
+
 	proxiesConfig := cfg.Proxy
 	groupsConfig := cfg.ProxyGroup
 	providersConfig := cfg.ProxyProvider
@@ -1016,6 +1128,29 @@ func parseListeners(cfg *RawConfig) (listeners map[string]C.InboundListener, err
 	return
 }
 
+// parseUserLimits parses the `user-limits` section. A limit for an inbound
+// that is not a listener of the configuration (nor a built-in DEFAULT-*
+// inbound) is kept, with a warning: the name may come from an embedder.
+func parseUserLimits(raw []map[string]any, listeners map[string]C.InboundListener) ([]statistic.UserLimit, error) {
+	limits := make([]statistic.UserLimit, 0, len(raw))
+	seen := make(map[statistic.UserKey]struct{}, len(raw))
+	for index, mapping := range raw {
+		l, err := statistic.ParseUserLimit(mapping)
+		if err != nil {
+			return nil, fmt.Errorf("user-limits %d: %w", index, err)
+		}
+		if _, dup := seen[l.Key()]; dup {
+			return nil, fmt.Errorf("user-limits %d: duplicate limit for user %q of inbound %q", index, l.User, l.Inbound)
+		}
+		seen[l.Key()] = struct{}{}
+		if _, ok := listeners[l.Inbound]; !ok && !strings.HasPrefix(l.Inbound, "DEFAULT-") {
+			log.Warnln("user-limits %d: inbound %q is not a listener of this configuration", index, l.Inbound)
+		}
+		limits = append(limits, l)
+	}
+	return limits, nil
+}
+
 func parseRuleProviders(cfg *RawConfig) (ruleProviders map[string]P.RuleProvider, err error) {
 	RP.SetTunnel(T.Tunnel)
 	ruleProviders = map[string]P.RuleProvider{}
@@ -1133,6 +1268,29 @@ func parseRules(rulesConfig []string, proxies map[string]C.Proxy, ruleProviders 
 	return rules, nil
 }
 
+// ParseRules parses top level rules exactly like the `rules:` section of a config:
+// every target must be a proxy, a proxy group or (for SUB-RULE) a sub-rule, and
+// every rule set must be a loaded rule provider. The proxies of proxy providers
+// are not valid targets, as in a config file; such a target gets an error that
+// names its provider.
+func ParseRules(rulesConfig []string, proxies map[string]C.Proxy, providers map[string]P.ProxyProvider, ruleProviders map[string]P.RuleProvider, subRules map[string][]C.Rule) ([]C.Rule, error) {
+	for idx, line := range rulesConfig {
+		tp, _, target, _ := RC.ParseRulePayload(line, true)
+		if target == "" || tp == "SUB-RULE" {
+			continue
+		}
+		if _, ok := proxies[target]; ok {
+			continue
+		}
+		for name, pd := range providers {
+			if slices.ContainsFunc(pd.Proxies(), func(p C.Proxy) bool { return p.Name() == target }) {
+				return nil, fmt.Errorf("rules[%d] [%s] error: proxy [%s] comes from proxy-provider [%s]; rules can target only proxies and proxy groups, use a group that includes it", idx, line, target, name)
+			}
+		}
+	}
+	return parseRules(rulesConfig, proxies, ruleProviders, subRules, "rules")
+}
+
 func parseHosts(cfg *RawConfig) (*trie.DomainTrie[resolver.HostValue], error) {
 	tree := trie.New[resolver.HostValue]()
 
@@ -1167,11 +1325,17 @@ func parseHosts(cfg *RawConfig) (*trie.DomainTrie[resolver.HostValue], error) {
 			}
 			if value.IsDomain {
 				node := tree.Search(value.Domain)
-				for node != nil && node.Data().IsDomain {
-					if node.Data().Domain == domain {
+				for hops := 0; node != nil && node.Data().IsDomain; hops++ {
+					target := node.Data().Domain
+					if target == domain || hops == resolver.MaxHostsHops {
 						return nil, fmt.Errorf("%s, there is a cycle in domain name mapping", domain)
 					}
-					node = tree.Search(node.Data().Domain)
+					next := tree.Search(target)
+					if next == node {
+						// a mapping onto itself (e.g. `+.example.com: example.com`) ends the chain
+						break
+					}
+					node = next
 				}
 			}
 			if err := tree.Insert(domain, value); err != nil {
@@ -1206,6 +1370,11 @@ func parseNameServer(servers []string, respectRules bool, preferH3 bool) ([]dns.
 		server = parsePureDNSServer(server)
 		u, err := url.Parse(server)
 		if err != nil {
+			// *url.Error repeats the whole server string, userinfo included
+			var urlErr *url.Error
+			if errors.As(err, &urlErr) {
+				err = urlErr.Err
+			}
 			return nil, fmt.Errorf("DNS NameServer[%d] format error: %s", idx, err.Error())
 		}
 
@@ -1245,6 +1414,10 @@ func parseNameServer(servers []string, respectRules bool, preferH3 bool) ([]dns.
 		case "quic":
 			addr, err = hostWithDefaultPort(u.Host, "853")
 			dnsNetType = "quic" // DNS over QUIC
+		case "sdns":
+			addr = "sdns://" + u.Host // the stamp is opaque base64url; #fragment is parsed above
+			dnsNetType = "dnscrypt"   // DNSCrypt v2
+			err = dns.ValidateDNSCryptStamp(addr)
 		case "system":
 			dnsNetType = "system" // System DNS
 		case "ts", "tailscale":
@@ -1411,6 +1584,9 @@ func parseNameServerPolicy(nsPolicy *orderedmap.OrderedMap[string, any], adapter
 	return policy, nil
 }
 
+// maxServeExpiredTTL caps dns.serve-expired-ttl at 30 days; 0 means no limit.
+const maxServeExpiredTTL = 30 * 24 * 60 * 60
+
 func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS, error) {
 	cfg := rawCfg.DNS
 	if cfg.Enable && len(cfg.NameServer) == 0 {
@@ -1419,6 +1595,13 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 
 	if cfg.RespectRules && len(cfg.ProxyServerNameserver) == 0 {
 		return nil, fmt.Errorf("if “respect-rules” is turned on, “proxy-server-nameserver” cannot be empty")
+	}
+
+	if cfg.ServeExpiredTTL > maxServeExpiredTTL {
+		return nil, fmt.Errorf("dns.serve-expired-ttl must be at most %d seconds, got %d", maxServeExpiredTTL, cfg.ServeExpiredTTL)
+	}
+	if maxTimeout := uint(resolver.DefaultDNSTimeout.Milliseconds()); cfg.ServeExpiredClientTimeout > maxTimeout {
+		return nil, fmt.Errorf("dns.serve-expired-client-timeout must be at most %d milliseconds (the DNS query timeout), got %d", maxTimeout, cfg.ServeExpiredClientTimeout)
 	}
 
 	dnsCfg := &DNS{
@@ -1433,6 +1616,10 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 		EnhancedMode:      cfg.EnhancedMode,
 		CacheAlgorithm:    cfg.CacheAlgorithm,
 		CacheMaxSize:      cfg.CacheMaxSize,
+
+		ServeExpired:              cfg.ServeExpired,
+		ServeExpiredTTL:           time.Duration(cfg.ServeExpiredTTL) * time.Second,
+		ServeExpiredClientTimeout: time.Duration(cfg.ServeExpiredClientTimeout) * time.Millisecond,
 	}
 	var err error
 	if dnsCfg.NameServer, err = parseNameServer(cfg.NameServer, cfg.RespectRules, cfg.PreferH3); err != nil {
@@ -1666,14 +1853,20 @@ func isDomainRule(rt C.RuleType) bool {
 	}
 }
 
-func parseAuthentication(rawRecords []string) []auth.AuthUser {
+// parseAuthentication parses the "user:pass" records of `authentication`. An
+// empty user name is refused: it means "no user" to IN-USER, the user limits
+// and the session binding.
+func parseAuthentication(rawRecords []string) ([]auth.AuthUser, error) {
 	var users []auth.AuthUser
-	for _, line := range rawRecords {
+	for i, line := range rawRecords {
 		if user, pass, found := strings.Cut(line, ":"); found {
+			if user == "" {
+				return nil, fmt.Errorf("authentication[%d]: empty user name", i)
+			}
 			users = append(users, auth.AuthUser{User: user, Pass: pass})
 		}
 	}
-	return users
+	return users, nil
 }
 
 func parseIPV6(rawCfg *RawConfig) {
@@ -1774,6 +1967,10 @@ func parseSniffer(snifferRaw RawSniffer, ruleProviders map[string]P.RuleProvider
 		Enable:          snifferRaw.Enable,
 		ForceDnsMapping: snifferRaw.ForceDnsMapping,
 		ParsePureIp:     snifferRaw.ParsePureIp,
+		SkipThreshold:   snifferRaw.SkipThreshold,
+	}
+	if t := snifferRaw.SkipThreshold; t != nil && (*t < -1 || *t > sniffer.MaxSkipThreshold) {
+		return nil, fmt.Errorf("sniffer.skip-threshold must be -1 (never skip) or 0-%d, got %d", sniffer.MaxSkipThreshold, *t)
 	}
 	loadSniffer := make(map[snifferTypes.Type]sniffer.SnifferConfig)
 

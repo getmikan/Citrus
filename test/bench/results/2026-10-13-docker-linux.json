@@ -1,0 +1,1315 @@
+{
+  "meta": {
+    "date": "2026-10-13",
+    "host": "docker-linux",
+    "os": "linux",
+    "arch": "amd64",
+    "cpus": 28,
+    "go_version": "go1.26.9",
+    "commit": "41273e18",
+    "citrus_version": "dev",
+    "server_gomaxprocs": 4,
+    "server_host": "::1",
+    "duration": "20s",
+    "idle_levels": [
+      1000,
+      5000,
+      10000
+    ],
+    "rate_workers": 64,
+    "args": [
+      "-scenario",
+      "all",
+      "-duration",
+      "20s",
+      "-out",
+      "results"
+    ],
+    "total_seconds": 418.047230605
+  },
+  "scenarios": [
+    {
+      "scenario": "vless-reality-vision",
+      "variant": "stats-on",
+      "idle": {
+        "base": {
+          "goroutines": 21,
+          "heap_live": 1282776,
+          "heap_obj": 1281968,
+          "stacks": 524288,
+          "go_mapped": 10840344,
+          "rss": 36229120,
+          "cpu_user": 0.024489,
+          "cpu_sys": 0.009795,
+          "gc_cycles": 4,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.477369683,
+            "rss": 107696128,
+            "goroutines": 2021,
+            "rss_per_conn": 71467.008,
+            "heap_per_conn": 49462.728,
+            "stack_per_conn": 21037.056,
+            "go_mapped_per_conn": 91721.744,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          },
+          {
+            "target": 5000,
+            "reached": 5000,
+            "open_seconds": 0.885619194,
+            "rss": 435949568,
+            "goroutines": 10018,
+            "rss_per_conn": 79944.0896,
+            "heap_per_conn": 49246.1072,
+            "stack_per_conn": 20879.7696,
+            "go_mapped_per_conn": 102010.0832,
+            "goroutines_per_conn": 1.9994,
+            "errors": 0
+          },
+          {
+            "target": 10000,
+            "reached": 10000,
+            "open_seconds": 1.021532674,
+            "rss": 799346688,
+            "goroutines": 20018,
+            "rss_per_conn": 76311.7568,
+            "heap_per_conn": 49058.376,
+            "stack_per_conn": 20748.6976,
+            "go_mapped_per_conn": 99158.2432,
+            "goroutines_per_conn": 1.9997,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 18,
+        "heap_after_close": 11709608
+      },
+      "throughput": [
+        {
+          "name": "down-1",
+          "direction": "down",
+          "streams": 1,
+          "seconds": 5.000646406,
+          "bytes": 11019218256,
+          "mb_per_s": 2203.5587724776233,
+          "gbit_per_s": 17.628470179820987,
+          "server_cpu_s": 5.3002009999999995,
+          "server_cpu_s_per_gb": 0.48099609943872584,
+          "server_cores": 1.0599031744457237,
+          "server_rss": 90611712,
+          "server_goroutines": 20,
+          "errors": 0
+        },
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 5.007462737,
+          "bytes": 38167298344,
+          "mb_per_s": 7622.083348116186,
+          "gbit_per_s": 60.97666678492949,
+          "server_cpu_s": 20.370963000000003,
+          "server_cpu_s_per_gb": 0.533728188366845,
+          "server_cores": 4.0681207369711485,
+          "server_rss": 95887360,
+          "server_goroutines": 50,
+          "errors": 0
+        },
+        {
+          "name": "up-16",
+          "direction": "up",
+          "streams": 16,
+          "seconds": 4.024305719,
+          "bytes": 30032461824,
+          "mb_per_s": 7462.7684676657145,
+          "gbit_per_s": 59.70214774132572,
+          "server_cpu_s": 16.36861799999999,
+          "server_cpu_s_per_gb": 0.5450308434894688,
+          "server_cores": 4.067438992698455,
+          "server_rss": 95657984,
+          "server_goroutines": 50,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 6.004806683,
+        "conns": 35673,
+        "conns_per_s": 5940.740790372585,
+        "p50_ms": 10.615385,
+        "p99_ms": 19.631868,
+        "server_cpu_s": 23.448544,
+        "server_cpu_ms_per_conn": 0.6573190928713593,
+        "server_cores": 3.904962347311589,
+        "server_rss": 97689600,
+        "errors": 0,
+        "server_goroutines_after": 18
+      },
+      "seconds": 36.320870433
+    },
+    {
+      "scenario": "vless-xhttp-stream-one",
+      "variant": "stats-on",
+      "note": "REALITY + h2, client default xmux (streams share h2 connections)",
+      "idle": {
+        "base": {
+          "goroutines": 27,
+          "heap_live": 1435192,
+          "heap_obj": 1434000,
+          "stacks": 589824,
+          "go_mapped": 10483976,
+          "rss": 36392960,
+          "cpu_user": 0.026921,
+          "cpu_sys": 0,
+          "gc_cycles": 5,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.181262691,
+            "rss": 95297536,
+            "goroutines": 3033,
+            "rss_per_conn": 58904.576,
+            "heap_per_conn": 53790.448,
+            "stack_per_conn": 24838.144,
+            "go_mapped_per_conn": 91594.784,
+            "goroutines_per_conn": 3.006,
+            "errors": 0
+          },
+          {
+            "target": 5000,
+            "reached": 5000,
+            "open_seconds": 0.409243637,
+            "rss": 347840512,
+            "goroutines": 15068,
+            "rss_per_conn": 62289.5104,
+            "heap_per_conn": 53783.4608,
+            "stack_per_conn": 24726.7328,
+            "go_mapped_per_conn": 93148.7968,
+            "goroutines_per_conn": 3.0082,
+            "errors": 0
+          },
+          {
+            "target": 10000,
+            "reached": 10000,
+            "open_seconds": 0.459011773,
+            "rss": 614043648,
+            "goroutines": 30114,
+            "rss_per_conn": 57765.0688,
+            "heap_per_conn": 53729.2096,
+            "stack_per_conn": 24684.1344,
+            "go_mapped_per_conn": 86549.5248,
+            "goroutines_per_conn": 3.0087,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 18,
+        "heap_after_close": 16682768
+      },
+      "throughput": [
+        {
+          "name": "down-1",
+          "direction": "down",
+          "streams": 1,
+          "seconds": 5.000269791,
+          "bytes": 2942108290,
+          "mb_per_s": 588.3899095395831,
+          "gbit_per_s": 4.707119276316664,
+          "server_cpu_s": 6.886223000000001,
+          "server_cpu_s_per_gb": 2.340574282532612,
+          "server_cores": 1.3771702903700385,
+          "server_rss": 87175168,
+          "server_goroutines": 24,
+          "errors": 0
+        },
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 5.000369254,
+          "bytes": 12005265802,
+          "mb_per_s": 2400.8758537974963,
+          "gbit_per_s": 19.20700683037997,
+          "server_cpu_s": 17.316457999999997,
+          "server_cpu_s_per_gb": 1.4424052149778464,
+          "server_cores": 3.4630358520318985,
+          "server_rss": 94285824,
+          "server_goroutines": 74,
+          "errors": 0
+        },
+        {
+          "name": "up-16",
+          "direction": "up",
+          "streams": 16,
+          "seconds": 4.000310571,
+          "bytes": 12976226304,
+          "mb_per_s": 3243.8047180812255,
+          "gbit_per_s": 25.950437744649804,
+          "server_cpu_s": 13.801307999999999,
+          "server_cpu_s_per_gb": 1.0635841019315193,
+          "server_cores": 3.4500591279216453,
+          "server_rss": 98873344,
+          "server_goroutines": 74,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 6.00154257,
+        "conns": 141426,
+        "conns_per_s": 23564.941571346717,
+        "p50_ms": 2.334007,
+        "p99_ms": 7.666855,
+        "server_cpu_s": 23.41957800000001,
+        "server_cpu_ms_per_conn": 0.1655959865936957,
+        "server_cores": 3.902259748529953,
+        "server_rss": 96133120,
+        "errors": 0,
+        "server_goroutines_after": 24
+      },
+      "seconds": 34.929724317
+    },
+    {
+      "scenario": "vless-xhttp-packet-up",
+      "variant": "stats-on",
+      "note": "REALITY + h2, client default xmux (streams share h2 connections)",
+      "idle": {
+        "base": {
+          "goroutines": 27,
+          "heap_live": 1441728,
+          "heap_obj": 1440536,
+          "stacks": 589824,
+          "go_mapped": 10811656,
+          "rss": 36855808,
+          "cpu_user": 0.017432,
+          "cpu_sys": 0.011621,
+          "gc_cycles": 4,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.074956897,
+            "rss": 101081088,
+            "goroutines": 3035,
+            "rss_per_conn": 64225.28,
+            "heap_per_conn": 55852.424,
+            "stack_per_conn": 24739.84,
+            "go_mapped_per_conn": 94359.568,
+            "goroutines_per_conn": 3.008,
+            "errors": 0
+          },
+          {
+            "target": 5000,
+            "reached": 5000,
+            "open_seconds": 0.364003237,
+            "rss": 377937920,
+            "goroutines": 15070,
+            "rss_per_conn": 68216.4224,
+            "heap_per_conn": 55845.2512,
+            "stack_per_conn": 24680.8576,
+            "go_mapped_per_conn": 96428.0544,
+            "goroutines_per_conn": 3.0086,
+            "errors": 0
+          },
+          {
+            "target": 10000,
+            "reached": 10000,
+            "open_seconds": 0.446826554,
+            "rss": 665317376,
+            "goroutines": 30124,
+            "rss_per_conn": 62846.1568,
+            "heap_per_conn": 55791.4144,
+            "stack_per_conn": 24671.0272,
+            "go_mapped_per_conn": 91475.3744,
+            "goroutines_per_conn": 3.0097,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 18,
+        "heap_after_close": 18734296
+      },
+      "throughput": [
+        {
+          "name": "down-1",
+          "direction": "down",
+          "streams": 1,
+          "seconds": 5.00036671,
+          "bytes": 2993419844,
+          "mb_per_s": 598.6400633404745,
+          "gbit_per_s": 4.789120506723796,
+          "server_cpu_s": 6.9013919999999995,
+          "server_cpu_s_per_gb": 2.305520895718362,
+          "server_cores": 1.3801771750456278,
+          "server_rss": 108691456,
+          "server_goroutines": 24,
+          "errors": 0
+        },
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 5.00046125,
+          "bytes": 12269671038,
+          "mb_per_s": 2453.707853050556,
+          "gbit_per_s": 19.62966282440445,
+          "server_cpu_s": 17.31964,
+          "server_cpu_s_per_gb": 1.41158144716023,
+          "server_cores": 3.463608482117525,
+          "server_rss": 113967104,
+          "server_goroutines": 72,
+          "errors": 0
+        },
+        {
+          "name": "up-16",
+          "direction": "up",
+          "streams": 16,
+          "seconds": 4.001559674,
+          "bytes": 2080374784,
+          "mb_per_s": 519.8909808885684,
+          "gbit_per_s": 4.1591278471085475,
+          "server_cpu_s": 4.506809999999998,
+          "server_cpu_s_per_gb": 2.166345234840146,
+          "server_cores": 1.1262633490843195,
+          "server_rss": 185987072,
+          "server_goroutines": 72,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 6.003416659,
+        "conns": 101268,
+        "conns_per_s": 16868.394408071686,
+        "p50_ms": 3.103658,
+        "p99_ms": 11.632923,
+        "server_cpu_s": 23.213509000000002,
+        "server_cpu_ms_per_conn": 0.2292284729628313,
+        "server_cores": 3.866716291497035,
+        "server_rss": 120737792,
+        "errors": 0,
+        "server_goroutines_after": 24
+      },
+      "seconds": 34.725083679
+    },
+    {
+      "scenario": "trojan-tls",
+      "variant": "stats-on",
+      "idle": {
+        "base": {
+          "goroutines": 17,
+          "heap_live": 1249912,
+          "heap_obj": 1249232,
+          "stacks": 491520,
+          "go_mapped": 9894152,
+          "rss": 34304000,
+          "cpu_user": 0.023128,
+          "cpu_sys": 0,
+          "gc_cycles": 5,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.283769567,
+            "rss": 89202688,
+            "goroutines": 2017,
+            "rss_per_conn": 54898.688,
+            "heap_per_conn": 47932.352,
+            "stack_per_conn": 20119.552,
+            "go_mapped_per_conn": 80613.392,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          },
+          {
+            "target": 5000,
+            "reached": 5000,
+            "open_seconds": 0.447154676,
+            "rss": 342892544,
+            "goroutines": 10017,
+            "rss_per_conn": 61717.7088,
+            "heap_per_conn": 47871.5168,
+            "stack_per_conn": 20401.3568,
+            "go_mapped_per_conn": 87905.0944,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          },
+          {
+            "target": 10000,
+            "reached": 10000,
+            "open_seconds": 0.582074691,
+            "rss": 635699200,
+            "goroutines": 20017,
+            "rss_per_conn": 60139.52,
+            "heap_per_conn": 47807.1008,
+            "stack_per_conn": 20496.384,
+            "go_mapped_per_conn": 86658.0672,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 17,
+        "heap_after_close": 11734672
+      },
+      "throughput": [
+        {
+          "name": "down-1",
+          "direction": "down",
+          "streams": 1,
+          "seconds": 5.000477425,
+          "bytes": 10838394951,
+          "mb_per_s": 2167.4720291332983,
+          "gbit_per_s": 17.339776233066388,
+          "server_cpu_s": 5.28908,
+          "server_cpu_s_per_gb": 0.48799476526845015,
+          "server_cores": 1.0577150040828354,
+          "server_rss": 83566592,
+          "server_goroutines": 19,
+          "errors": 0
+        },
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 5.035349481,
+          "bytes": 38406012928,
+          "mb_per_s": 7627.278518187922,
+          "gbit_per_s": 61.01822814550337,
+          "server_cpu_s": 20.473829000000002,
+          "server_cpu_s_per_gb": 0.5330891555544289,
+          "server_cores": 4.066019464439235,
+          "server_rss": 87924736,
+          "server_goroutines": 49,
+          "errors": 0
+        },
+        {
+          "name": "up-16",
+          "direction": "up",
+          "streams": 16,
+          "seconds": 4.022891469,
+          "bytes": 31181438976,
+          "mb_per_s": 7751.0017897030175,
+          "gbit_per_s": 62.00801431762414,
+          "server_cpu_s": 16.349727,
+          "server_cpu_s_per_gb": 0.5243416448029933,
+          "server_cores": 4.064173027283824,
+          "server_rss": 88760320,
+          "server_goroutines": 49,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 6.004060116,
+        "conns": 71066,
+        "conns_per_s": 11836.323858686694,
+        "p50_ms": 5.080882,
+        "p99_ms": 12.193015,
+        "server_cpu_s": 23.343964,
+        "server_cpu_ms_per_conn": 0.32848287507387497,
+        "server_cores": 3.8880296914069072,
+        "server_rss": 89227264,
+        "errors": 0,
+        "server_goroutines_after": 17
+      },
+      "seconds": 35.329260349
+    },
+    {
+      "scenario": "hysteria2",
+      "variant": "stats-on",
+      "note": "QUIC: one connection per 64 streams; per-conn figures are per stream",
+      "idle": {
+        "base": {
+          "goroutines": 26,
+          "heap_live": 1487640,
+          "heap_obj": 1486960,
+          "stacks": 589824,
+          "go_mapped": 10402056,
+          "rss": 37138432,
+          "cpu_user": 0.010833,
+          "cpu_sys": 0.010833,
+          "gc_cycles": 4,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.159449042,
+            "rss": 71532544,
+            "goroutines": 2101,
+            "rss_per_conn": 34394.112,
+            "heap_per_conn": 44072.36,
+            "stack_per_conn": 20480,
+            "go_mapped_per_conn": 69480.464,
+            "goroutines_per_conn": 2.075,
+            "errors": 0
+          },
+          {
+            "target": 5000,
+            "reached": 5000,
+            "open_seconds": 0.268489299,
+            "rss": 201588736,
+            "goroutines": 10416,
+            "rss_per_conn": 32890.0608,
+            "heap_per_conn": 44072.5856,
+            "stack_per_conn": 20715.9296,
+            "go_mapped_per_conn": 68417.1424,
+            "goroutines_per_conn": 2.078,
+            "errors": 0
+          },
+          {
+            "target": 10000,
+            "reached": 10000,
+            "open_seconds": 0.238786208,
+            "rss": 370409472,
+            "goroutines": 20806,
+            "rss_per_conn": 33327.104,
+            "heap_per_conn": 44035.8712,
+            "stack_per_conn": 20771.6352,
+            "go_mapped_per_conn": 68775.5424,
+            "goroutines_per_conn": 2.078,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 21,
+        "heap_after_close": 11944208
+      },
+      "throughput": [
+        {
+          "name": "down-1",
+          "direction": "down",
+          "streams": 1,
+          "seconds": 5.001768936,
+          "bytes": 3781444144,
+          "mb_per_s": 756.0213581205703,
+          "gbit_per_s": 6.048170864964562,
+          "server_cpu_s": 9.087166,
+          "server_cpu_s_per_gb": 2.403094070401268,
+          "server_cores": 1.8167904427962562,
+          "server_rss": 80596992,
+          "server_goroutines": 28,
+          "errors": 0
+        },
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 5.000411454,
+          "bytes": 3349284069,
+          "mb_per_s": 669.8016952826538,
+          "gbit_per_s": 5.35841356226123,
+          "server_cpu_s": 8.895192000000002,
+          "server_cpu_s_per_gb": 2.655848777454058,
+          "server_cores": 1.7788920135530915,
+          "server_rss": 82432000,
+          "server_goroutines": 58,
+          "errors": 0
+        },
+        {
+          "name": "up-16",
+          "direction": "up",
+          "streams": 16,
+          "seconds": 4.000263523,
+          "bytes": 2743828480,
+          "mb_per_s": 685.9119316075117,
+          "gbit_per_s": 5.487295452860094,
+          "server_cpu_s": 10.741631000000005,
+          "server_cpu_s_per_gb": 3.914833262463988,
+          "server_cores": 2.685230844978011,
+          "server_rss": 82198528,
+          "server_goroutines": 58,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 6.000645831,
+        "conns": 197664,
+        "conns_per_s": 32940.45433890564,
+        "p50_ms": 1.837307,
+        "p99_ms": 4.662864,
+        "server_cpu_s": 18.017587999999996,
+        "server_cpu_ms_per_conn": 0.09115260239598509,
+        "server_cores": 3.0026081370973676,
+        "server_rss": 81764352,
+        "errors": 0,
+        "server_goroutines_after": 26
+      },
+      "seconds": 34.354213947
+    },
+    {
+      "scenario": "ss2022",
+      "variant": "stats-on",
+      "note": "2022-blake3-aes-128-gcm, multi-user (EIH)",
+      "idle": {
+        "base": {
+          "goroutines": 18,
+          "heap_live": 1250600,
+          "heap_obj": 1249792,
+          "stacks": 524288,
+          "go_mapped": 11344136,
+          "rss": 35491840,
+          "cpu_user": 0.014652,
+          "cpu_sys": 0.005861,
+          "gc_cycles": 4,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.192296758,
+            "rss": 96178176,
+            "goroutines": 2018,
+            "rss_per_conn": 60686.336,
+            "heap_per_conn": 191317.336,
+            "stack_per_conn": 20447.232,
+            "go_mapped_per_conn": 228163.648,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          },
+          {
+            "target": 5000,
+            "reached": 5000,
+            "open_seconds": 0.277914535,
+            "rss": 328536064,
+            "goroutines": 10018,
+            "rss_per_conn": 58608.8448,
+            "heap_per_conn": 191237.1792,
+            "stack_per_conn": 20473.4464,
+            "go_mapped_per_conn": 226594.0512,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          },
+          {
+            "target": 10000,
+            "reached": 10000,
+            "open_seconds": 0.294153194,
+            "rss": 647368704,
+            "goroutines": 20018,
+            "rss_per_conn": 61187.6864,
+            "heap_per_conn": 191196.2792,
+            "stack_per_conn": 20506.2144,
+            "go_mapped_per_conn": 228794.2176,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 18,
+        "heap_after_close": 12614552
+      },
+      "throughput": [
+        {
+          "name": "down-1",
+          "direction": "down",
+          "streams": 1,
+          "seconds": 5.004102479,
+          "bytes": 13470218334,
+          "mb_per_s": 2691.8350274656714,
+          "gbit_per_s": 21.534680219725374,
+          "server_cpu_s": 5.373876,
+          "server_cpu_s_per_gb": 0.398944981198699,
+          "server_cores": 1.0738940744222916,
+          "server_rss": 87891968,
+          "server_goroutines": 20,
+          "errors": 0
+        },
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 5.035157192,
+          "bytes": 44560089088,
+          "mb_per_s": 8849.791056930324,
+          "gbit_per_s": 70.7983284554426,
+          "server_cpu_s": 20.503097000000004,
+          "server_cpu_s_per_gb": 0.460122441844971,
+          "server_cores": 4.071987470932567,
+          "server_rss": 98672640,
+          "server_goroutines": 50,
+          "errors": 0
+        },
+        {
+          "name": "up-16",
+          "direction": "up",
+          "streams": 16,
+          "seconds": 4.026716391,
+          "bytes": 31526780928,
+          "mb_per_s": 7829.401891443017,
+          "gbit_per_s": 62.635215131544136,
+          "server_cpu_s": 16.402389,
+          "server_cpu_s_per_gb": 0.5202684358247461,
+          "server_cores": 4.073390675504368,
+          "server_rss": 97021952,
+          "server_goroutines": 50,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 6.002202053,
+        "conns": 122144,
+        "conns_per_s": 20349.864753211765,
+        "p50_ms": 2.841055,
+        "p99_ms": 7.592051,
+        "server_cpu_s": 22.580691,
+        "server_cpu_ms_per_conn": 0.1848694246135709,
+        "server_cores": 3.7620677878902455,
+        "server_rss": 154992640,
+        "errors": 0,
+        "server_goroutines_after": 18
+      },
+      "seconds": 34.65708466
+    },
+    {
+      "scenario": "tuic-v5",
+      "variant": "stats-on",
+      "note": "QUIC: one connection per 64 streams; per-conn figures are per stream",
+      "idle": {
+        "base": {
+          "goroutines": 27,
+          "heap_live": 1439808,
+          "heap_obj": 1438936,
+          "stacks": 557056,
+          "go_mapped": 10311944,
+          "rss": 35921920,
+          "cpu_user": 0.017167,
+          "cpu_sys": 0.005722,
+          "gc_cycles": 5,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.148482711,
+            "rss": 65052672,
+            "goroutines": 2117,
+            "rss_per_conn": 29130.752,
+            "heap_per_conn": 44003.84,
+            "stack_per_conn": 12648.448,
+            "go_mapped_per_conn": 59772.944,
+            "goroutines_per_conn": 2.09,
+            "errors": 0
+          },
+          {
+            "target": 5000,
+            "reached": 5000,
+            "open_seconds": 0.190656716,
+            "rss": 177676288,
+            "goroutines": 10495,
+            "rss_per_conn": 28350.8736,
+            "heap_per_conn": 43998.7968,
+            "stack_per_conn": 12589.4656,
+            "go_mapped_per_conn": 59886.8096,
+            "goroutines_per_conn": 2.0936,
+            "errors": 0
+          },
+          {
+            "target": 10000,
+            "reached": 10000,
+            "open_seconds": 0.191853914,
+            "rss": 321036288,
+            "goroutines": 20963,
+            "rss_per_conn": 28511.4368,
+            "heap_per_conn": 43961.4672,
+            "stack_per_conn": 12589.4656,
+            "go_mapped_per_conn": 59838.0672,
+            "goroutines_per_conn": 2.0936,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 963,
+        "heap_after_close": 23801592
+      },
+      "throughput": [
+        {
+          "name": "down-1",
+          "direction": "down",
+          "streams": 1,
+          "seconds": 5.000317484,
+          "bytes": 3601563648,
+          "mb_per_s": 720.266994950675,
+          "gbit_per_s": 5.7621359596054,
+          "server_cpu_s": 9.171625999999998,
+          "server_cpu_s_per_gb": 2.5465677956554047,
+          "server_cores": 1.8342087336148831,
+          "server_rss": 134619136,
+          "server_goroutines": 971,
+          "errors": 0
+        },
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 5.000432507,
+          "bytes": 3210283428,
+          "mb_per_s": 642.0011516015848,
+          "gbit_per_s": 5.136009212812678,
+          "server_cpu_s": 8.552957,
+          "server_cpu_s_per_gb": 2.6642373459618405,
+          "server_cores": 1.7104434442474516,
+          "server_rss": 135536640,
+          "server_goroutines": 1001,
+          "errors": 0
+        },
+        {
+          "name": "up-16",
+          "direction": "up",
+          "streams": 16,
+          "seconds": 4.000661215,
+          "bytes": 1952907264,
+          "mb_per_s": 488.14612361521847,
+          "gbit_per_s": 3.905168988921748,
+          "server_cpu_s": 7.880198000000004,
+          "server_cpu_s_per_gb": 4.035111213555301,
+          "server_cores": 1.9697238972533202,
+          "server_rss": 135536640,
+          "server_goroutines": 1001,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 6.003292105,
+        "conns": 163123,
+        "conns_per_s": 27172.257679105554,
+        "p50_ms": 2.309832,
+        "p99_ms": 6.07771,
+        "server_cpu_s": 20.065935000000003,
+        "server_cpu_ms_per_conn": 0.12301107140010915,
+        "server_cores": 3.342488529466617,
+        "server_rss": 356655104,
+        "errors": 0,
+        "server_goroutines_after": 10545
+      },
+      "seconds": 34.20290463
+    }
+  ],
+  "variants": [
+    {
+      "scenario": "vless-reality-vision",
+      "variant": "stats-off",
+      "idle": {
+        "base": {
+          "goroutines": 21,
+          "heap_live": 1282952,
+          "heap_obj": 1282144,
+          "stacks": 524288,
+          "go_mapped": 10668312,
+          "rss": 35692544,
+          "cpu_user": 0.012448,
+          "cpu_sys": 0.016598,
+          "gc_cycles": 5,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.160065783,
+            "rss": 109772800,
+            "goroutines": 2021,
+            "rss_per_conn": 74080.256,
+            "heap_per_conn": 49432.904,
+            "stack_per_conn": 21037.056,
+            "go_mapped_per_conn": 93483.024,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 18,
+        "heap_after_close": 2439776
+      },
+      "throughput": [
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 10.033711977,
+          "bytes": 74017387775,
+          "mb_per_s": 7376.869890691302,
+          "gbit_per_s": 59.01495912553042,
+          "server_cpu_s": 40.808772,
+          "server_cpu_s_per_gb": 0.551340343488635,
+          "server_cores": 4.067165979404713,
+          "server_rss": 47587328,
+          "server_goroutines": 50,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 10.006723048,
+        "conns": 59416,
+        "conns_per_s": 5937.608117562045,
+        "p50_ms": 10.628526,
+        "p99_ms": 20.132308,
+        "server_cpu_s": 38.144463,
+        "server_cpu_ms_per_conn": 0.6419897502356269,
+        "server_cores": 3.811883552390687,
+        "server_rss": 52322304,
+        "errors": 0,
+        "server_goroutines_after": 18
+      },
+      "seconds": 28.827642618
+    },
+    {
+      "scenario": "vless-reality-vision",
+      "variant": "stats-on",
+      "idle": {
+        "base": {
+          "goroutines": 21,
+          "heap_live": 1285752,
+          "heap_obj": 1284944,
+          "stacks": 557056,
+          "go_mapped": 10737928,
+          "rss": 36093952,
+          "cpu_user": 0.019984,
+          "cpu_sys": 0.009992,
+          "gc_cycles": 5,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.338209823,
+            "rss": 110858240,
+            "goroutines": 2021,
+            "rss_per_conn": 74764.288,
+            "heap_per_conn": 49463.552,
+            "stack_per_conn": 21069.824,
+            "go_mapped_per_conn": 92925.968,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 18,
+        "heap_after_close": 2458376
+      },
+      "throughput": [
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 10.04683538,
+          "bytes": 76892682160,
+          "mb_per_s": 7653.423117996785,
+          "gbit_per_s": 61.22738494397427,
+          "server_cpu_s": 40.801046,
+          "server_cpu_s_per_gb": 0.5306232641891757,
+          "server_cores": 4.061084357092352,
+          "server_rss": 47898624,
+          "server_goroutines": 50,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 10.005420438,
+        "conns": 59906,
+        "conns_per_s": 5987.35459156524,
+        "p50_ms": 10.551448,
+        "p99_ms": 20.098437,
+        "server_cpu_s": 38.215155,
+        "server_cpu_ms_per_conn": 0.6379186558942344,
+        "server_cores": 3.819445193413471,
+        "server_rss": 52318208,
+        "errors": 0,
+        "server_goroutines_after": 18
+      },
+      "seconds": 29.015762683
+    },
+    {
+      "scenario": "vless-reality-vision",
+      "variant": "stats-on+limit",
+      "idle": {
+        "base": {
+          "goroutines": 21,
+          "heap_live": 1317160,
+          "heap_obj": 1316352,
+          "stacks": 491520,
+          "go_mapped": 10582280,
+          "rss": 35864576,
+          "cpu_user": 0.011236,
+          "cpu_sys": 0.018727,
+          "gc_cycles": 5,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.329864207,
+            "rss": 128491520,
+            "goroutines": 2021,
+            "rss_per_conn": 92626.944,
+            "heap_per_conn": 82057.928,
+            "stack_per_conn": 22708.224,
+            "go_mapped_per_conn": 131579.936,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 18,
+        "heap_after_close": 2475352
+      },
+      "throughput": [
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 10.024593198,
+          "bytes": 76892039840,
+          "mb_per_s": 7670.340164560561,
+          "gbit_per_s": 61.36272131648449,
+          "server_cpu_s": 40.732589000000004,
+          "server_cpu_s_per_gb": 0.5297373965466124,
+          "server_cores": 4.063266029401227,
+          "server_rss": 48963584,
+          "server_goroutines": 50,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 10.004664803,
+        "conns": 56323,
+        "conns_per_s": 5629.673868045132,
+        "p50_ms": 11.122843,
+        "p99_ms": 21.773411,
+        "server_cpu_s": 38.15926100000001,
+        "server_cpu_ms_per_conn": 0.6775076079044086,
+        "server_cores": 3.8141468756212165,
+        "server_rss": 53055488,
+        "errors": 0,
+        "server_goroutines_after": 18
+      },
+      "seconds": 28.980540537
+    },
+    {
+      "scenario": "trojan-tls",
+      "variant": "stats-off",
+      "idle": {
+        "base": {
+          "goroutines": 17,
+          "heap_live": 1253496,
+          "heap_obj": 1252816,
+          "stacks": 491520,
+          "go_mapped": 10615048,
+          "rss": 35094528,
+          "cpu_user": 0.018294,
+          "cpu_sys": 0.006098,
+          "gc_cycles": 4,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.229923076,
+            "rss": 95789056,
+            "goroutines": 2017,
+            "rss_per_conn": 60694.528,
+            "heap_per_conn": 47926.48,
+            "stack_per_conn": 20283.392,
+            "go_mapped_per_conn": 86499.36,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 17,
+        "heap_after_close": 2351240
+      },
+      "throughput": [
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 10.036527431,
+          "bytes": 76134842368,
+          "mb_per_s": 7585.775348238572,
+          "gbit_per_s": 60.68620278590858,
+          "server_cpu_s": 40.80541,
+          "server_cpu_s_per_gb": 0.5359623627085988,
+          "server_cores": 4.065690078618588,
+          "server_rss": 45350912,
+          "server_goroutines": 49,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 10.004688876,
+        "conns": 106062,
+        "conns_per_s": 10601.229215076293,
+        "p50_ms": 5.686635,
+        "p99_ms": 12.891824,
+        "server_cpu_s": 37.78082300000001,
+        "server_cpu_ms_per_conn": 0.3562145066093418,
+        "server_cores": 3.776311634300942,
+        "server_rss": 45850624,
+        "errors": 0,
+        "server_goroutines_after": 17
+      },
+      "seconds": 28.945556229
+    },
+    {
+      "scenario": "trojan-tls",
+      "variant": "stats-on",
+      "idle": {
+        "base": {
+          "goroutines": 17,
+          "heap_live": 1251400,
+          "heap_obj": 1250720,
+          "stacks": 524288,
+          "go_mapped": 10180872,
+          "rss": 35491840,
+          "cpu_user": 0.014494,
+          "cpu_sys": 0.009663,
+          "gc_cycles": 4,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.216639715,
+            "rss": 94642176,
+            "goroutines": 2017,
+            "rss_per_conn": 59150.336,
+            "heap_per_conn": 47921.152,
+            "stack_per_conn": 20348.928,
+            "go_mapped_per_conn": 83603.472,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 17,
+        "heap_after_close": 2347848
+      },
+      "throughput": [
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 10.048319868,
+          "bytes": 77184594199,
+          "mb_per_s": 7681.343270610143,
+          "gbit_per_s": 61.45074616488114,
+          "server_cpu_s": 40.869647,
+          "server_cpu_s_per_gb": 0.5295052390199585,
+          "server_cores": 4.0673115044987735,
+          "server_rss": 46854144,
+          "server_goroutines": 49,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 10.004852061,
+        "conns": 108714,
+        "conns_per_s": 10866.127688562132,
+        "p50_ms": 5.566347,
+        "p99_ms": 12.439495,
+        "server_cpu_s": 37.828376,
+        "server_cpu_ms_per_conn": 0.3479623231598506,
+        "server_cores": 3.781003034263657,
+        "server_rss": 47587328,
+        "errors": 0,
+        "server_goroutines_after": 17
+      },
+      "seconds": 28.873218084
+    },
+    {
+      "scenario": "trojan-tls",
+      "variant": "stats-on+limit",
+      "idle": {
+        "base": {
+          "goroutines": 17,
+          "heap_live": 1253320,
+          "heap_obj": 1252640,
+          "stacks": 491520,
+          "go_mapped": 10041608,
+          "rss": 34983936,
+          "cpu_user": 0.004626,
+          "cpu_sys": 0.018504,
+          "gc_cycles": 5,
+          "gomaxprocs": 4,
+          "has_proc_cpu": true
+        },
+        "points": [
+          {
+            "target": 1000,
+            "reached": 1000,
+            "open_seconds": 0.258265917,
+            "rss": 100065280,
+            "goroutines": 2017,
+            "rss_per_conn": 65081.344,
+            "heap_per_conn": 80497.608,
+            "stack_per_conn": 20021.248,
+            "go_mapped_per_conn": 118435.856,
+            "goroutines_per_conn": 2,
+            "errors": 0
+          }
+        ],
+        "goroutines_after_close": 17,
+        "heap_after_close": 2350968
+      },
+      "throughput": [
+        {
+          "name": "down-16",
+          "direction": "down",
+          "streams": 16,
+          "seconds": 10.040146718999999,
+          "bytes": 79219015680,
+          "mb_per_s": 7890.224903794059,
+          "gbit_per_s": 63.12179923035247,
+          "server_cpu_s": 40.783579,
+          "server_cpu_s_per_gb": 0.5148205724335504,
+          "server_cores": 4.062050101600712,
+          "server_rss": 46931968,
+          "server_goroutines": 49,
+          "errors": 0
+        }
+      ],
+      "rate": {
+        "workers": 64,
+        "seconds": 10.002935897,
+        "conns": 115395,
+        "conns_per_s": 11536.113116011104,
+        "p50_ms": 5.300944,
+        "p99_ms": 11.699116,
+        "server_cpu_s": 38.093706999999995,
+        "server_cpu_ms_per_conn": 0.3301157502491442,
+        "server_cores": 3.808252636250998,
+        "server_rss": 47587328,
+        "errors": 0,
+        "server_goroutines_after": 17
+      },
+      "seconds": 28.883165713
+    }
+  ]
+}

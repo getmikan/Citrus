@@ -9,11 +9,32 @@ import (
 )
 
 type testRoundTripper struct {
-	id int64
+	id     int64
+	closed atomic.Bool
 }
 
 func (t *testRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	panic("not used in reuse manager unit tests")
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+}
+
+func (t *testRoundTripper) Close() error {
+	t.closed.Store(true)
+	return nil
+}
+
+func roundTrip(t *testing.T, rt http.RoundTripper) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.RoundTrip(req); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func isClosed(rt *ReuseTransport) bool {
+	return rt.entry.transport.(*testRoundTripper).closed.Load()
 }
 
 func makeTestTransportFactory(counter *atomic.Int64) TransportMaker {
@@ -116,6 +137,7 @@ func TestManagerRotateOnRequestLimit(t *testing.T) {
 
 	transport1 := manager.GetTransport().(*ReuseTransport)
 	id1 := transportID(transport1)
+	roundTrip(t, transport1)
 
 	transport1.Close()
 
@@ -196,4 +218,108 @@ func TestManagerRotateOnConnReuseLimit(t *testing.T) {
 
 	transport3.Close()
 	manager.Close()
+}
+
+// hMaxRequestTimes counts HTTP requests (like Xray-core), not proxied connections.
+func TestManagerCountRequestsNotConnections(t *testing.T) {
+	var created atomic.Int64
+
+	manager, err := NewReuseManager(&ReuseConfig{
+		MaxConnections:   "1",
+		HMaxRequestTimes: "3",
+	}, makeTestTransportFactory(&created))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+
+	// dials alone don't use up the requests
+	for i := 0; i < 5; i++ {
+		rt := manager.GetTransport().(*ReuseTransport)
+		if id := transportID(rt); id != 1 {
+			t.Fatalf("expected the first transport to be reused, got %d", id)
+		}
+		rt.Close()
+	}
+
+	transport1 := manager.GetTransport().(*ReuseTransport)
+	roundTrip(t, transport1)
+	roundTrip(t, transport1)
+	transport2 := manager.GetTransport().(*ReuseTransport)
+	if transportID(transport2) != 1 {
+		t.Fatal("expected the transport to be reused before the request limit")
+	}
+	roundTrip(t, transport2) // the third request retires the entry
+
+	transport3 := manager.GetTransport().(*ReuseTransport)
+	if transportID(transport3) == 1 {
+		t.Fatal("expected a new transport after the request limit")
+	}
+
+	// the retired entry keeps serving the connections that hold it, and is closed with the last one
+	roundTrip(t, transport1)
+	transport1.Close()
+	if isClosed(transport2) {
+		t.Fatal("retired transport closed while still in use")
+	}
+	transport2.Close()
+	if !isClosed(transport2) {
+		t.Fatal("retired transport not closed after the last user")
+	}
+	transport3.Close()
+	if isClosed(transport3) {
+		t.Fatal("idle transport closed before it is retired")
+	}
+}
+
+// An entry past hMaxReusableSecs is not handed out, even while other connections still hold it.
+func TestManagerSkipExpiredInUse(t *testing.T) {
+	var created atomic.Int64
+
+	manager, err := NewReuseManager(&ReuseConfig{
+		MaxConnections:   "1",
+		HMaxReusableSecs: "1",
+	}, makeTestTransportFactory(&created))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+
+	transport1 := manager.GetTransport().(*ReuseTransport)
+	transport1.entry.unreusableAt = time.Now().Add(-time.Second)
+
+	transport2 := manager.GetTransport().(*ReuseTransport)
+	if transportID(transport2) == transportID(transport1) {
+		t.Fatal("expected a new transport after the entry expired")
+	}
+	if isClosed(transport1) {
+		t.Fatal("expired transport closed while still in use")
+	}
+	transport1.Close()
+	if !isClosed(transport1) {
+		t.Fatal("expired transport not closed after the last user")
+	}
+	transport2.Close()
+}
+
+// The default XMUX (no maxConcurrency) shares maxConnections transports among any number of connections.
+func TestManagerDefaultReuseConfig(t *testing.T) {
+	var created atomic.Int64
+
+	manager, err := NewReuseManager(DefaultReuseConfig(), makeTestTransportFactory(&created))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+
+	var transports []*ReuseTransport
+	for i := 0; i < 30; i++ {
+		transports = append(transports, manager.GetTransport().(*ReuseTransport))
+	}
+	if created.Load() != 3 {
+		t.Fatalf("expected 3 transports, got %d", created.Load())
+	}
+	for _, rt := range transports {
+		rt.Close()
+	}
 }

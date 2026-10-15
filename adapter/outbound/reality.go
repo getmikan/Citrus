@@ -11,16 +11,20 @@ import (
 )
 
 type RealityOptions struct {
-	PublicKey string `proxy:"public-key"`
-	ShortID   string `proxy:"short-id,omitempty"`
+	PublicKey     string `proxy:"public-key"`
+	ShortID       string `proxy:"short-id,omitempty"`
+	ClientVersion string `proxy:"client-version,omitempty"`
+	Mldsa65Verify string `proxy:"mldsa65-verify,omitempty"`
 
-	SupportX25519MLKEM768 bool `proxy:"support-x25519mlkem768,omitempty"`
+	// SupportX25519MLKEM768 is enabled by default, Xray v26.9.8+ servers require it.
+	// Set it to false only for old REALITY servers.
+	SupportX25519MLKEM768 *bool `proxy:"support-x25519mlkem768,omitempty"`
 }
 
 func (o RealityOptions) Parse() (*tlsC.RealityConfig, error) {
 	if o.PublicKey != "" {
 		config := new(tlsC.RealityConfig)
-		config.SupportX25519MLKEM768 = o.SupportX25519MLKEM768
+		config.DisableX25519MLKEM768 = o.SupportX25519MLKEM768 != nil && !*o.SupportX25519MLKEM768
 
 		const x25519ScalarSize = 32
 		publicKey, err := base64.RawURLEncoding.DecodeString(o.PublicKey)
@@ -39,6 +43,22 @@ func (o RealityOptions) Parse() (*tlsC.RealityConfig, error) {
 		n, err = hex.Decode(config.ShortID[:], []byte(o.ShortID))
 		if err != nil || n > tlsC.RealityMaxShortIDLen {
 			return nil, errors.New("invalid REALITY short ID")
+		}
+
+		clientVersion := o.ClientVersion
+		if clientVersion == "" {
+			clientVersion = tlsC.RealityDefaultClientVersion
+		}
+		config.ClientVersion, err = tlsC.ParseRealityClientVersion(clientVersion)
+		if err != nil {
+			return nil, err
+		}
+
+		if o.Mldsa65Verify != "" {
+			config.Mldsa65Verify, err = tlsC.ParseRealityMldsa65Verify(o.Mldsa65Verify)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		return config, nil

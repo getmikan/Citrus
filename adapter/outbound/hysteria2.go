@@ -70,6 +70,7 @@ type Hysteria2Option struct {
 	MaxStreamReceiveWindow         uint64 `proxy:"max-stream-receive-window,omitempty"`
 	InitialConnectionReceiveWindow uint64 `proxy:"initial-connection-receive-window,omitempty"`
 	MaxConnectionReceiveWindow     uint64 `proxy:"max-connection-receive-window,omitempty"`
+	DisableMTUDiscovery            bool   `proxy:"disable-mtu-discovery,omitempty"`
 }
 
 type Hysteria2RealmOption struct {
@@ -225,6 +226,11 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 			err := echConfig.ClientHandle(ctx, tlsCfg)
 			if err != nil {
 				return nil, nil, err
+			}
+			// sing-quic picks DisablePathMTUDiscovery by OS and overwrites ours, so it is applied here
+			if option.DisableMTUDiscovery && !cfg.DisablePathMTUDiscovery {
+				cfg = cfg.Clone()
+				cfg.DisablePathMTUDiscovery = true
 			}
 			return common.DialQuic(ctx, addr, outbound.DialOptions(), dialer, tlsCfg, cfg, common.DialQuicOption{Early: early})
 		}),

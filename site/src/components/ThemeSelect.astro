@@ -1,0 +1,71 @@
+---
+// Three icon buttons (system, light, dark) in one 36px pill instead of Starlight's select.
+// The choice is stored under Starlight's own key, so its ThemeProvider applies it before paint.
+import { Icon } from '@astrojs/starlight/components';
+
+const options = [
+	{ value: 'auto', icon: 'laptop', label: Astro.locals.t('themeSelect.auto') },
+	{ value: 'light', icon: 'sun', label: Astro.locals.t('themeSelect.light') },
+	{ value: 'dark', icon: 'moon', label: Astro.locals.t('themeSelect.dark') },
+] as const;
+---
+
+<ct-theme-select class="seg" role="group" aria-label={Astro.locals.t('themeSelect.accessibleLabel')}>
+	{
+		options.map((o) => (
+			<button type="button" class="seg-item" data-value={o.value} aria-pressed={o.value === 'auto' ? 'true' : 'false'} aria-label={o.label} title={o.label}>
+				<Icon name={o.icon} size="1rem" />
+			</button>
+		))
+	}
+</ct-theme-select>
+
+<script is:inline>
+	(() => {
+		const stored = typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
+		const value = stored === 'light' || stored === 'dark' ? stored : 'auto';
+		document.querySelectorAll('ct-theme-select:not([data-ready]) .seg-item').forEach((b) => {
+			b.setAttribute('aria-pressed', String(b.dataset.value === value));
+		});
+	})();
+</script>
+
+<script>
+	type Theme = 'auto' | 'light' | 'dark';
+	const key = 'starlight-theme';
+	const load = (): Theme => {
+		try {
+			const v = localStorage.getItem(key);
+			return v === 'light' || v === 'dark' ? v : 'auto';
+		} catch {
+			return 'auto';
+		}
+	};
+	const system = () => (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+
+	function apply(theme: Theme) {
+		document.documentElement.dataset.theme = theme === 'auto' ? system() : theme;
+		try {
+			localStorage.setItem(key, theme === 'auto' ? '' : theme);
+		} catch {
+			/* private mode: the choice lasts for this page only */
+		}
+		document.querySelectorAll<HTMLButtonElement>('ct-theme-select .seg-item').forEach((b) => {
+			b.setAttribute('aria-pressed', String(b.dataset.value === theme));
+		});
+	}
+
+	matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+		if (load() === 'auto') apply('auto');
+	});
+
+	class CtThemeSelect extends HTMLElement {
+		connectedCallback() {
+			this.dataset.ready = '';
+			this.querySelectorAll<HTMLButtonElement>('.seg-item').forEach((b) => {
+				b.addEventListener('click', () => apply(b.dataset.value as Theme));
+			});
+		}
+	}
+	customElements.define('ct-theme-select', CtThemeSelect);
+</script>

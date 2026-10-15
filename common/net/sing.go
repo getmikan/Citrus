@@ -35,6 +35,12 @@ type WithUpstream = common.WithUpstream
 
 var UnwrapReader = network.UnwrapReader
 var UnwrapWriter = network.UnwrapWriter
+var UnwrapCountReader = network.UnwrapCountReader
+
+type ReadWaiter = network.ReadWaiter
+type CachedReader = network.CachedReader
+
+var CreateReadWaiter = bufio.CreateReadWaiter
 
 func NewDeadlineConn(conn net.Conn) ExtendedConn {
 	if deadline.IsPipe(conn) || deadline.IsPipe(UnwrapReader(conn)) {
@@ -74,7 +80,7 @@ func Relay(leftConn, rightConn net.Conn) {
 
 	ch := make(chan struct{})
 	go func() {
-		_, err := bufio.Copy(leftConn, rightConn)
+		_, err := copyCounted(leftConn, rightConn)
 		if err == nil {
 			_ = closeWrite(leftConn)
 		} else {
@@ -83,7 +89,7 @@ func Relay(leftConn, rightConn net.Conn) {
 		close(ch)
 	}()
 
-	_, err := bufio.Copy(rightConn, leftConn)
+	_, err := copyCounted(rightConn, leftConn)
 	if err == nil {
 		_ = closeWrite(rightConn)
 	} else {

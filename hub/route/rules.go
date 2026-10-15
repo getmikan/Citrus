@@ -1,8 +1,10 @@
 package route
 
 import (
+	"encoding/json"
 	"time"
 
+	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/tunnel"
 
@@ -15,6 +17,7 @@ func ruleRouter() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", getRules)
 	if !embedMode { // disallow update/patch rules in embed mode
+		r.Put("/", replaceRules)
 		r.Patch("/disable", disableRules)
 	}
 	return r
@@ -96,4 +99,50 @@ func disableRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render.NoContent(w, r)
+}
+
+// maxRulesPayload is the largest body accepted by PUT /rules.
+const maxRulesPayload = 16 * 1024 * 1024
+
+// replaceRules replaces the top level rules with the rules of the body, which
+// are written as in the `rules:` section of a config and parsed the same way.
+// The whole list is validated before anything changes. Sub-rules and rule
+// providers stay as they are. The replacement lives in memory only: the next
+// config reload (PUT /configs, a restart) sets the rules of the config again.
+func replaceRules(w http.ResponseWriter, r *http.Request) {
+	data, ok := readLimitedBody(w, r, maxRulesPayload)
+	if !ok {
+		return
+	}
+	var req struct {
+		Rules *[]string `json:"rules"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, newError(err.Error()))
+		return
+	}
+	if req.Rules == nil { // an empty list clears the rules, a missing one is a mistake
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, newError("the rules list is missing"))
+		return
+	}
+
+	snap := tunnel.SnapshotRules()
+	rules, err := config.ParseRules(*req.Rules, snap.Proxies, snap.Providers, snap.RuleProviders, snap.SubRules)
+	if err != nil {
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, newError(err.Error()))
+		return
+	}
+	if err := tunnel.ReplaceRules(snap, rules); err != nil {
+		render.Status(r, http.StatusConflict)
+		render.JSON(w, r, newError(err.Error()))
+		return
+	}
+
+	render.JSON(w, r, render.M{
+		"count":     len(rules),
+		"ephemeral": true, // until the next config reload
+	})
 }
