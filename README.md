@@ -60,7 +60,10 @@ Compatible dashboards include [MetaCubeXD](https://github.com/MetaCubeX/metacube
 
 ## Build from source
 
-The module targets Go 1.20 and newer. CI also exercises supported newer toolchains.
+The module needs Go 1.26 or newer. Windows and macOS releases are built with the patched
+[MetaCubeX Go toolchain](https://github.com/MetaCubeX/go), which keeps Windows 7/8 and older
+macOS working (not tested separately). Linux needs kernel 3.2 or newer. There are no separate
+builds on old Go versions (`-go120` and the like).
 
 ```shell
 git clone https://github.com/getmikan/Citrus.git

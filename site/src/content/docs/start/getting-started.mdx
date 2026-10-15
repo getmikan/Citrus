@@ -19,6 +19,7 @@ import { Steps } from '@astrojs/starlight/components';
 - **Linux, macOS, FreeBSD:** `.gz` с одним бинарником. Для Linux есть ещё `.deb`, `.rpm` и `.pkg.tar.zst`.
 - **Windows:** `.zip` с `citrus-windows-<arch>.exe`.
 - **amd64:** файл `amd64` собран под x86-64-v3 (Intel Haswell, AMD Excavator и новее). Для старых процессоров берите `amd64-compatible` или `amd64-v2`.
+- **Старые системы:** релизы для Windows и macOS собираются пропатченным [тулчейном Go от MetaCubeX](https://github.com/MetaCubeX/go), который сохраняет работу на Windows 7/8 и старых macOS (отдельно в Citrus это не тестируется). Для Linux нужно ядро 3.2 или новее. Отдельных сборок на старых версиях Go (`-go120` и подобных) нет.
 
 <Steps>
 
@@ -102,7 +103,7 @@ journalctl -u citrus -f
 
 ## Собрать из исходников
 
-Нужен Go 1.20 или новее.
+Нужен Go 1.26 или новее.
 
 ```bash
 git clone https://github.com/getmikan/Citrus.git
