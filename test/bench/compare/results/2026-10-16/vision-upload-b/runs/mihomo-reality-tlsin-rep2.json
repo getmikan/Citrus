@@ -1,0 +1,70 @@
+{
+  "server": "mihomo",
+  "proto": "reality-tlsin",
+  "rep": 2,
+  "start": "2026-10-15T14:21:26.072058713Z",
+  "keyshare": "X25519MLKEM768",
+  "bulk": {
+    "dl1": {
+      "streams": 1,
+      "dir": "down",
+      "mbps": 2505.477683914737,
+      "bytes": 25055756288,
+      "cpu_sec_per_gb": 0.39220859618220755,
+      "server_cpu_sec": 9.827083,
+      "server_cores": 0.9826698851740479,
+      "client_util": 0.132563110660252,
+      "sink_util": 0.12622202819060738,
+      "window_sec": 10.000390923,
+      "errors": 0
+    },
+    "dl32": {
+      "streams": 32,
+      "dir": "down",
+      "mbps": 8339.096740625844,
+      "bytes": 83396575232,
+      "cpu_sec_per_gb": 0.22806936552355905,
+      "server_cpu_sec": 19.020204,
+      "server_cores": 1.9018925026741156,
+      "client_util": 0.4234415389431683,
+      "sink_util": 0.47178048648891285,
+      "window_sec": 10.000672474,
+      "errors": 1,
+      "first_error": "unexpected EOF"
+    },
+    "ul1": {
+      "streams": 1,
+      "dir": "up",
+      "mbps": 396.1553390513167,
+      "bytes": 3961880576,
+      "cpu_sec_per_gb": 2.8046322413934366,
+      "server_cpu_sec": 11.111618,
+      "server_cores": 1.1110700365034711,
+      "client_util": 0.0993677074868794,
+      "sink_util": 0.08145372272074974,
+      "window_sec": 10.000825902,
+      "errors": 0
+    },
+    "ul32": {
+      "streams": 32,
+      "dir": "up",
+      "mbps": 5301.001497839459,
+      "bytes": 53015314432,
+      "cpu_sec_per_gb": 0.3564878224808262,
+      "server_cpu_sec": 18.899314,
+      "server_cores": 1.8897424809323873,
+      "client_util": 0.3323977627868789,
+      "sink_util": 0.3031974141119533,
+      "window_sec": 10.000999708,
+      "errors": 0
+    }
+  },
+  "rss_start": 52772864,
+  "rss_end": 56225792,
+  "server_cpus": 2,
+  "client_cpus": 14,
+  "anomalies": [
+    "bulk 32 x down: 1 errors, first: unexpected EOF"
+  ],
+  "seconds": 64.202901083
+}

@@ -1,0 +1,33 @@
+{
+  "find-process-mode": "off",
+  "ipv6": false,
+  "listeners": [
+    {
+      "listen": "0.0.0.0",
+      "name": "in",
+      "port": 443,
+      "reality-config": {
+        "dest": "10.77.0.20:8443",
+        "private-key": "<redacted>",
+        "server-names": [
+          "bench.test"
+        ],
+        "short-id": [
+          "<redacted>"
+        ]
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "xtls-rprx-vision",
+          "username": "u",
+          "uuid": "<redacted>"
+        }
+      ]
+    }
+  ],
+  "log-level": "warning",
+  "rules": [
+    "MATCH,DIRECT"
+  ]
+}

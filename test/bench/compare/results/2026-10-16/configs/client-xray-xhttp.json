@@ -1,0 +1,50 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": {
+        "udp": false
+      }
+    }
+  ],
+  "log": {
+    "access": "none",
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "10.77.0.10",
+            "port": 443,
+            "users": [
+              {
+                "encryption": "none",
+                "id": "<redacted>"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h2"
+          ],
+          "pinnedPeerCertSha256": "<redacted>",
+          "serverName": "bench.test"
+        },
+        "xhttpSettings": {
+          "mode": "stream-one",
+          "path": "/xh"
+        }
+      }
+    }
+  ]
+}

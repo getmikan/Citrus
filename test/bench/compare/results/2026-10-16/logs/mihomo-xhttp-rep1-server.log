@@ -1,0 +1,5 @@
+time="2026-10-15T11:58:16.172279745Z" level=info msg="Start initial configuration in progress"
+time="2026-10-15T11:58:16.172456830Z" level=info msg="Geodata Loader mode: memconservative"
+time="2026-10-15T11:58:16.172476966Z" level=info msg="Geosite Matcher implementation: succinct"
+time="2026-10-15T11:58:16.172510988Z" level=info msg="Initial configuration complete, total time: 0ms"
+2026/10/15 11:58:16 http: TLS handshake error from 10.77.0.30:29138: EOF
