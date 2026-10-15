@@ -109,18 +109,33 @@ func preAuthTestAddress() v5.Address {
 	return v5.NewAddressAddrPort(netip.MustParseAddrPort("127.0.0.1:53"))
 }
 
-// waitGoroutines returns the settled goroutine count, polling a bit so that
-// handlers spawned for already received input are counted.
-func waitGoroutines(baseline int, limit int) int {
-	n := runtime.NumGoroutine()
-	for i := 0; i < 20; i++ {
+// settledGoroutines polls the goroutine count until it has stayed within
+// baseline+limit for a quarter of a second and returns it; at the deadline it
+// returns the count then.
+//
+// One sample over the limit proves nothing: the server spawns a handler for
+// every unidirectional stream before it reads the stream's header (only then
+// is the stream known to carry a packet that needs a budget slot), and on a
+// loaded machine hundreds of those are created before the scheduler runs any
+// of them; each then exits at once, as the budget is full. Handlers that park
+// until the authentication outcome stay until AuthenticationTimeout, well past
+// the deadline, so a missing budget still fails.
+func settledGoroutines(baseline, limit int, within time.Duration) int {
+	const stableSamples = 10 // 25ms apart
+	deadline := time.Now().Add(within)
+	stable := 0
+	for {
 		time.Sleep(25 * time.Millisecond)
-		n = runtime.NumGoroutine()
-		if n-baseline > limit {
+		n := runtime.NumGoroutine()
+		if n-baseline <= limit {
+			stable++
+		} else {
+			stable = 0
+		}
+		if stable >= stableSamples || time.Now().After(deadline) {
 			return n
 		}
 	}
-	return n
 }
 
 // An unauthenticated client must not make the server park one goroutine per
@@ -174,7 +189,8 @@ func TestServerPreAuthBudget(t *testing.T) {
 
 	// before the fix: one parked goroutine per datagram and per stream
 	limit := preAuthMaxDatagrams + preAuthMaxStreams + preAuthMaxUniStreams + 100
-	n := waitGoroutines(baseline, limit)
+	// the deadline is well within the AuthenticationTimeout of 10s
+	n := settledGoroutines(baseline, limit, 5*time.Second)
 	require.LessOrEqualf(t, n-baseline, limit, "goroutines grew by %d before authentication", n-baseline)
 
 	// the queued streams are served once the client authenticates
