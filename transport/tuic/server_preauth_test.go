@@ -68,7 +68,7 @@ func startPreAuthTestServer(t *testing.T) *preAuthTestServer {
 			MaxIdleTimeout:        30 * time.Second,
 		},
 		Users:                 users,
-		AuthenticationTimeout: 10 * time.Second, // the test authenticates by itself
+		AuthenticationTimeout: 30 * time.Second, // the test authenticates by itself
 		MaxUdpRelayPacketSize: 1200,
 	}, pc)
 	require.NoError(t, err)
@@ -102,7 +102,15 @@ func (ts *preAuthTestServer) authenticate(t *testing.T, conn *quic.Conn) {
 	require.NoError(t, err)
 	_, err = stream.Write(buf.Bytes())
 	require.NoError(t, err)
-	require.NoError(t, stream.Close())
+	closeUniStream(stream)
+}
+
+// closeUniStream sends the FIN of a unidirectional stream. The server stops
+// reading (STOP_SENDING) as soon as it has parsed the command, or drops a
+// packet over the budget, and that may reach the client before it closes:
+// then Close reports the canceled stream, which the TUIC client ignores too.
+func closeUniStream(stream *quic.SendStream) {
+	_ = stream.Close()
 }
 
 func preAuthTestAddress() v5.Address {
@@ -175,6 +183,7 @@ func TestServerPreAuthBudget(t *testing.T) {
 	// UDP-over-stream packets, opened before the authenticate stream (the
 	// client authenticates concurrently with its first packets)
 	const uniStreams = 500
+	uniPackets := make([]*quic.SendStream, 0, uniStreams)
 	for i := 0; i < uniStreams; i++ {
 		buf.Reset()
 		payload := []byte("z")
@@ -184,13 +193,31 @@ func TestServerPreAuthBudget(t *testing.T) {
 		require.NoError(t, err)
 		_, err = stream.Write(buf.Bytes())
 		require.NoError(t, err)
-		require.NoError(t, stream.Close())
+		// left open: Close would hide the STOP_SENDING awaited below
+		uniPackets = append(uniPackets, stream)
 	}
+
+	// The server drops a packet over the budget and stops reading its stream
+	// (STOP_SENDING). Once the client has seen that for every packet beyond
+	// the budget, the server has handled all of them, so none is left over to
+	// be handled, without a budget, after the authentication. (The datagrams,
+	// sent before, are taken by a loop of their own that never waits.)
+	dropped := func() int {
+		n := 0
+		for _, stream := range uniPackets {
+			if context.Cause(stream.Context()) != nil {
+				n++
+			}
+		}
+		return n
+	}
+	require.Eventuallyf(t, func() bool { return dropped() >= uniStreams-preAuthMaxUniStreams }, 10*time.Second, 10*time.Millisecond,
+		"packet streams dropped before authentication: %d", dropped())
 
 	// before the fix: one parked goroutine per datagram and per stream
 	limit := preAuthMaxDatagrams + preAuthMaxStreams + preAuthMaxUniStreams + 100
-	// the deadline is well within the AuthenticationTimeout of 10s
-	n := settledGoroutines(baseline, limit, 5*time.Second)
+	// the deadline is well within the AuthenticationTimeout
+	n := settledGoroutines(baseline, limit, 10*time.Second)
 	require.LessOrEqualf(t, n-baseline, limit, "goroutines grew by %d before authentication", n-baseline)
 
 	// the queued streams are served once the client authenticates
