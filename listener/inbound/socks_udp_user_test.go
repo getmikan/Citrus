@@ -72,15 +72,16 @@ func TestInboundSocksUDPUser(t *testing.T) {
 	tunnel.UpdateProxies(map[string]C.Proxy{"DIRECT": adapter.NewProxy(outbound.NewDirect())}, nil)
 	tunnel.OnRunning()
 	name := fmt.Sprintf("socks-udp-user-%d", time.Now().UnixNano())
-	// the UDP relay is on the port of the TCP listener: take a free UDP port
-	// and listen on it with both
+	// the UDP relay is on the port of the TCP listener: take a free TCP port
+	// and listen on it with both. A free UDP port can fall in a range Windows
+	// reserves for TCP, and then the TCP bind is refused.
 	var in *inbound.Socks
 	var err error
 	for i := 0; i < 20; i++ {
-		var probe net.PacketConn
-		probe, err = net.ListenPacket("udp", "127.0.0.1:0")
+		var probe net.Listener
+		probe, err = net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
-		port := probe.LocalAddr().(*net.UDPAddr).Port
+		port := probe.Addr().(*net.TCPAddr).Port
 		_ = probe.Close()
 		in, err = inbound.NewSocks(&inbound.SocksOption{
 			BaseOption: inbound.BaseOption{NameStr: name, Listen: "127.0.0.1", Port: strconv.Itoa(port)},
