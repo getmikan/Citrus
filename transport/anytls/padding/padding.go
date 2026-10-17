@@ -14,6 +14,9 @@ import (
 
 const CheckMark = -1
 
+// maxRecordPayloadSize bounds a size taken from a padding scheme.
+const maxRecordPayloadSize = 65535
+
 var DefaultPaddingScheme = []byte(`stop=8
 0=30-30
 1=100-400
@@ -48,7 +51,9 @@ func NewPaddingFactory(rawScheme []byte) *PaddingFactory {
 	if len(scheme) == 0 {
 		return nil
 	}
-	if stop, err := strconv.Atoi(scheme["stop"]); err == nil {
+	// The scheme can come from the server (cmdUpdatePaddingScheme), so a
+	// negative or oversized "stop" is rejected instead of wrapping around.
+	if stop, err := strconv.ParseUint(scheme["stop"], 10, 32); err == nil {
 		p.Stop = uint32(stop)
 	} else {
 		return nil
@@ -63,12 +68,15 @@ func (p *PaddingFactory) GenerateRecordPayloadSizes(pkt uint32) (pktSizes []int)
 		for _, sRange := range sRanges {
 			sRangeMinMax := strings.Split(sRange, "-")
 			if len(sRangeMinMax) == 2 {
-				_min, err := strconv.ParseInt(sRangeMinMax[0], 10, 64)
-				if err != nil {
+				// A record is at most 65535 bytes and the padding length is
+				// written as a uint16, so larger sizes from a peer's scheme
+				// are skipped instead of allocated.
+				_min, err := strconv.ParseInt(sRangeMinMax[0], 10, 17)
+				if err != nil || _min > maxRecordPayloadSize {
 					continue
 				}
-				_max, err := strconv.ParseInt(sRangeMinMax[1], 10, 64)
-				if err != nil {
+				_max, err := strconv.ParseInt(sRangeMinMax[1], 10, 17)
+				if err != nil || _max > maxRecordPayloadSize {
 					continue
 				}
 				if _min > _max {
