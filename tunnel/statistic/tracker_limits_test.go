@@ -312,3 +312,24 @@ func TestTrackerQuotaResetKeepsNewConnections(t *testing.T) {
 	assert.NotNil(t, statistic.DefaultManager.Get(fresh.(statistic.Tracker).ID()),
 		"the connection opened after the reset survives the late close")
 }
+
+// UnwrapReader and UnwrapWriter hand out the same count functions on every
+// call; a caller appending to them must not change what the next caller gets.
+func TestTrackerUnwrapCountersShared(t *testing.T) {
+	tracker, _ := tcpPair(t, userMetadata("tracker-unwrap-shared", "alice", "10.2.2.4"), 0)
+	defer tracker.Close()
+	u := tracker.(interface {
+		UnwrapReader() (io.Reader, []N.CountFunc)
+	})
+	_, first := u.UnwrapReader()
+	extra := false
+	grown := append(first, func(int64) { extra = true })
+	_, second := u.UnwrapReader()
+	require.Len(t, second, 1)
+	for _, f := range second {
+		f(10)
+	}
+	assert.False(t, extra, "an append to one result must not show in the next")
+	assert.Len(t, grown, 2)
+	assert.Equal(t, int64(10), tracker.(statistic.Tracker).Info().DownloadTotal.Load())
+}

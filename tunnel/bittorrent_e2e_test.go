@@ -14,6 +14,7 @@ import (
 	snifferTypes "github.com/metacubex/mihomo/constant/sniffer"
 	"github.com/metacubex/mihomo/rules"
 	"github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/tunnel/statistic"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,6 +113,20 @@ func setupBitTorrentTunnel(t *testing.T, bittorrentTarget string) {
 	t.Cleanup(func() {
 		tunnel.OnSuspend()
 		tunnel.UpdateRules(nil, nil, nil)
+		closeUDPSessions()
+	})
+}
+
+// closeUDPSessions closes the UDP sessions a test left open. Taking them from
+// the connection manager also orders their setup (which reads the resolver
+// globals) before whatever the next test changes; without it the race
+// detector reports those reads against the next test's writes.
+func closeUDPSessions() {
+	statistic.DefaultManager.Range(func(c statistic.Tracker) bool {
+		if md := c.Info().Metadata; md != nil && md.NetWork == C.UDP {
+			_ = c.Close()
+		}
+		return true
 	})
 }
 
