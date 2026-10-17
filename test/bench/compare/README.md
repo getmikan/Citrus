@@ -38,10 +38,12 @@ A quick smoke run: `PROTOS=trojan REPS=1 DUR=3s IDLE=200,500 OUT=/tmp/smoke test
 CPU profiles (mihomo and Citrus): `PPROF=1` starts them with `log-level:
 debug` and an external controller (secret `bench`), which mounts
 `/debug/pprof`; `cmp` turns the level back to `warning` and saves a CPU
-profile of every handshake and bulk window to `$OUT/pprof`. Keep these runs
+profile and a heap-allocation profile (`allocs`, a delta over the window) of
+every handshake and bulk window to `$OUT/pprof`. Keep these runs
 apart from the reference numbers. Example:
 `PPROF=1 PHASES=hs,bulk PROTOS="trojan ss2022" SERVERS="mihomo citrus" REPS=1 OUT=/tmp/prof test/bench/compare/run.sh`,
-then `go tool pprof -top /tmp/prof/pprof/citrus-trojan-handshake-cpu.pb.gz`.
+then `go tool pprof -top /tmp/prof/pprof/citrus-trojan-handshake-cpu.pb.gz`
+(or `-sample_index=alloc_space` on `...-handshake-allocs.pb.gz`).
 
 ## Layout
 
