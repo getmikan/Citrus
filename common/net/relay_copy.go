@@ -158,7 +158,16 @@ func copyAdaptive(originSource io.Reader, destination network.ExtendedWriter, so
 		return bufio.CopyExtendedWithPool(originSource, destination, source, readCounters, writeCounters)
 	}
 	var notFirstTime bool
+	writer := batchWriter(destination)
 	for {
+		if writer != nil && sizing.full {
+			// A transfer is running: read ahead and write in batches.
+			batched, handedBack, batchErr := copyBatched(destination, writer, source, options, readCounters, writeCounters, sizing, small)
+			n += batched
+			if !handedBack {
+				return n, batchErr
+			}
+		}
 		buffer := sizing.newBuffer(options, small)
 		err = source.ReadBuffer(buffer)
 		if err != nil {
