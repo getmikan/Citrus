@@ -263,7 +263,7 @@ type UserManager struct {
 	lmu      sync.Mutex
 	lspecs   map[UserKey]limitEntry
 	lstates  map[UserKey]*limitState
-	closer   func(UserKey)
+	closer   func(key UserKey, still func() bool)
 }
 
 // NewUserManager returns an empty manager with the default timeouts.

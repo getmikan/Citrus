@@ -166,7 +166,7 @@ func TestLimitMaxIPs(t *testing.T) {
 func TestLimitQuota(t *testing.T) {
 	um, _ := newTestUserManager()
 	closed := make(chan UserKey, 4)
-	um.SetCloser(func(k UserKey) { closed <- k })
+	um.SetCloser(func(k UserKey, _ func() bool) { closed <- k })
 	require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", Quota: 1000}))
 
 	c, err := um.Admit(keyA, ip1)
@@ -239,7 +239,7 @@ func TestLimitExpire(t *testing.T) {
 	// below cannot land on the far side of a second boundary.
 	real := NewUserManager()
 	closed := make(chan UserKey, 1)
-	real.SetCloser(func(k UserKey) { closed <- k })
+	real.SetCloser(func(k UserKey, _ func() bool) { closed <- k })
 	expireAt := time.Unix(time.Now().Unix()+2, 0)
 	require.NoError(t, real.SetLimit(UserLimit{Inbound: "in", User: "alice", ExpireAt: expireAt.Unix()}))
 	_, err = real.Admit(keyA, ip1)
@@ -431,4 +431,94 @@ func TestRejectLogThrottle(t *testing.T) {
 	s, _ := um.Get(keyA)
 	assert.Equal(t, int64(5), s.Rejected)
 	assert.Equal(t, int64(5), s.RejectReasons[RejectExpired])
+}
+
+// gatedCloser is a closer that holds each pass until released and reports
+// what still returned when the pass ran.
+func gatedCloser(um *UserManager) (started <-chan UserKey, release func() bool) {
+	st := make(chan UserKey, 1)
+	rel := make(chan struct{})
+	res := make(chan bool, 1)
+	um.SetCloser(func(k UserKey, still func() bool) {
+		st <- k
+		<-rel
+		res <- still()
+	})
+	return st, func() bool {
+		rel <- struct{}{}
+		return <-res
+	}
+}
+
+func waitStarted(t *testing.T, started <-chan UserKey) {
+	t.Helper()
+	select {
+	case k := <-started:
+		assert.Equal(t, keyA, k)
+	case <-time.After(time.Second):
+		t.Fatal("the connections of the user were not closed")
+	}
+}
+
+// TestLimitLateClose checks that a pass closing the connections of a user
+// that runs late does not close anything once the reason for it is gone.
+func TestLimitLateClose(t *testing.T) {
+	t.Run("quota still used up", func(t *testing.T) {
+		um, _ := newTestUserManager()
+		started, release := gatedCloser(um)
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", Quota: 1000}))
+		c, err := um.Admit(keyA, ip1)
+		require.NoError(t, err)
+		c.limit.Load().addUp(1500, nil)
+		waitStarted(t, started)
+		assert.True(t, release())
+	})
+	t.Run("quota reset", func(t *testing.T) {
+		um, _ := newTestUserManager()
+		started, release := gatedCloser(um)
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", Quota: 1000}))
+		c, err := um.Admit(keyA, ip1)
+		require.NoError(t, err)
+		c.limit.Load().addUp(1500, nil)
+		waitStarted(t, started)
+		um.ResetQuota(nil)
+		assert.False(t, release())
+	})
+	t.Run("quota raised", func(t *testing.T) {
+		um, _ := newTestUserManager()
+		started, release := gatedCloser(um)
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", Quota: 1000}))
+		c, err := um.Admit(keyA, ip1)
+		require.NoError(t, err)
+		c.limit.Load().addUp(1500, nil)
+		waitStarted(t, started)
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", Quota: 5000}))
+		assert.False(t, release())
+	})
+	t.Run("limit removed", func(t *testing.T) {
+		um, _ := newTestUserManager()
+		started, release := gatedCloser(um)
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", Quota: 1000}))
+		c, err := um.Admit(keyA, ip1)
+		require.NoError(t, err)
+		c.limit.Load().addUp(1500, nil)
+		waitStarted(t, started)
+		um.DeleteLimit(keyA)
+		assert.False(t, release())
+	})
+	t.Run("expiry moved", func(t *testing.T) {
+		um, clock := newTestUserManager()
+		started, release := gatedCloser(um)
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", ExpireAt: clock.now().Unix() - 1}))
+		waitStarted(t, started)
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", ExpireAt: clock.now().Unix() + 3600}))
+		assert.False(t, release())
+	})
+	t.Run("still expired", func(t *testing.T) {
+		um, clock := newTestUserManager()
+		started, release := gatedCloser(um)
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", ExpireAt: clock.now().Unix() - 1}))
+		waitStarted(t, started)
+		assert.True(t, release())
+	})
 }
