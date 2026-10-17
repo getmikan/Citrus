@@ -1,8 +1,17 @@
-package main
+//go:build !android && !ios
 
-import "os"
+// Package gcballast raises the garbage collector's heap goal of a server
+// build. Importing it is enough.
+package gcballast
 
-// gcBallastSize raises the garbage collector's heap goal without using memory.
+import (
+	"os"
+
+	"github.com/metacubex/mihomo/constant/features"
+)
+
+// gcBallastSize is the size of the ballast, which raises the heap goal
+// without using memory.
 //
 // The GC starts a cycle when the heap has grown by GOGC% of the live heap
 // plus the globals. Citrus keeps both small: about 3 MB live and almost no
@@ -19,12 +28,23 @@ import "os"
 // its size of extra garbage between two cycles under load. It is counted in
 // the heap metrics and against GOMEMLIMIT, so it is left out when GOGC or
 // GOMEMLIMIT is set: whoever tunes the GC gets exactly what they set.
+//
+// It is for servers only: android and ios builds (this file's build tags)
+// and the embedded Android app (features.CMFA) go without it. On a phone the
+// memory matters more and the rate of new connections is low.
 const gcBallastSize = 8 << 20
 
 var gcBallast []byte
 
 func init() {
-	if os.Getenv("GOGC") == "" && os.Getenv("GOMEMLIMIT") == "" {
+	if gcBallastWanted(os.Getenv) {
 		gcBallast = make([]byte, gcBallastSize)
 	}
+}
+
+// Active reports whether the ballast was allocated.
+func Active() bool { return gcBallast != nil }
+
+func gcBallastWanted(getenv func(string) string) bool {
+	return !features.CMFA && getenv("GOGC") == "" && getenv("GOMEMLIMIT") == ""
 }

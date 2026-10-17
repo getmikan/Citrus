@@ -17,6 +17,7 @@ import (
 
 	"github.com/metacubex/mihomo/common/cmd"
 	"github.com/metacubex/mihomo/component/age"
+	_ "github.com/metacubex/mihomo/component/gcballast" // a server build: raise the GC heap goal
 	"github.com/metacubex/mihomo/component/generator"
 	"github.com/metacubex/mihomo/component/geodata"
 	"github.com/metacubex/mihomo/component/updater"
