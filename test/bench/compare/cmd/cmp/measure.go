@@ -442,38 +442,46 @@ func (r *runner) usage(a, b snap) usage {
 	return u
 }
 
-// profile starts a CPU profile of the server over the window (-pprof) and
-// returns a func that waits for it to be saved.
+// profile starts a CPU profile and a heap-allocation (delta) profile of the
+// server over the window (-pprof) and returns a func that waits for them to
+// be saved.
 func (r *runner) profile(name string) func() {
 	if r.o.pprof == "" {
 		return func() {}
 	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		url := fmt.Sprintf("%s/debug/pprof/profile?seconds=%d", r.o.pprof, int(r.o.dur.Seconds()))
-		req, _ := http.NewRequest(http.MethodGet, url, nil)
-		req.Header.Set("Authorization", "Bearer "+r.o.pprofSecret)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			r.anomaly("pprof %s: %v", name, err)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			r.anomaly("pprof %s: %s", name, resp.Status)
-			return
-		}
-		os.MkdirAll(r.o.pprofDir, 0o755)
-		f, err := os.Create(filepath.Join(r.o.pprofDir, fmt.Sprintf("%s-%s-%s-cpu.pb.gz", r.o.server, r.o.proto, name)))
-		if err != nil {
-			r.anomaly("pprof %s: %v", name, err)
-			return
-		}
-		io.Copy(f, resp.Body)
-		f.Close()
-	}()
-	return func() { <-done }
+	var wg sync.WaitGroup
+	for _, kind := range []string{"cpu", "allocs"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			path := "profile"
+			if kind != "cpu" {
+				path = kind
+			}
+			url := fmt.Sprintf("%s/debug/pprof/%s?seconds=%d", r.o.pprof, path, int(r.o.dur.Seconds()))
+			req, _ := http.NewRequest(http.MethodGet, url, nil)
+			req.Header.Set("Authorization", "Bearer "+r.o.pprofSecret)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				r.anomaly("pprof %s %s: %v", name, kind, err)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				r.anomaly("pprof %s %s: %s", name, kind, resp.Status)
+				return
+			}
+			os.MkdirAll(r.o.pprofDir, 0o755)
+			f, err := os.Create(filepath.Join(r.o.pprofDir, fmt.Sprintf("%s-%s-%s-%s.pb.gz", r.o.server, r.o.proto, name, kind)))
+			if err != nil {
+				r.anomaly("pprof %s %s: %v", name, kind, err)
+				return
+			}
+			io.Copy(f, resp.Body)
+			f.Close()
+		}()
+	}
+	return wg.Wait
 }
 
 // --- bulk transfer -------------------------------------------------------------------
