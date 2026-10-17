@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (106 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (109 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` as described on this page.
 
@@ -23,6 +23,8 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#98](https://github.com/getmikan/Citrus/pull/98) Site pages: roadmap, changelog, compatibility, migrating from mihomo and security; landing refresh.
 - [#99](https://github.com/getmikan/Citrus/pull/99) CI: site- and docs-only PRs skip the Go checks; the site is built on site PRs.
 - [#101](https://github.com/getmikan/Citrus/pull/101) Server comparison of Xray-core, mihomo and Citrus: throughput, CPU per GB, new connections.
+- [#108](https://github.com/getmikan/Citrus/pull/108) Changelog brought up to the v1.0.0-beta.1 release.
+- [#110](https://github.com/getmikan/Citrus/pull/110) Go 1.26: `x/net`, `x/crypto`, `x/text` and `x/sys` updated (HTTP/2 and other vulnerabilities fixed), separate `-go120…-go125` builds dropped; Windows 7/8 and older macOS are covered by the patched MetaCubeX toolchain, Linux needs kernel 3.2+.
 
 ## Removed legacy
 
@@ -108,6 +110,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#104](https://github.com/getmikan/Citrus/pull/104) Hysteria2 Realm: one events stream per session; `Close` ends the active connections.
 - [#105](https://github.com/getmikan/Citrus/pull/105) Providers: the health-check URL is logged without its password and query values.
 - [#107](https://github.com/getmikan/Citrus/pull/107) CI: the remaining actions and fpm pinned; Go toolchains checked against SHA-256.
+- [#111](https://github.com/getmikan/Citrus/pull/111) AnyTLS: the peer version from session settings is parsed with a bounds check, so `-1` no longer turns on v2 behaviour (found by CodeQL).
 
 ## Ported from mihomo and the community
 
