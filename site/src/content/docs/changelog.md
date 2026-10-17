@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (106 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (109 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` в том состоянии, что описано на этой странице.
 
@@ -23,6 +23,8 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#98](https://github.com/getmikan/Citrus/pull/98) Страницы сайта: дорожная карта, журнал изменений, совместимость, переход с mihomo и безопасность; обновлённая главная.
 - [#99](https://github.com/getmikan/Citrus/pull/99) CI: PR только с сайтом и документацией не запускают проверки Go, сайт собирается на PR с изменениями сайта.
 - [#101](https://github.com/getmikan/Citrus/pull/101) Сравнение серверов Xray-core, mihomo и Citrus: пропускная способность, CPU на гигабайт, новые соединения.
+- [#108](https://github.com/getmikan/Citrus/pull/108) Журнал изменений дополнен до бета-релиза v1.0.0-beta.1.
+- [#110](https://github.com/getmikan/Citrus/pull/110) Go 1.26: обновлены `x/net`, `x/crypto`, `x/text`, `x/sys` (закрыты уязвимости HTTP/2 и другие), убраны отдельные сборки `-go120…-go125`; Windows 7/8 и старый macOS держит пропатченный тулчейн MetaCubeX, Linux нужен с ядром 3.2+.
 
 ## Удалённое наследие
 
@@ -108,6 +110,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#104](https://github.com/getmikan/Citrus/pull/104) Hysteria2 Realm: один поток событий на сессию, `Close` закрывает активные соединения.
 - [#105](https://github.com/getmikan/Citrus/pull/105) Провайдеры: адрес health-check в отладочных логах без пароля и значений query.
 - [#107](https://github.com/getmikan/Citrus/pull/107) CI: закреплены оставшиеся actions и fpm, тулчейны Go проверяются по SHA-256.
+- [#111](https://github.com/getmikan/Citrus/pull/111) AnyTLS: версия собеседника из настроек сессии разбирается с проверкой границ, значение `-1` больше не включает режим v2 (найдено CodeQL).
 
 ## Перенесено из mihomo и сообщества
 
