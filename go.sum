@@ -51,6 +51,8 @@ github.com/gaukas/godicttls v0.0.4 h1:NlRaXb3J6hAnTmWdsEKb9bcSBD6BvcIjdGdeb0zfXb
 github.com/gaukas/godicttls v0.0.4/go.mod h1:l6EenT4TLWgTdwslVb4sEMOCf7Bv0JAK67deKr9/NCI=
 github.com/getmikan/http v0.1.8-citrus.2 h1:eBNDiHT/4KQMIhEZ+T81w4MrMo00gwMPm7jaY8GJYuc=
 github.com/getmikan/http v0.1.8-citrus.2/go.mod h1:Nxx0zZAo2AhRfanyL+fmmK6ACMtVsfpwIl1aFAik2Eg=
+github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876 h1:K+AdGZRxqkfrP+P8Guo32VNfvm7zfNMFCLd3GvxNt7I=
+github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876/go.mod h1:/yI4OiGOSn0SURhZdJF3CbtPg3nwK700bG8TZLMBvAg=
 github.com/getmikan/tls v0.1.8-citrus.1 h1:YR2EesUPoucmkm5h11tkrZ+47EfMoXTQUNNgRELaRaM=
 github.com/getmikan/tls v0.1.8-citrus.1/go.mod h1:0XeVdL0cBw+8i5Hqy3lVeP9IyD/LFTq02ExvHM6rzEM=
 github.com/getmikan/utls v1.8.8-citrus.3 h1:gjspcQTkRv7qdEiE3GlA8YCkscymuzItqwHNe1Vs6es=
@@ -179,8 +181,6 @@ github.com/metacubex/sing-vmess v0.2.5 h1:m9Zt5I27lB9fmLMZfism9sH2LcnAfShZfwSkf6
 github.com/metacubex/sing-vmess v0.2.5/go.mod h1:AwtlzUgf8COe9tRYAKqWZ+leDH7p5U98a0ZUpYehl8Q=
 github.com/metacubex/sing-wireguard v0.0.0-20261002050126-e5fa1a607406 h1:sronRtbNXPCT9sOpcsISq87w4mLufxP7mQFUEg+zUCY=
 github.com/metacubex/sing-wireguard v0.0.0-20261002050126-e5fa1a607406/go.mod h1:OiYj4hitKrN1YIrgGHXp6zKnc9asCspF+SrYlLN2hYQ=
-github.com/metacubex/smux v0.0.0-20260105030934-d0c8756d3141 h1:DK2l6m2Fc85H2BhiAPgbJygiWhesPlfGmF+9Vw6ARdk=
-github.com/metacubex/smux v0.0.0-20260105030934-d0c8756d3141/go.mod h1:/yI4OiGOSn0SURhZdJF3CbtPg3nwK700bG8TZLMBvAg=
 github.com/metacubex/ssh v0.1.0 h1:iGfr99qk/eMHzUnQ/0bTxXT8+8SWqLSHBWDHoAhngzw=
 github.com/metacubex/ssh v0.1.0/go.mod h1:NUtl0d+/f2cG9ECEpMM8iCVOpmggQlC13oLeDUONDlU=
 github.com/metacubex/tailscale v0.0.0-20260821153257-ff0ecd818181 h1:hWsSSzuCHe+WvPV1zhoJ8gXTXbp/5nhpPKxtpqgIXu0=
