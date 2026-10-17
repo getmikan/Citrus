@@ -265,3 +265,50 @@ func TestTrackerReadWaiterUnderLimit(t *testing.T) {
 	assert.Equal(t, int64(1234), userStat(t, inbound, "alice").Down)
 	assert.Equal(t, int64(1234), tracker.(statistic.Tracker).Info().DownloadTotal.Load())
 }
+
+// TestTrackerQuotaResetKeepsNewConnections checks that the asynchronous pass
+// closing the connections of a user over its quota, when it runs only after
+// the quota was reset, leaves alone the connection the user opened since.
+func TestTrackerQuotaResetKeepsNewConnections(t *testing.T) {
+	inbound := fmt.Sprintf("tracker-quota-reset-test-%d", time.Now().UnixNano())
+	um := statistic.DefaultManager.Users()
+	closer := um.Closer()
+	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	um.SetCloser(func(k statistic.UserKey, still func() bool) {
+		if k.Inbound != inbound {
+			closer(k, still)
+			return
+		}
+		once.Do(func() {
+			close(started)
+			<-release // hold the pass until the user reconnected
+			closer(k, still)
+			close(done)
+		})
+	})
+	t.Cleanup(func() { um.SetCloser(closer) })
+	setLimit(t, statistic.UserLimit{Inbound: inbound, User: "alice", Quota: 1000})
+
+	old, r := tcpPair(t, userMetadata(inbound, "alice", "10.2.2.6"), 0)
+	go func() { _, _ = io.Copy(io.Discard, r) }()
+	_, err := old.Write(make([]byte, 1500))
+	require.NoError(t, err)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("crossing the quota did not start closing the user")
+	}
+
+	um.ResetQuota(func(k statistic.UserKey) bool { return k.Inbound == inbound })
+	adm, err := statistic.DefaultManager.Admit(userMetadata(inbound, "alice", "10.2.2.6"))
+	require.NoError(t, err, "the reset admits the user again")
+	adm.Release()
+	fresh, _ := tcpPair(t, userMetadata(inbound, "alice", "10.2.2.6"), 0)
+	defer fresh.Close()
+
+	close(release)
+	<-done
+	assert.NotNil(t, statistic.DefaultManager.Get(fresh.(statistic.Tracker).ID()),
+		"the connection opened after the reset survives the late close")
+}

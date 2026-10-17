@@ -28,7 +28,7 @@ func TestLimitEvents(t *testing.T) {
 	defer sub.Close()
 
 	um, clock := newTestUserManager()
-	um.SetCloser(func(UserKey) {})
+	um.SetCloser(func(UserKey, func() bool) {})
 	require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "alice", Quota: 1000, MaxConns: 1}))
 
 	c, err := um.Admit(keyA, ip1)
