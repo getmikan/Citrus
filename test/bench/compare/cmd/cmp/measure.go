@@ -26,7 +26,7 @@ type measureOpts struct {
 	cfgDir        string
 	out           string
 	logDir        string
-	xray          string
+	xray, singbox string // client binaries
 	serverCG      cgroup
 	clientCG      cgroup
 	sinkCG        cgroup
@@ -136,13 +136,14 @@ type result struct {
 func cmdMeasure(args []string) error {
 	fs := flag.NewFlagSet("measure", flag.ExitOnError)
 	o := measureOpts{}
-	fs.StringVar(&o.server, "server", "", "xray|mihomo|citrus (label only)")
-	fs.StringVar(&o.proto, "proto", "", "reality|reality-x25519|reality-tlsin|xhttp|trojan|ss2022")
+	fs.StringVar(&o.server, "server", "", "xray|singbox|mihomo|citrus (label only)")
+	fs.StringVar(&o.proto, "proto", "", "reality|reality-x25519|reality-tlsin|xhttp|trojan|ss2022|hy2|tuic|anytls")
 	fs.IntVar(&o.rep, "rep", 1, "repetition number (label only)")
 	fs.StringVar(&o.cfgDir, "cfg", "/cfg", "config directory (material.json)")
 	fs.StringVar(&o.out, "out", "", "result JSON path")
-	fs.StringVar(&o.logDir, "logs", "/tmp", "where the Xray client logs go")
-	fs.StringVar(&o.xray, "xray", "/opt/bin/xray", "Xray binary (the client)")
+	fs.StringVar(&o.logDir, "logs", "/tmp", "where the client logs go")
+	fs.StringVar(&o.xray, "xray", "/opt/bin/xray", "Xray binary (client of the protocols Xray speaks)")
+	fs.StringVar(&o.singbox, "singbox", "/opt/bin/sing-box", "sing-box binary (client of TUIC and AnyTLS)")
 	scg := fs.String("server-cg", "", "server container cgroup directory")
 	ccg := fs.String("client-cg", "", "client container cgroup directory")
 	kcg := fs.String("sink-cg", "", "sink container cgroup directory")
@@ -222,18 +223,22 @@ func measure(o measureOpts) (*result, error) {
 		return nil, err
 	}
 	serverAddr := fmt.Sprintf("%s:%d", serverIP, serverPort)
-	if err := waitTCP(serverAddr, 60*time.Second); err != nil {
+	readyTimeout := 30 * time.Second
+	if isQUIC(o.proto) {
+		// UDP: nothing to dial; the end to end check below waits instead
+		readyTimeout = 60 * time.Second
+	} else if err := waitTCP(serverAddr, 60*time.Second); err != nil {
 		return nil, err
 	}
 
 	// Which TLS key exchange the server picks for this client (TLS protocols).
-	if baseProto(o.proto) != "ss2022" {
+	if baseProto(o.proto) != "ss2022" && !isQUIC(o.proto) {
 		res.KeyShare = probeKeyShare(o, &m, serverAddr)
 		fmt.Fprintf(os.Stderr, "  keyshare: %s\n", res.KeyShare)
 	}
 
 	const socksPort = 1080
-	stop, err := startXray(o, "client", xrayClient(&m, o.proto, serverIP, serverPort, socksPort), socksPort)
+	stop, err := startClient(o, "client", clientConfig(&m, o.proto, serverIP, serverPort, socksPort), socksPort)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +252,7 @@ func measure(o measureOpts) (*result, error) {
 
 	// End to end check: mihomo and Citrus open the listener before the tunnel
 	// runs, and drop connections in between.
-	if err := r.ready(30 * time.Second); err != nil {
+	if err := r.ready(readyTimeout); err != nil {
 		return res, err
 	}
 	if o.pprof != "" {
@@ -303,7 +308,7 @@ func measure(o measureOpts) (*result, error) {
 	return res, nil
 }
 
-// probeKeyShare runs a second Xray client against a relay in front of the
+// probeKeyShare runs a second client against a relay in front of the
 // server and reads the key share group of the ServerHello.
 func probeKeyShare(o measureOpts, m *material, serverAddr string) string {
 	relay, ch, err := keyShareRelay(serverAddr)
@@ -314,7 +319,7 @@ func probeKeyShare(o measureOpts, m *material, serverAddr string) string {
 	var p int
 	fmt.Sscan(port, &p)
 	const probePort = 1081
-	stop, err := startXray(o, "probe", xrayClient(m, o.proto, host, p, probePort), probePort)
+	stop, err := startClient(o, "probe", clientConfig(m, o.proto, host, p, probePort), probePort)
 	if err != nil {
 		return "probe: " + err.Error()
 	}
@@ -333,20 +338,29 @@ func probeKeyShare(o measureOpts, m *material, serverAddr string) string {
 	}
 }
 
-func startXray(o measureOpts, role string, cfg obj, socksPort int) (func(), error) {
-	dir := filepath.Join(os.TempDir(), "cmp-"+role)
+// startClient starts the protocol's client (clientFor) with cfg, a SOCKS5
+// inbound on socksPort.
+func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), error) {
+	// Per network (CMP_NET): with --pid=host the pkill below sees the clients
+	// of every benchmark setup on the host, not only ours.
+	dir := filepath.Join(os.TempDir(), "cmp-"+netPrefix()+"-"+role)
 	path := filepath.Join(dir, "config.json")
 	if err := writeJSON(path, cfg); err != nil {
 		return nil, err
 	}
-	logf, err := os.Create(filepath.Join(o.logDir, fmt.Sprintf("%s-%s-%s-rep%d.log", o.server, o.proto, "xray-"+role, o.rep)))
+	client := clientFor(o.proto)
+	logf, err := os.Create(filepath.Join(o.logDir, fmt.Sprintf("%s-%s-%s-rep%d.log", o.server, o.proto, client+"-"+role, o.rep)))
 	if err != nil {
 		return nil, err
 	}
-	// An Xray client left over from an interrupted run would hold the port.
+	// A client left over from an interrupted run would hold the port.
 	exec.Command("pkill", "-f", path).Run()
 	time.Sleep(200 * time.Millisecond)
-	cmd := exec.Command(o.xray, "run", "-c", path)
+	bin := o.xray
+	if client == "singbox" {
+		bin = o.singbox
+	}
+	cmd := exec.Command(bin, "run", "-c", path)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	if err := cmd.Start(); err != nil {
 		logf.Close()
