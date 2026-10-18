@@ -54,23 +54,23 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Go
-        id: setup_go_0
-        continue-on-error: true
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
-          go-version: ${{ matrix.go-version }}
+        run: bash .github/scripts/setup-go.sh "${{ matrix.go-version }}"
 
-      - name: Wait before retrying the Go download
-        if: ${{ steps.setup_go_0.outcome == 'failure' }}
-        run: sleep 30
+      # setup-go cached these; the pinned toolchain does not, so restore them here.
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "build=$(go env GOCACHE)" >>"$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
 
-      - name: Set up Go (retry)
-        if: ${{ steps.setup_go_0.outcome == 'failure' }}
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      - name: Cache Go modules and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
-          go-version: ${{ matrix.go-version }}
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.mod }}
+          key: go-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/go-toolchains.txt', 'go.sum') }}
+          restore-keys: go-test-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Verify Go installation
         run: go version
@@ -88,3 +88,46 @@ jobs:
 
       - name: Test with tag with_gvisor
         run: go test ./... -v -count=1 -tags "with_gvisor"
+  race:
+    # Race detector on the packages that are race-clean today, Linux only.
+    # Excluded:
+    #   - listener/inbound: red under -race until the smux fork fix lands, and
+    #     the ResTLS races there are not ours to fix.
+    #   - everything else not listed: not yet checked under -race; add a
+    #     package here once `go test -race` passes on it.
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 1 # -race needs cgo
+      GOTOOLCHAIN: local
+      SKIP_INTEROP_TEST: 1
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up Go
+        run: bash .github/scripts/setup-go.sh 1.26
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "build=$(go env GOCACHE)" >>"$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+
+      - name: Cache Go modules and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.mod }}
+          key: go-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/go-toolchains.txt', 'go.sum') }}
+          restore-keys: go-race-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Test with -race
+        run: >-
+          go test -race -count=1 -timeout 15m
+          ./transport/xhttp/...
+          ./transport/v2ray/...
+          ./transport/vless/...
+          ./common/...
+          ./tunnel/...
+          ./listener/sing/...
+          ./adapter/...

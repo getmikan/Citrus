@@ -1,0 +1,44 @@
+{
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "listen_port": 443,
+      "tag": "in",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "10.81.0.20",
+            "server_port": 8443
+          },
+          "private_key": "<redacted>",
+          "short_id": [
+            "<redacted>"
+          ]
+        },
+        "server_name": "bench.test"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "xtls-rprx-vision",
+          "name": "u",
+          "uuid": "<redacted>"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn"
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct"
+  }
+}

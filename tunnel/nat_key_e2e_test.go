@@ -53,6 +53,7 @@ func TestUDPSessionKeyedByInboundAndUser(t *testing.T) {
 	t.Cleanup(func() {
 		tunnel.OnSuspend()
 		tunnel.UpdateRules(nil, nil, nil)
+		closeUDPSessions()
 	})
 
 	t.Run("inbound", func(t *testing.T) {

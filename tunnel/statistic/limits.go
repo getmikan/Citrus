@@ -186,6 +186,8 @@ type limitState struct {
 	quota   atomic.Int64
 	used    atomic.Int64
 	tripped atomic.Bool
+	// dropped is set when the user has no limit any more
+	dropped atomic.Bool
 
 	// guarded by UserManager.lmu
 	inherited bool
@@ -218,7 +220,7 @@ func (l *limitState) charge(n int64) {
 	if q := l.quota.Load(); q > 0 && used >= q && !l.tripped.Load() && l.tripped.CompareAndSwap(false, true) {
 		log.Infoln("[Limits] user %s of %s used up the quota of %d bytes, closing its connections", l.key.User, l.key.Inbound, q)
 		publishLimitClosed(l.key, RejectQuota, fmt.Sprintf("quota of %d bytes used up", q))
-		go l.um.closeUser(l.key)
+		go l.um.closeUser(l.key, l.overQuota)
 	}
 }
 
@@ -255,19 +257,20 @@ func (l *limitState) apply(spec UserLimit, inherited bool, now time.Time) {
 	if l.tripped.Swap(exceeded) != exceeded && exceeded {
 		log.Infoln("[Limits] user %s of %s is over the new quota of %d bytes, closing its connections", l.key.User, l.key.Inbound, spec.Quota)
 		publishLimitClosed(l.key, RejectQuota, fmt.Sprintf("quota of %d bytes used up", spec.Quota))
-		go l.um.closeUser(l.key)
+		go l.um.closeUser(l.key, l.overQuota)
 	}
 	if old == nil || old.ExpireAt != spec.ExpireAt {
 		l.stopTimer()
 		if spec.ExpireAt > 0 {
 			d := time.Unix(spec.ExpireAt, 0).Sub(now)
 			expired := fmt.Sprintf("expired at %s", time.Unix(spec.ExpireAt, 0).UTC().Format(time.RFC3339))
+			expireAt := spec.ExpireAt
+			stillExpired := func() bool { return !l.dropped.Load() && l.spec.Load().ExpireAt == expireAt }
 			if d <= 0 {
 				publishLimitClosed(l.key, RejectExpired, expired)
-				go l.um.closeUser(l.key)
+				go l.um.closeUser(l.key, stillExpired)
 			} else {
 				key := l.key
-				expireAt := spec.ExpireAt
 				l.timer = time.AfterFunc(d, func() {
 					// the timer runs on the monotonic clock and ExpireAt is wall-clock time: if the
 					// wall clock was slewed meanwhile, wait for it, or the user is closed while
@@ -275,12 +278,12 @@ func (l *limitState) apply(spec UserLimit, inherited bool, now time.Time) {
 					if early := time.Until(time.Unix(expireAt, 0)); early > 0 {
 						time.Sleep(early)
 					}
-					if l.spec.Load().ExpireAt != expireAt { // changed while waiting
+					if !stillExpired() { // changed while waiting
 						return
 					}
 					log.Infoln("[Limits] user %s of %s expired, closing its connections", key.User, key.Inbound)
 					publishLimitClosed(key, RejectExpired, expired)
-					l.um.closeUser(key)
+					l.um.closeUser(key, stillExpired)
 				})
 			}
 		}
@@ -391,6 +394,10 @@ func (um *UserManager) rebuildLocked() {
 		spec, inherited, ok := um.lookupLocked(key)
 		if !ok {
 			l.stopTimer()
+			// a pass closing the user's connections that is still to run
+			// must not close those opened now that the user has no limit
+			l.tripped.Store(false)
+			l.dropped.Store(true)
 			delete(um.lstates, key)
 			continue
 		}
@@ -558,17 +565,26 @@ func (um *UserManager) pruneLimitState(key UserKey) {
 	}
 }
 
-// closeUser closes the open connections of a user.
-func (um *UserManager) closeUser(key UserKey) {
+// closeUser closes the open connections of a user while still reports that
+// the reason to close them holds.
+//
+// It runs asynchronously, after the quota was used up or the user expired:
+// by then the quota may have been reset, the quota raised or the expiry moved
+// (by the API or a reload), and the user's new connections admitted since.
+// The closer asks still before closing each connection, so that those are
+// left alone.
+func (um *UserManager) closeUser(key UserKey, still func() bool) {
 	if f := um.closer; f != nil {
-		f(key)
+		f(key, still)
 	}
 }
 
 // SetCloser sets the function that closes the connections of a user when its
-// quota is used up or it expires. Manager.Users sets it to close the tracked
-// connections of the user.
-func (um *UserManager) SetCloser(f func(UserKey)) { um.closer = f }
+// quota is used up or it expires. The function must close a connection only
+// while still returns true (it is checked again for every connection), as
+// the user may be admitted again before the function runs. Manager.Users sets
+// it to close the tracked connections of the user.
+func (um *UserManager) SetCloser(f func(key UserKey, still func() bool)) { um.closer = f }
 
 // Admit registers a new connection from ip like Acquire, after checking the
 // limits of the user: it fails with a *LimitError when the user is expired,

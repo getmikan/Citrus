@@ -105,27 +105,40 @@ func copyConn(destination io.Writer, source io.Reader) (n int64, err error) {
 		n += _n
 		return
 	}
-	_n, err = copyExtended(originSource, bufio.NewExtendedWriter(destination), bufio.NewExtendedReader(source), readCounters, writeCounters, &sizing)
+	_n, err = copyExtended(originSource, bufio.NewExtendedWriter(destination), bufio.NewExtendedReader(source), readCounters, writeCounters, &sizing, srcIsSyscall)
 	n += _n
 	return
 }
 
 // copyExtended is bufio.CopyExtended with copyAdaptive in place of
 // bufio.CopyExtendedWithPool.
-func copyExtended(originSource io.Reader, destination network.ExtendedWriter, source network.ExtendedReader, readCounters []network.CountFunc, writeCounters []network.CountFunc, sizing *readSizing) (n int64, err error) {
+func copyExtended(originSource io.Reader, destination network.ExtendedWriter, source network.ExtendedReader, readCounters []network.CountFunc, writeCounters []network.CountFunc, sizing *readSizing, fromSocket bool) (n int64, err error) {
 	options := network.NewReadWaitOptions(source, destination)
 	if readWaiter, isReadWaiter := bufio.CreateReadWaiter(source); isReadWaiter {
 		needCopy := readWaiter.InitializeReadWaiter(options)
 		if !needCopy || common.LowMemory {
-			return copyWait(originSource, destination, readWaiter, readCounters, writeCounters)
+			return copyWait(originSource, destination, readWaiter, options, fromSocket, readCounters, writeCounters)
 		}
 	}
 	return copyAdaptive(originSource, destination, source, options, readCounters, writeCounters, sizing)
 }
 
-// copyWait is the read waiter loop of bufio.CopyExtended.
-func copyWait(originSource io.Reader, destination network.ExtendedWriter, source network.ReadWaiter, readCounters []network.CountFunc, writeCounters []network.CountFunc) (n int64, err error) {
+// largeReadSize is the buffer, headroom included, that a copy from a socket
+// reads into once a transfer runs: the largest pool buffer (buf.BufferSize is
+// half of it). Every write to the destination carries twice the data: a
+// Shadowsocks 2022 connection seals it as one chunk (up to 65535 bytes), a TLS
+// one encrypts four records. The socket read waiter takes a buffer only once
+// data is there, so an idle connection holds none of either size.
+const largeReadSize = 65535
+
+// copyWait is the read waiter loop of bufio.CopyExtended. From a socket
+// (fromSocket), a read that fills the buffer switches to largeReadSize
+// buffers for the rest of the copy.
+func copyWait(originSource io.Reader, destination network.ExtendedWriter, source network.ReadWaiter, options network.ReadWaitOptions, fromSocket bool, readCounters []network.CountFunc, writeCounters []network.CountFunc) (n int64, err error) {
 	var notFirstTime bool
+	var yield relayYield
+	grow := fromSocket && options.MTU == 0 && !common.LowMemory
+	fullRead := buf.BufferSize - options.FrontHeadroom - options.RearHeadroom
 	for {
 		var buffer *buf.Buffer
 		buffer, err = source.WaitReadBuffer()
@@ -147,6 +160,12 @@ func copyWait(originSource io.Reader, destination network.ExtendedWriter, source
 		n += int64(dataLen)
 		countAll(readCounters, writeCounters, dataLen)
 		notFirstTime = true
+		yield.add(dataLen)
+		if grow && dataLen >= fullRead {
+			grow = false
+			options.MTU = largeReadSize - options.FrontHeadroom - options.RearHeadroom
+			source.InitializeReadWaiter(options)
+		}
 	}
 }
 
@@ -158,7 +177,27 @@ func copyAdaptive(originSource io.Reader, destination network.ExtendedWriter, so
 		return bufio.CopyExtendedWithPool(originSource, destination, source, readCounters, writeCounters)
 	}
 	var notFirstTime bool
+	var yield relayYield
+	writer := batchWriter(destination)
+	waiter, _ := network.UnwrapReader(source).(readWaitable)
 	for {
+		if writer != nil && sizing.full {
+			// A transfer is running: read ahead and write in batches.
+			batched, handedBack, batchErr := copyBatched(destination, writer, source, options, readCounters, writeCounters, sizing, small)
+			n += batched
+			if !handedBack {
+				return n, batchErr
+			}
+		}
+		if waiter != nil && !sizing.full {
+			// wait for data without a buffer
+			if err = waiter.WaitRead(); err != nil {
+				if errors.Is(err, io.EOF) {
+					err = nil
+				}
+				return
+			}
+		}
 		buffer := sizing.newBuffer(options, small)
 		err = source.ReadBuffer(buffer)
 		if err != nil {
@@ -182,6 +221,7 @@ func copyAdaptive(originSource io.Reader, destination network.ExtendedWriter, so
 		countAll(readCounters, writeCounters, dataLen)
 		notFirstTime = true
 		sizing.update(dataLen, small)
+		yield.add(dataLen)
 	}
 }
 
@@ -221,6 +261,14 @@ func copyOnce(destination io.Writer, source io.Reader, readCounters []network.Co
 	n = int64(dataLen)
 	sizing.update(dataLen, small)
 	return
+}
+
+// readWaitable is a source that can wait for data without a buffer
+// (getmikan/tls Conn.WaitRead): the copy waits there while the connection
+// looks idle, and takes its small buffer only once data has arrived, so an
+// idle TLS connection holds no relay buffer at all.
+type readWaitable interface {
+	WaitRead() error
 }
 
 // smallReadLen is the data size of the small buffer for these options, or 0

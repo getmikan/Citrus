@@ -219,49 +219,13 @@ func (l *Listener) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, erro
 }
 
 func (l *Listener) HandleConn(conn net.Conn, h *sing.ListenerHandler) {
-	ctx := context.TODO()
 	defer conn.Close()
 
-	b := buf.NewPacket()
-	defer b.Release()
-
-	setHandshakeDeadline(conn)
-	_, err := b.ReadOnceFrom(conn)
-	if err != nil {
-		return
-	}
-	conn = bufio.NewCachedConn(conn, b)
-
-	by, err := b.ReadBytes(32)
-	if err != nil {
-		return
-	}
-	var passwordSha256 [32]byte
-	copy(passwordSha256[:], by)
-	entry, ok := l.users.Lookup(passwordSha256)
+	conn, ctx, release, ok := l.authenticate(conn)
 	if !ok {
-		authevent.EmitAddr("anytls", authevent.ReasonWrongCredentials, conn.LocalAddr(), conn.RemoteAddr())
-		return
-	}
-	ctx = auth.ContextWithUser(ctx, entry.Name())
-	// the session dies with the user: removing or re-keying it closes conn
-	release, bound := l.users.Bind(entry, conn)
-	if !bound {
 		return
 	}
 	defer release()
-	by, err = b.ReadBytes(2)
-	if err != nil {
-		return
-	}
-	paddingLen := binary.BigEndian.Uint16(by)
-	if paddingLen > 0 {
-		_, err = b.ReadBytes(int(paddingLen))
-		if err != nil {
-			return
-		}
-	}
-	clearHandshakeDeadline(conn)
 
 	session := session.NewServerSession(conn, func(stream *session.Stream) {
 		defer stream.Close()
@@ -288,4 +252,61 @@ func (l *Listener) HandleConn(conn net.Conn, h *sing.ListenerHandler) {
 	}, &l.padding)
 	session.Run()
 	session.Close()
+}
+
+// authenticate reads the password hash and the padding of the first packet,
+// under the handshake deadline, and returns the conn to run the session on
+// (with the rest of that packet cached), the context with the user, and the
+// release of the user binding.
+//
+// The session's goroutine waits for frames under HandleConn for as long as
+// the session lives; this keeps the frame of the authentication off its
+// stack (see session.(*Session).handleFrame).
+//
+//go:noinline
+func (l *Listener) authenticate(conn net.Conn) (net.Conn, context.Context, func(), bool) {
+	ctx := context.TODO()
+
+	b := buf.NewPacket()
+	defer b.Release()
+
+	setHandshakeDeadline(conn)
+	_, err := b.ReadOnceFrom(conn)
+	if err != nil {
+		return nil, nil, nil, false
+	}
+	conn = bufio.NewCachedConn(conn, b)
+
+	by, err := b.ReadBytes(32)
+	if err != nil {
+		return nil, nil, nil, false
+	}
+	var passwordSha256 [32]byte
+	copy(passwordSha256[:], by)
+	entry, ok := l.users.Lookup(passwordSha256)
+	if !ok {
+		authevent.EmitAddr("anytls", authevent.ReasonWrongCredentials, conn.LocalAddr(), conn.RemoteAddr())
+		return nil, nil, nil, false
+	}
+	ctx = auth.ContextWithUser(ctx, entry.Name())
+	// the session dies with the user: removing or re-keying it closes conn
+	release, bound := l.users.Bind(entry, conn)
+	if !bound {
+		return nil, nil, nil, false
+	}
+	by, err = b.ReadBytes(2)
+	if err != nil {
+		release()
+		return nil, nil, nil, false
+	}
+	paddingLen := binary.BigEndian.Uint16(by)
+	if paddingLen > 0 {
+		_, err = b.ReadBytes(int(paddingLen))
+		if err != nil {
+			release()
+			return nil, nil, nil, false
+		}
+	}
+	clearHandshakeDeadline(conn)
+	return conn, ctx, release, true
 }

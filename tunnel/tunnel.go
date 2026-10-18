@@ -593,10 +593,35 @@ func handleTCPConn(connCtx C.ConnContext) {
 		_ = conn.Close()
 	}(connCtx.Conn())
 
+	remoteConn, cancel := dialTCPConn(connCtx)
+	if remoteConn == nil {
+		return
+	}
+	defer cancel()
+	defer func(remoteConn C.Conn) {
+		_ = remoteConn.Close()
+	}(remoteConn)
+	handleSocket(connCtx.Conn(), remoteConn)
+}
+
+// dialTCPConn does everything handleTCPConn does before the relay: sniffing,
+// the rules, the user limits and the dial. It returns the tracked remote conn
+// and the cancel func of the connect context, or a nil conn when the
+// connection ends here.
+//
+// It is a function of its own so that its frame (about 1 KiB) is not on the
+// stack while the relay waits: a relay goroutine spends its life blocked in a
+// read at the bottom of the stack, and the runtime shrinks a stack at GC only
+// when it uses less than a quarter of it. Every byte of frames above that
+// read counts towards keeping an idle connection's goroutine at 16 KiB
+// instead of 8 KiB.
+//
+//go:noinline
+func dialTCPConn(connCtx C.ConnContext) (C.Conn, context.CancelFunc) {
 	metadata := connCtx.Metadata()
 	if !metadata.Valid() {
 		log.Warnln("[Metadata] not valid: %#v", metadata)
-		return
+		return nil, nil
 	}
 	fixMetadata(metadata) // fix some metadata not set via metadata.SetRemoteAddr or metadata.SetRemoteAddress
 
@@ -621,11 +646,22 @@ func handleTCPConn(connCtx C.ConnContext) {
 	if preHandleFailed {
 		log.Debugln("[Metadata PreHandle] failed to sniff a domain for connection %s --> %s, give up",
 			metadata.SourceDetail(), metadata.LogAddress())
-		return
+		return nil, nil
 	}
 
+	proxy, rule, err := resolveMetadata(metadata)
+	if err != nil {
+		log.Warnln("[Metadata] parse failed: %s", err.Error())
+		return nil, nil
+	}
+
+	// While the outbound dials, wait for the client's first bytes, so that a
+	// connection with a lazy handshake can send them along with it. The
+	// outbounds that never have one skip it: a goroutine, a buffer and three
+	// deadline changes per connection.
 	peekMutex := sync.Mutex{}
-	if !conn.Peeked() {
+	peeking := !conn.Peeked() && mayNeedHandshake(proxy, metadata)
+	if peeking {
 		peekMutex.Lock()
 		go func() {
 			defer peekMutex.Unlock()
@@ -635,17 +671,11 @@ func handleTCPConn(connCtx C.ConnContext) {
 		}()
 	}
 
-	proxy, rule, err := resolveMetadata(metadata)
-	if err != nil {
-		log.Warnln("[Metadata] parse failed: %s", err.Error())
-		return
-	}
-
 	// the user's limits are checked before the outbound is dialed
 	admission, err := statistic.DefaultManager.Admit(metadata)
 	if err != nil {
 		logRejected(metadata, err)
-		return
+		return nil, nil
 	}
 	tracked := false
 	defer func() {
@@ -669,7 +699,6 @@ func handleTCPConn(connCtx C.ConnContext) {
 	var peekLen int
 
 	ctx, cancel := tcpConnectContext(context.Background())
-	defer cancel()
 	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
 		remoteConn, err = proxy.DialContext(ctx, dialMetadata)
 		if err != nil {
@@ -705,21 +734,36 @@ func handleTCPConn(connCtx C.ConnContext) {
 		logMetadataErr(metadata, rule, proxy, err)
 	})
 	if err != nil {
-		return
+		cancel()
+		return nil, nil
 	}
 	logMetadata(metadata, rule, remoteConn)
 
 	remoteConn = statistic.NewTCPTrackerAdmitted(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, admission)
 	tracked = true
-	defer func(remoteConn C.Conn) {
-		_ = remoteConn.Close()
-	}(remoteConn)
 
-	_ = conn.SetReadDeadline(time.Now()) // stop unfinished peek
-	peekMutex.Lock()
-	defer peekMutex.Unlock()
-	_ = conn.SetReadDeadline(time.Time{}) // reset
-	handleSocket(conn, remoteConn)
+	if peeking {
+		_ = conn.SetReadDeadline(time.Now()) // stop unfinished peek
+		peekMutex.Lock()                     // the peek is over
+		peekMutex.Unlock()
+		_ = conn.SetReadDeadline(time.Time{}) // reset
+	}
+	return remoteConn, cancel
+}
+
+// mayNeedHandshake reports whether the outbound proxy picks for metadata may
+// return a connection with a lazy handshake (N.NeedHandshake), which sends the
+// client's first bytes with it. DIRECT and the rejecting outbounds never do.
+// A group is followed to the proxy it picks now; should it pick another one
+// for the dial, the first bytes just go after the handshake.
+func mayNeedHandshake(proxy C.Proxy, metadata *C.Metadata) bool {
+	for adapter := proxy; adapter != nil; adapter = adapter.Unwrap(metadata, false) {
+		switch adapter.Type() {
+		case C.Direct, C.Compatible, C.Reject, C.RejectDrop:
+			return false
+		}
+	}
+	return true
 }
 
 // logRejected logs a connection refused by the limits of its user, at most
@@ -749,6 +793,9 @@ func logMetadataErr(metadata *C.Metadata, rule C.Rule, proxy C.ProxyAdapter, err
 }
 
 func logMetadata(metadata *C.Metadata, rule C.Rule, remoteConn C.Connection) {
+	if !log.Enabled(log.INFO) {
+		return // the arguments are not cheap: skip them when nobody gets the line
+	}
 	switch {
 	case metadata.SpecialProxy != "":
 		log.Infoln("[%s] %s --> %s using %s", strings.ToUpper(metadata.NetWork.String()), metadata.SourceDetail(), metadata.LogAddress(), remoteConn.Chains().String())

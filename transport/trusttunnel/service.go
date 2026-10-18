@@ -75,9 +75,14 @@ type Service struct {
 	fallbackTransport     *http.Transport
 	fallbackSlots         chan struct{}
 	fallbackIdleTimeout   time.Duration
-	fallbackSourceAccess  sync.Mutex
-	fallbackSources       map[netip.Prefix]int
-	authFailureLog        logLimiter
+	// fallbackStuckTimeout is how long a request may keep running after the
+	// idle stage before its writes are aborted; zero means fallbackIdleTimeout.
+	// Only tests set it, to give the 502 for a stalled upload room to be written
+	// regardless of scheduling, without stretching the idle limit itself.
+	fallbackStuckTimeout time.Duration
+	fallbackSourceAccess sync.Mutex
+	fallbackSources      map[netip.Prefix]int
+	authFailureLog       logLimiter
 	// fallbackCtx is cancelled on Close so in-flight fallback requests stop too,
 	// including upgraded connections that the HTTP servers no longer track.
 	fallbackCtx    context.Context
@@ -645,7 +650,11 @@ func (s *Service) serveFallback(writer http.ResponseWriter, request *http.Reques
 		}
 	}()
 	controller := http.NewResponseController(writer)
-	watchdog := newIdleWatchdog(s.fallbackIdleTimeout, func() {
+	stuckTimeout := s.fallbackStuckTimeout
+	if stuckTimeout <= 0 {
+		stuckTimeout = s.fallbackIdleTimeout
+	}
+	watchdog := newIdleWatchdog(s.fallbackIdleTimeout, stuckTimeout, func() {
 		// Stop the backend side and release a read stuck on a client that stopped
 		// uploading. Writes are left alone here: an HTTP/1 server may still be
 		// draining the request body before it sends an early answer such as 413.
@@ -725,11 +734,12 @@ func newFallbackRequestBody(ctx context.Context, body io.ReadCloser, watchdog *i
 }
 
 // idleWatchdog calls onIdle once no body data has moved for timeout, and
-// onStuck if the request is still running a further timeout after that.
+// onStuck if the request is still running stuckTimeout after that.
 type idleWatchdog struct {
 	access       sync.Mutex
 	timer        *time.Timer
 	timeout      time.Duration
+	stuckTimeout time.Duration
 	onIdle       func()
 	onStuck      func()
 	responding   bool
@@ -739,8 +749,8 @@ type idleWatchdog struct {
 	stuck        bool
 }
 
-func newIdleWatchdog(timeout time.Duration, onIdle func(), onStuck func()) *idleWatchdog {
-	w := &idleWatchdog{timeout: timeout, onIdle: onIdle, onStuck: onStuck}
+func newIdleWatchdog(timeout, stuckTimeout time.Duration, onIdle func(), onStuck func()) *idleWatchdog {
+	w := &idleWatchdog{timeout: timeout, stuckTimeout: stuckTimeout, onIdle: onIdle, onStuck: onStuck}
 	w.timer = time.AfterFunc(timeout, w.fire)
 	return w
 }
@@ -754,7 +764,7 @@ func (w *idleWatchdog) fire() {
 	if !w.fired {
 		w.fired = true
 		w.onIdle()
-		w.timer.Reset(w.timeout)
+		w.timer.Reset(w.stuckTimeout)
 		return
 	}
 	w.stuck = true

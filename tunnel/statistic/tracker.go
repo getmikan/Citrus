@@ -44,10 +44,18 @@ type tcpTracker struct {
 	closed  stdatomic.Bool
 
 	pushToManager bool `json:"-"`
+
+	// allocated with the tracker rather than on their own or on every call
+	info TrackerInfo
+	id   string
+	// the count functions UnwrapReader and UnwrapWriter hand out: the copy
+	// loop asks for them more than once per connection
+	downCounters [1]N.CountFunc
+	upCounters   [1]N.CountFunc
 }
 
 func (tt *tcpTracker) ID() string {
-	return tt.UUID.String()
+	return tt.id
 }
 
 func (tt *tcpTracker) Info() *TrackerInfo {
@@ -136,7 +144,7 @@ func (tt *tcpTracker) UnwrapReader() (io.Reader, []N.CountFunc) {
 	if tt.speedLimited(false) {
 		return trackerReader{tt}, nil
 	}
-	return tt.Conn, []N.CountFunc{tt.countDown}
+	return tt.Conn, tt.downCounters[:1:1] // full: an append copies it
 }
 
 func (tt *tcpTracker) Write(b []byte) (int, error) {
@@ -164,7 +172,7 @@ func (tt *tcpTracker) UnwrapWriter() (io.Writer, []N.CountFunc) {
 	if tt.speedLimited(true) {
 		return trackerWriter{tt}, nil
 	}
-	return tt.Conn, []N.CountFunc{tt.countUp}
+	return tt.Conn, tt.upCounters[:1:1]
 }
 
 // trackerReader and trackerWriter expose only the reading or the writing
@@ -251,7 +259,7 @@ func newTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.R
 	t := &tcpTracker{
 		Conn:    conn,
 		manager: manager,
-		TrackerInfo: &TrackerInfo{
+		info: TrackerInfo{
 			UUID:          utils.NewUUIDV4(),
 			Start:         time.Now(),
 			Metadata:      metadata,
@@ -264,6 +272,10 @@ func newTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.R
 		pushToManager: pushToManager,
 		binding:       binding,
 	}
+	t.TrackerInfo = &t.info
+	t.id = t.info.UUID.String()
+	t.downCounters[0] = t.countDown
+	t.upCounters[0] = t.countUp
 	t.user = t.binding.counter
 	t.inbound = manager.bindInbound(metadata, pushToManager)
 	t.inbound.addUp(uploadTotal)

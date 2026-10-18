@@ -500,7 +500,7 @@ func ReadAddress(reader BufferedReader) (c Address, err error) {
 		if err != nil {
 			return
 		}
-		c.ADDR = make([]byte, addrLen+1)
+		c.ADDR = make([]byte, int(addrLen)+1) // int: 255+1 overflows a byte
 		c.ADDR[0] = addrLen
 		_, err = io.ReadFull(reader, c.ADDR[1:])
 		if err != nil {

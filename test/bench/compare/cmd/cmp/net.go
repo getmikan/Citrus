@@ -21,7 +21,7 @@ const dialTimeout = 15 * time.Second
 
 // dialer opens tunnels to the sink through the client's SOCKS5 inbound.
 type dialer struct {
-	socks   string      // 127.0.0.1:port of the Xray client
+	socks   string      // 127.0.0.1:port of the client
 	tlsIn   *tls.Config // wrap the tunnel in TLS 1.3 to the sink (inner-TLS variant)
 	dstPort int
 }
@@ -51,6 +51,11 @@ func (d *dialer) open(cmd byte, arg []byte) (net.Conn, error) {
 			c.Close()
 			return nil, fmt.Errorf("inner tls: %w", err)
 		}
+		// the sink's ready byte: the Finished flight has gone through (see handleSinkTLS)
+		if err := readReady(tc); err != nil {
+			c.Close()
+			return nil, fmt.Errorf("inner tls ready: %w", err)
+		}
 		tc.SetDeadline(time.Time{})
 		c = tc
 	}
@@ -58,7 +63,27 @@ func (d *dialer) open(cmd byte, arg []byte) (net.Conn, error) {
 		c.Close()
 		return nil, err
 	}
+	if d.tlsIn != nil && cmd == cmdUpload {
+		// the sink's ack: the command record went through alone, before any data
+		c.SetDeadline(time.Now().Add(dialTimeout))
+		if err := readReady(c); err != nil {
+			c.Close()
+			return nil, fmt.Errorf("upload ack: %w", err)
+		}
+		c.SetDeadline(time.Time{})
+	}
 	return c, nil
+}
+
+func readReady(c net.Conn) error {
+	var b [1]byte
+	if _, err := io.ReadFull(c, b[:]); err != nil {
+		return err
+	}
+	if b[0] != sinkReady {
+		return fmt.Errorf("got %q, want %q", b[0], sinkReady)
+	}
+	return nil
 }
 
 // socksConnect does a SOCKS5 CONNECT (no auth) to ip:port.

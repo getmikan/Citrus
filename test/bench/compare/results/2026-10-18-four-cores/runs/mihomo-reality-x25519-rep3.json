@@ -1,0 +1,28 @@
+{
+  "server": "mihomo",
+  "proto": "reality-x25519",
+  "rep": 3,
+  "start": "2026-10-17T21:43:18.570838179Z",
+  "keyshare": "X25519",
+  "handshake": {
+    "workers": 128,
+    "conns": 37519,
+    "conns_per_sec": 3751.8302966208344,
+    "rate_first_half": 3811.8,
+    "rate_second_half": 3692,
+    "ttfb_p50_ms": 34.088929,
+    "ttfb_p99_ms": 52.379376,
+    "server_cpu_ms_per_conn": 0.5188251019483462,
+    "server_cpu_sec": 19.465799,
+    "server_cores": 1.9465437361371984,
+    "client_util": 0.2818328211117901,
+    "sink_util": 0.23127769070742324,
+    "window_sec": 10.000185785,
+    "errors": 0
+  },
+  "rss_start": 53039104,
+  "rss_end": 63541248,
+  "server_cpus": 2,
+  "client_cpus": 14,
+  "seconds": 22.740776727
+}

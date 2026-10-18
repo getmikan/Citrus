@@ -1,0 +1,4 @@
+time="2026-10-17T22:02:01.836754706Z" level=info msg="Start initial configuration in progress"
+time="2026-10-17T22:02:01.837026326Z" level=info msg="Geodata Loader mode: memconservative"
+time="2026-10-17T22:02:01.837056078Z" level=info msg="Geosite Matcher implementation: succinct"
+time="2026-10-17T22:02:01.837102273Z" level=info msg="Initial configuration complete, total time: 0ms"

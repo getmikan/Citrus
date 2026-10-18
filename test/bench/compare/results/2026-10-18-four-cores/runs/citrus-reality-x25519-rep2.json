@@ -1,0 +1,28 @@
+{
+  "server": "citrus",
+  "proto": "reality-x25519",
+  "rep": 2,
+  "start": "2026-10-17T20:28:31.102403318Z",
+  "keyshare": "X25519",
+  "handshake": {
+    "workers": 128,
+    "conns": 39762,
+    "conns_per_sec": 3976.166176344804,
+    "rate_first_half": 3945.8,
+    "rate_second_half": 4006.6,
+    "ttfb_p50_ms": 31.313829,
+    "ttfb_p99_ms": 57.732069,
+    "server_cpu_ms_per_conn": 0.479166339721342,
+    "server_cpu_sec": 19.052612,
+    "server_cores": 1.9052449928429438,
+    "client_util": 0.2937543868632185,
+    "sink_util": 0.23464270398837422,
+    "window_sec": 10.000085066,
+    "errors": 0
+  },
+  "rss_start": 53903360,
+  "rss_end": 76943360,
+  "server_cpus": 2,
+  "client_cpus": 14,
+  "seconds": 22.728280734
+}

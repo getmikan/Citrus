@@ -852,7 +852,7 @@ func (p *overrideExprParser) parseNumber(token overrideToken) (overrideValueExpr
 	if strings.HasPrefix(text, "0x") || strings.HasPrefix(text, "0X") {
 		base, text = 16, text[2:]
 	}
-	value, err := strconv.ParseInt(text, base, 64)
+	value, err := strconv.ParseInt(text, base, strconv.IntSize)
 	if err != nil {
 		return nil, p.errorf(token, "invalid number %q", token.text)
 	}
@@ -2587,7 +2587,7 @@ func (e overrideFunctionExpr) eval(input any) (any, error) {
 		} else if strings.HasPrefix(value, "0b") || strings.HasPrefix(value, "0B") {
 			return nil, fmt.Errorf("cannot convert %q to number", value)
 		}
-		if integer, err := strconv.ParseInt(integerValue, base, 64); err == nil {
+		if integer, err := strconv.ParseInt(integerValue, base, strconv.IntSize); err == nil {
 			return int(integer), nil
 		}
 		number, err := strconv.ParseFloat(value, 64)

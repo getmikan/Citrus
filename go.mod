@@ -65,8 +65,8 @@ require (
 
 // lastest version compatible with golang1.20
 require (
-	github.com/insomniacslk/dhcp v0.0.0-20250109001534-8abf58130905
-	github.com/klauspost/compress v1.17.9
+	github.com/insomniacslk/dhcp v0.0.0-20261014062924-c6bb46ad3f3a
+	github.com/klauspost/compress v1.20.3
 	github.com/mdlayher/netlink v1.7.2
 	github.com/miekg/dns v1.1.63
 	github.com/oschwald/maxminddb-golang v1.12.0
@@ -149,8 +149,10 @@ require (
 // for https://github.com/golang/protobuf/issues/1704
 replace google.golang.org/protobuf => github.com/metacubex/protobuf-go v0.0.0-20260306035419-7ceee0674686
 
-replace github.com/metacubex/utls => github.com/getmikan/utls v1.8.8-citrus.3
+replace github.com/metacubex/utls => github.com/getmikan/utls v1.8.9-0.20261017232116-b76689d5c62f
 
 replace github.com/metacubex/http => github.com/getmikan/http v0.1.8-citrus.2
 
-replace github.com/metacubex/tls => github.com/getmikan/tls v0.1.8-citrus.1
+replace github.com/metacubex/tls => github.com/getmikan/tls v0.1.9-0.20261018054601-0a54a49f00e8
+
+replace github.com/metacubex/smux => github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876

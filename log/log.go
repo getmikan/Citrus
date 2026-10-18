@@ -3,6 +3,8 @@ package log
 import (
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/common/observable"
 
@@ -31,24 +33,36 @@ func (e *Event) Type() string {
 }
 
 func Infoln(format string, v ...any) {
+	if !Enabled(INFO) {
+		return
+	}
 	event := newLog(INFO, format, v...)
 	logCh <- event
 	print(event)
 }
 
 func Warnln(format string, v ...any) {
+	if !Enabled(WARNING) {
+		return
+	}
 	event := newLog(WARNING, format, v...)
 	logCh <- event
 	print(event)
 }
 
 func Errorln(format string, v ...any) {
+	if !Enabled(ERROR) {
+		return
+	}
 	event := newLog(ERROR, format, v...)
 	logCh <- event
 	print(event)
 }
 
 func Debugln(format string, v ...any) {
+	if !Enabled(DEBUG) {
+		return
+	}
 	event := newLog(DEBUG, format, v...)
 	logCh <- event
 	print(event)
@@ -58,12 +72,37 @@ func Fatalln(format string, v ...any) {
 	log.Fatalf(format, v...)
 }
 
+// subscriptions are the open Subscribe subscriptions (the /logs API). While
+// there are none, a line below the level is neither formatted nor sent.
+var (
+	subMu         sync.Mutex
+	subscriptions = map[observable.Subscription[Event]]struct{}{}
+	subscribers   atomic.Int32
+)
+
+// Enabled reports whether a line of level l is printed or delivered to a
+// subscriber. A caller that builds expensive arguments for a line can check
+// it first.
+func Enabled(l LogLevel) bool {
+	return l >= level || subscribers.Load() > 0
+}
+
 func Subscribe() observable.Subscription[Event] {
-	sub, _ := source.Subscribe()
+	sub, err := source.Subscribe()
+	if err == nil {
+		subMu.Lock()
+		subscriptions[sub] = struct{}{}
+		subscribers.Store(int32(len(subscriptions)))
+		subMu.Unlock()
+	}
 	return sub
 }
 
 func UnSubscribe(sub observable.Subscription[Event]) {
+	subMu.Lock()
+	delete(subscriptions, sub)
+	subscribers.Store(int32(len(subscriptions)))
+	subMu.Unlock()
 	source.UnSubscribe(sub)
 }
 

@@ -47,15 +47,22 @@ func (m *Manager) Users() *UserManager {
 		return um
 	}
 	um := NewUserManager()
-	um.SetCloser(m.CloseUser)
+	um.SetCloser(m.closeUserIf)
 	m.users.CompareAndSwap(nil, um)
 	return m.users.Load()
 }
 
 // CloseUser closes the tracked connections of an inbound user.
-func (m *Manager) CloseUser(key UserKey) {
+func (m *Manager) CloseUser(key UserKey) { m.closeUserIf(key, nil) }
+
+// closeUserIf closes the tracked connections of an inbound user, each one only
+// while still (when not nil) returns true.
+func (m *Manager) closeUserIf(key UserKey, still func() bool) {
 	m.Range(func(c Tracker) bool {
 		if md := c.Info().Metadata; md != nil && md.InName == key.Inbound && md.InUser == key.User {
+			if still != nil && !still() {
+				return false
+			}
 			_ = c.Close()
 		}
 		return true

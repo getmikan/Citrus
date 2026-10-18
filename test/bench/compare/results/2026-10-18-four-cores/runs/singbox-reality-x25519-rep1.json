@@ -1,0 +1,28 @@
+{
+  "server": "singbox",
+  "proto": "reality-x25519",
+  "rep": 1,
+  "start": "2026-10-17T22:54:48.144998812Z",
+  "keyshare": "X25519",
+  "handshake": {
+    "workers": 128,
+    "conns": 38754,
+    "conns_per_sec": 3875.3383484048168,
+    "rate_first_half": 3840,
+    "rate_second_half": 3910.8,
+    "ttfb_p50_ms": 32.378029,
+    "ttfb_p99_ms": 58.724579,
+    "server_cpu_ms_per_conn": 0.4923313722454456,
+    "server_cpu_sec": 19.07981,
+    "server_cores": 1.907950646985542,
+    "client_util": 0.2700583037234635,
+    "sink_util": 0.21903956536526648,
+    "window_sec": 10.000159087,
+    "errors": 0
+  },
+  "rss_start": 62894080,
+  "rss_end": 72331264,
+  "server_cpus": 2,
+  "client_cpus": 14,
+  "seconds": 22.751636561
+}

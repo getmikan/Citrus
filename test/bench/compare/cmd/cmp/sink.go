@@ -53,8 +53,8 @@ func cmdSink(args []string) error {
 	if err != nil {
 		return err
 	}
-	go serve(tcpLn, handleSink)
-	go serve(tlsLn, handleSink)
+	go serve(tcpLn, func(c net.Conn) { handleSink(c, false) })
+	go serve(tlsLn, handleSinkTLS)
 	go serve(targetLn, func(c net.Conn) {
 		defer c.Close()
 		c.SetDeadline(time.Now().Add(30 * time.Second))
@@ -85,7 +85,30 @@ var junk = func() []byte {
 	return b
 }()
 
-func handleSink(c net.Conn) {
+// sinkReady is the byte the TLS sink writes after its handshake, and the
+// acknowledgement of an upload command on it.
+const sinkReady = 'K'
+
+// handleSinkTLS serves the inner-TLS variant (reality-tlsin). Xray's Vision
+// client switches a stream's upload to direct copy only when one of its
+// reads from the local socket holds nothing but whole TLS application-data
+// records. The bench client's writes are kept apart so that this happens on
+// every stream, not at random: the sink writes sinkReady once its handshake
+// is done, which the client waits for before it sends the command (so the
+// client's Finished flight and the command record are not read together),
+// and acknowledges an upload command with sinkReady before the bulk data
+// (so the command record is read alone, and Vision goes direct with it).
+func handleSinkTLS(c net.Conn) {
+	c.SetDeadline(time.Now().Add(30 * time.Second))
+	if _, err := c.Write([]byte{sinkReady}); err != nil {
+		c.Close()
+		return
+	}
+	c.SetDeadline(time.Time{})
+	handleSink(c, true)
+}
+
+func handleSink(c net.Conn, ack bool) {
 	defer c.Close()
 	var cmd [1]byte
 	if _, err := io.ReadFull(c, cmd[:]); err != nil {
@@ -118,6 +141,11 @@ func handleSink(c net.Conn) {
 		}
 		pacedWrite(c, int64(binary.BigEndian.Uint64(r[:])), nil)
 	case cmdUpload:
+		if ack {
+			if _, err := c.Write([]byte{sinkReady}); err != nil {
+				return
+			}
+		}
 		io.Copy(io.Discard, c)
 	case cmdRequest:
 		var reply [replySize]byte

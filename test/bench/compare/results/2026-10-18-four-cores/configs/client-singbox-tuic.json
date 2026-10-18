@@ -1,0 +1,35 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 1080,
+      "tag": "in",
+      "type": "socks"
+    }
+  ],
+  "log": {
+    "level": "warn"
+  },
+  "outbounds": [
+    {
+      "congestion_control": "bbr",
+      "password": "<redacted>",
+      "server": "10.81.0.10",
+      "server_port": 443,
+      "tag": "out",
+      "tls": {
+        "alpn": [
+          "h3"
+        ],
+        "certificate": "<redacted: self-signed P-256 certificate for bench.test>",
+        "enabled": true,
+        "server_name": "bench.test"
+      },
+      "type": "tuic",
+      "uuid": "<redacted>"
+    }
+  ],
+  "route": {
+    "final": "out"
+  }
+}

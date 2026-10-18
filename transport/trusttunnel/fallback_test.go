@@ -135,6 +135,12 @@ func TestFallbackRequestBodyStall(t *testing.T) {
 	defer backend.Close()
 	s := newFallbackService(t, backend)
 	s.fallbackIdleTimeout = 100 * time.Millisecond
+	// The idle stage cancels the backend request and the handler then answers
+	// 502. The stuck stage (aborting writes to a client that stopped reading) is
+	// not what this test checks: with its default of one more idle period it
+	// raced the 502 on a loaded runner and cut the answer off, so push it past
+	// the client's deadline. TestFallbackClientStopsReading covers that stage.
+	s.fallbackStuckTimeout = time.Minute
 
 	t.Run("handler", func(t *testing.T) {
 		body, bodyWriter := io.Pipe()

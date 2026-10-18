@@ -1,0 +1,38 @@
+{
+  "inbounds": [
+    {
+      "congestion_control": "bbr",
+      "listen": "0.0.0.0",
+      "listen_port": 443,
+      "tag": "in",
+      "tls": {
+        "alpn": [
+          "h3"
+        ],
+        "certificate_path": "/cfg/cert.pem",
+        "enabled": true,
+        "key_path": "/cfg/key.pem"
+      },
+      "type": "tuic",
+      "users": [
+        {
+          "name": "u",
+          "password": "<redacted>",
+          "uuid": "<redacted>"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn"
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct"
+  }
+}

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,13 +27,14 @@ type measureOpts struct {
 	cfgDir        string
 	out           string
 	logDir        string
-	xray          string
+	xray, singbox string // client binaries
 	serverCG      cgroup
 	clientCG      cgroup
 	sinkCG        cgroup
 	dur           time.Duration // timed window of a throughput / handshake phase
 	ramp          time.Duration // before each window, not measured
 	idleLevels    []int
+	settle        time.Duration // memory phase: wait before each reading
 	hsWorkers     int
 	fixedRate     int64 // bytes/s for the fixed-rate CPU phase
 	phases        map[string]bool
@@ -61,6 +63,11 @@ type bulkResult struct {
 	usage
 	Errors     int    `json:"errors"`
 	FirstError string `json:"first_error,omitempty"`
+	// reality-tlsin: Vision on the Xray client, from its debug log. Streams
+	// is the number of tunnels of the phase seen in the log, UpDirect those
+	// whose upload switched to direct copy, DownDirect those whose download
+	// did (the server's padding command).
+	Vision *visionCount `json:"vision,omitempty"`
 }
 
 type hsResult struct {
@@ -136,19 +143,21 @@ type result struct {
 func cmdMeasure(args []string) error {
 	fs := flag.NewFlagSet("measure", flag.ExitOnError)
 	o := measureOpts{}
-	fs.StringVar(&o.server, "server", "", "xray|mihomo|citrus (label only)")
-	fs.StringVar(&o.proto, "proto", "", "reality|reality-x25519|reality-tlsin|xhttp|trojan|ss2022")
+	fs.StringVar(&o.server, "server", "", "xray|singbox|mihomo|citrus (label only)")
+	fs.StringVar(&o.proto, "proto", "", "reality|reality-x25519|reality-tlsin|xhttp|trojan|ss2022|hy2|tuic|anytls")
 	fs.IntVar(&o.rep, "rep", 1, "repetition number (label only)")
 	fs.StringVar(&o.cfgDir, "cfg", "/cfg", "config directory (material.json)")
 	fs.StringVar(&o.out, "out", "", "result JSON path")
-	fs.StringVar(&o.logDir, "logs", "/tmp", "where the Xray client logs go")
-	fs.StringVar(&o.xray, "xray", "/opt/bin/xray", "Xray binary (the client)")
+	fs.StringVar(&o.logDir, "logs", "/tmp", "where the client logs go")
+	fs.StringVar(&o.xray, "xray", "/opt/bin/xray", "Xray binary (client of the protocols Xray speaks)")
+	fs.StringVar(&o.singbox, "singbox", "/opt/bin/sing-box", "sing-box binary (client of TUIC and AnyTLS)")
 	scg := fs.String("server-cg", "", "server container cgroup directory")
 	ccg := fs.String("client-cg", "", "client container cgroup directory")
 	kcg := fs.String("sink-cg", "", "sink container cgroup directory")
 	fs.DurationVar(&o.dur, "dur", 10*time.Second, "measured window per phase")
 	fs.DurationVar(&o.ramp, "ramp", 2*time.Second, "unmeasured ramp before each window")
 	idle := fs.String("idle", "1000,5000", "idle tunnel levels")
+	fs.DurationVar(&o.settle, "settle", 5*time.Second, "memory phase: wait before each reading")
 	fs.IntVar(&o.hsWorkers, "hs-workers", 128, "concurrent clients in the handshake phase")
 	fs.StringVar(&o.pprof, "pprof", "", "external controller URL of a mihomo/Citrus server started with log-level debug: "+
 		"the log level is set to warning, then a CPU profile is taken in every handshake and bulk window")
@@ -222,18 +231,22 @@ func measure(o measureOpts) (*result, error) {
 		return nil, err
 	}
 	serverAddr := fmt.Sprintf("%s:%d", serverIP, serverPort)
-	if err := waitTCP(serverAddr, 60*time.Second); err != nil {
+	readyTimeout := 30 * time.Second
+	if isQUIC(o.proto) {
+		// UDP: nothing to dial; the end to end check below waits instead
+		readyTimeout = 60 * time.Second
+	} else if err := waitTCP(serverAddr, 60*time.Second); err != nil {
 		return nil, err
 	}
 
 	// Which TLS key exchange the server picks for this client (TLS protocols).
-	if baseProto(o.proto) != "ss2022" {
+	if baseProto(o.proto) != "ss2022" && !isQUIC(o.proto) {
 		res.KeyShare = probeKeyShare(o, &m, serverAddr)
 		fmt.Fprintf(os.Stderr, "  keyshare: %s\n", res.KeyShare)
 	}
 
 	const socksPort = 1080
-	stop, err := startXray(o, "client", xrayClient(&m, o.proto, serverIP, serverPort, socksPort), socksPort)
+	stop, err := startClient(o, "client", clientConfig(&m, o.proto, serverIP, serverPort, socksPort), socksPort)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +260,7 @@ func measure(o measureOpts) (*result, error) {
 
 	// End to end check: mihomo and Citrus open the listener before the tunnel
 	// runs, and drop connections in between.
-	if err := r.ready(30 * time.Second); err != nil {
+	if err := r.ready(readyTimeout); err != nil {
 		return res, err
 	}
 	if o.pprof != "" {
@@ -303,7 +316,7 @@ func measure(o measureOpts) (*result, error) {
 	return res, nil
 }
 
-// probeKeyShare runs a second Xray client against a relay in front of the
+// probeKeyShare runs a second client against a relay in front of the
 // server and reads the key share group of the ServerHello.
 func probeKeyShare(o measureOpts, m *material, serverAddr string) string {
 	relay, ch, err := keyShareRelay(serverAddr)
@@ -314,7 +327,7 @@ func probeKeyShare(o measureOpts, m *material, serverAddr string) string {
 	var p int
 	fmt.Sscan(port, &p)
 	const probePort = 1081
-	stop, err := startXray(o, "probe", xrayClient(m, o.proto, host, p, probePort), probePort)
+	stop, err := startClient(o, "probe", clientConfig(m, o.proto, host, p, probePort), probePort)
 	if err != nil {
 		return "probe: " + err.Error()
 	}
@@ -333,25 +346,37 @@ func probeKeyShare(o measureOpts, m *material, serverAddr string) string {
 	}
 }
 
-func startXray(o measureOpts, role string, cfg obj, socksPort int) (func(), error) {
-	dir := filepath.Join(os.TempDir(), "cmp-"+role)
+// startClient starts the protocol's client (clientFor) with cfg, a SOCKS5
+// inbound on socksPort.
+func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), error) {
+	// Per network (CMP_NET), so that two benchmark setups on a host do not
+	// share the directory (and its pid file).
+	dir := filepath.Join(os.TempDir(), "cmp-"+netPrefix()+"-"+role)
 	path := filepath.Join(dir, "config.json")
 	if err := writeJSON(path, cfg); err != nil {
 		return nil, err
 	}
-	logf, err := os.Create(filepath.Join(o.logDir, fmt.Sprintf("%s-%s-%s-rep%d.log", o.server, o.proto, "xray-"+role, o.rep)))
+	client := clientFor(o.proto)
+	logf, err := os.Create(clientLog(o, role))
 	if err != nil {
 		return nil, err
 	}
-	// An Xray client left over from an interrupted run would hold the port.
-	exec.Command("pkill", "-f", path).Run()
-	time.Sleep(200 * time.Millisecond)
-	cmd := exec.Command(o.xray, "run", "-c", path)
+	// A client left over from an interrupted run would hold the port: kill
+	// the one of the pid file. Not pkill: with --pid=host it reads every
+	// process of the host, and blocks on one stuck in the kernel (D state).
+	pidFile := filepath.Join(dir, "pid")
+	killStale(pidFile, path)
+	bin := o.xray
+	if client == "singbox" {
+		bin = o.singbox
+	}
+	cmd := exec.Command(bin, "run", "-c", path)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	if err := cmd.Start(); err != nil {
 		logf.Close()
 		return nil, err
 	}
+	os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
 	stop := func() {
 		cmd.Process.Kill()
 		cmd.Wait()
@@ -362,6 +387,31 @@ func startXray(o measureOpts, role string, cfg obj, socksPort int) (func(), erro
 		return nil, err
 	}
 	return stop, nil
+}
+
+// killStale kills the process of pidFile if its command line still names
+// cfgPath (the pid may have been reused).
+func killStale(pidFile, cfgPath string) {
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 0 {
+		return
+	}
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || !strings.Contains(string(cmdline), cfgPath) {
+		return
+	}
+	if p, err := os.FindProcess(pid); err == nil {
+		p.Kill()
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func clientLog(o measureOpts, role string) string {
+	return filepath.Join(o.logDir, fmt.Sprintf("%s-%s-%s-rep%d.log", o.server, o.proto, clientFor(o.proto)+"-"+role, o.rep))
 }
 
 func (r *runner) ready(timeout time.Duration) error {
@@ -442,38 +492,46 @@ func (r *runner) usage(a, b snap) usage {
 	return u
 }
 
-// profile starts a CPU profile of the server over the window (-pprof) and
-// returns a func that waits for it to be saved.
+// profile starts a CPU profile and a heap-allocation (delta) profile of the
+// server over the window (-pprof) and returns a func that waits for them to
+// be saved.
 func (r *runner) profile(name string) func() {
 	if r.o.pprof == "" {
 		return func() {}
 	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		url := fmt.Sprintf("%s/debug/pprof/profile?seconds=%d", r.o.pprof, int(r.o.dur.Seconds()))
-		req, _ := http.NewRequest(http.MethodGet, url, nil)
-		req.Header.Set("Authorization", "Bearer "+r.o.pprofSecret)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			r.anomaly("pprof %s: %v", name, err)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			r.anomaly("pprof %s: %s", name, resp.Status)
-			return
-		}
-		os.MkdirAll(r.o.pprofDir, 0o755)
-		f, err := os.Create(filepath.Join(r.o.pprofDir, fmt.Sprintf("%s-%s-%s-cpu.pb.gz", r.o.server, r.o.proto, name)))
-		if err != nil {
-			r.anomaly("pprof %s: %v", name, err)
-			return
-		}
-		io.Copy(f, resp.Body)
-		f.Close()
-	}()
-	return func() { <-done }
+	var wg sync.WaitGroup
+	for _, kind := range []string{"cpu", "allocs"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			path := "profile"
+			if kind != "cpu" {
+				path = kind
+			}
+			url := fmt.Sprintf("%s/debug/pprof/%s?seconds=%d", r.o.pprof, path, int(r.o.dur.Seconds()))
+			req, _ := http.NewRequest(http.MethodGet, url, nil)
+			req.Header.Set("Authorization", "Bearer "+r.o.pprofSecret)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				r.anomaly("pprof %s %s: %v", name, kind, err)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				r.anomaly("pprof %s %s: %s", name, kind, resp.Status)
+				return
+			}
+			os.MkdirAll(r.o.pprofDir, 0o755)
+			f, err := os.Create(filepath.Join(r.o.pprofDir, fmt.Sprintf("%s-%s-%s-%s.pb.gz", r.o.server, r.o.proto, name, kind)))
+			if err != nil {
+				r.anomaly("pprof %s %s: %v", name, kind, err)
+				return
+			}
+			io.Copy(f, resp.Body)
+			f.Close()
+		}()
+	}
+	return wg.Wait
 }
 
 // --- bulk transfer -------------------------------------------------------------------
@@ -499,6 +557,10 @@ func (r *runner) bulk(streams int, dir byte, rate int64) *bulkResult {
 	res := &bulkResult{Streams: streams, Dir: map[byte]string{cmdDownload: "down", cmdUpload: "up"}[dir]}
 	if rate > 0 {
 		res.TargetMBps = float64(rate*int64(streams)) / 1e6
+	}
+	var logFrom int64 = -1
+	if r.o.proto == "reality-tlsin" {
+		logFrom = fileSize(clientLog(r.o, "client"))
 	}
 	var counter atomic.Int64
 	var stopping atomic.Bool
@@ -572,6 +634,18 @@ func (r *runner) bulk(streams int, dir byte, rate int64) *bulkResult {
 		r.anomaly("fixed rate %s: %.1f MB/s of %.1f", res.Dir, res.MBps, res.TargetMBps)
 	}
 	time.Sleep(time.Second) // let the closes propagate before the next phase
+	if logFrom >= 0 {
+		v, err := visionFromLog(clientLog(r.o, "client"), logFrom)
+		if err != nil {
+			r.anomaly("vision %d x %s: %v", streams, res.Dir, err)
+		} else {
+			res.Vision = v
+			if v.Streams != streams || v.UpDirect != streams || v.DownDirect != streams {
+				r.anomaly("vision %d x %s: %d streams in the client log, upload direct on %d, download direct on %d",
+					streams, res.Dir, v.Streams, v.UpDirect, v.DownDirect)
+			}
+		}
+	}
 	return res
 }
 
@@ -686,7 +760,7 @@ func (r *runner) openIdle() (net.Conn, error) {
 }
 
 func (r *runner) memory() *memResult {
-	const settle = 5 * time.Second
+	settle := r.o.settle
 	time.Sleep(settle)
 	g := r.o.serverCG
 	res := &memResult{BaseRSS: g.rss(), BaseMemCurrent: g.memCurrent()}

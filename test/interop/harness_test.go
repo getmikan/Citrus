@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -399,8 +400,19 @@ func genECH(t *testing.T, publicName string) echKeys {
 
 // --- processes ---------------------------------------------------------------
 
+// handedOut holds every port freePort has returned in this run.
+var handedOut = struct {
+	sync.Mutex
+	ports map[int]bool
+}{ports: map[int]bool{}}
+
 // freePort returns a localhost port free for both TCP and UDP (Citrus' mixed
 // port binds both; on Windows some ports are reserved for one of them only).
+//
+// The probe sockets are closed before the port is used, so the OS may offer
+// the same port again to the next call: a case that takes two ports before
+// starting anything (a listener and a controller, say) could get one port
+// twice. A port is therefore never handed out twice in a run.
 func freePort(t *testing.T) int {
 	t.Helper()
 	for range 50 {
@@ -411,8 +423,15 @@ func freePort(t *testing.T) int {
 		port := ln.Addr().(*net.TCPAddr).Port
 		pc, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
 		ln.Close()
-		if err == nil {
-			pc.Close()
+		if err != nil {
+			continue
+		}
+		pc.Close()
+		handedOut.Lock()
+		taken := handedOut.ports[port]
+		handedOut.ports[port] = true
+		handedOut.Unlock()
+		if !taken {
 			return port
 		}
 	}
@@ -541,6 +560,15 @@ func startCitrus(t *testing.T, role string, cfg obj, port int) string {
 	// so neither a pass nor an "expected rejection" comes from startup.
 	waitLog(t, logPath, "Start initial compatible provider")
 	time.Sleep(300 * time.Millisecond)
+	// A listener that failed to bind leaves the case testing something else
+	// (another process answering on its port), so stop here with the reason.
+	if b, err := os.ReadFile(logPath); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.Contains(line, "listen err") {
+				t.Fatalf("%s: a listener did not start: %s", role, line)
+			}
+		}
+	}
 	return logPath
 }
 
