@@ -118,7 +118,7 @@ sink_cg=$(cgdir "$sink")
 	echo "cpusets: server $SERVER_CPUS (memory $SERVER_MEM), client $CLIENT_CPUS, sink $SINK_CPUS"
 	echo "skip: $SKIP"
 	echo "params: reps $REPS, window $DUR, ramp $RAMP, idle $IDLE, protos [$PROTOS], servers [$SERVERS]"
-	echo "images: $GO_IMAGE (build), $ALPINE_IMAGE (runtime)"
+	if [ "${BUILD:-}" = host ]; then echo "images: host $(go version 2>/dev/null | cut -d" " -f3) (build), $ALPINE_IMAGE (runtime)"; else echo "images: $GO_IMAGE (build), $ALPINE_IMAGE (runtime)"; fi
 } | tee "$OUT/env.txt"
 
 # server_cfg server proto: the server's config file for the protocol, if it
