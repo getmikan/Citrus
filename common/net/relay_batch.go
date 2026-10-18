@@ -69,6 +69,7 @@ func (r *readAhead) run(source network.ExtendedReader, options network.ReadWaitO
 		}
 		close(r.ch)
 	}()
+	var yield relayYield
 	for {
 		buffer := sizing.newBuffer(options, small)
 		err := source.ReadBuffer(buffer)
@@ -96,6 +97,7 @@ func (r *readAhead) run(source network.ExtendedReader, options network.ReadWaitO
 			r.err = errHandBack
 			return
 		}
+		yield.add(dataLen)
 	}
 }
 
@@ -140,6 +142,7 @@ func copyBatched(destination network.ExtendedWriter, writer network.VectorisedWr
 	readerSizing := *sizing
 	go r.run(source, options, &readerSizing, small)
 	batch := make([]*buf.Buffer, 0, readAheadBuffers+1)
+	var yield relayYield
 	for {
 		buffer, ok := <-r.ch
 		if !ok {
@@ -184,5 +187,6 @@ func copyBatched(destination network.ExtendedWriter, writer network.VectorisedWr
 		}
 		n += int64(dataLen)
 		countAll(readCounters, writeCounters, dataLen)
+		yield.add(dataLen)
 	}
 }
