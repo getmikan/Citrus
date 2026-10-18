@@ -26,7 +26,7 @@ The config format is shared with mihomo, so the [mihomo documentation](https://w
 | `sniffer` | Domain detection from traffic (TLS, HTTP, QUIC) and BitTorrent detection for the `PROTOCOL` rule; `skip-threshold` sets after how many failures a destination is no longer sniffed. |
 | `proxies`, `proxy-groups`, `proxy-providers` | Outbound proxies, selection groups and remote proxy sets; `type: chain` groups for cascades, see [Chains](/Citrus/en/start/chains/). |
 | `rules`, `sub-rules`, `rule-providers` | Routing rules and remote rule sets. |
-| `listeners`, `tunnels` | Extra inbounds, including server protocols. TCP listeners can listen on a unix socket: `listen: unix:/path`, with the mode set by `unix-mode`. |
+| `listeners`, `tunnels` | Extra inbounds, including server protocols. TCP listeners can listen on a unix socket: `listen: unix:/path`, with the mode set by `unix-mode`. They also take `proxy-protocol: true`: every TCP connection must then start with a PROXY protocol v1 or v2 header, whose client address becomes the source address (logs, rules, per-user IP limits). Only the peers in `proxy-protocol-trusted` (loopback by default) may send it; anything else is closed. UDP is not affected. |
 | `geox-url`, `geo-auto-update` | Where and how often to update geodata. |
 
 ## Rules at runtime
