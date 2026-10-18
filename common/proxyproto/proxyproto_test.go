@@ -78,6 +78,7 @@ func TestReadV1Malformed(t *testing.T) {
 		{"bad address", "PROXY TCP4 203.0.113.256 192.0.2.1 51234 443\r\n", ErrMalformed},
 		{"port out of range", "PROXY TCP4 203.0.113.7 192.0.2.1 65536 443\r\n", ErrMalformed},
 		{"negative port", "PROXY TCP4 203.0.113.7 192.0.2.1 -1 443\r\n", ErrMalformed},
+		{"line end inside the signature", "PROXY X\r\nGET / HTTP/1.1\r\n", ErrMalformed},
 		{"truncated", "PROXY TCP4 203.0.113.7 192.0.2.1 512", ErrTruncated},
 		{"truncated in the signature", "PROXY TCP", ErrTruncated},
 		{"empty", "", ErrTruncated},
