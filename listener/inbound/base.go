@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
+	"github.com/metacubex/mihomo/common/proxyproto"
 	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
 )
@@ -24,6 +25,8 @@ type Base struct {
 	// unixPath is the socket path when the listener listens on a unix socket
 	unixPath string
 	unixMode fs.FileMode
+	// proxyProtocol is set when the listener expects a PROXY protocol header
+	proxyProtocol *proxyproto.Config
 }
 
 // NewBase builds the base of a listener that cannot listen on a unix socket:
@@ -39,6 +42,19 @@ func newStreamBase(options *BaseOption) (*Base, error) {
 }
 
 func newBase(options *BaseOption, allowUnix bool) (*Base, error) {
+	proxy, err := options.proxyProtocolConfig(allowUnix)
+	if err != nil {
+		return nil, err
+	}
+	base, err := newBaseListen(options, allowUnix)
+	if err != nil {
+		return nil, err
+	}
+	base.proxyProtocol = proxy
+	return base, nil
+}
+
+func newBaseListen(options *BaseOption, allowUnix bool) (*Base, error) {
 	if path, ok := strings.CutPrefix(options.Listen, inbound.UnixSocketPrefix); ok {
 		if !allowUnix {
 			return nil, fmt.Errorf("listen %s: this listener type cannot listen on a unix socket, only the TCP stream listeners can (%s)", options.Listen, unixListenerTypes)
@@ -114,10 +130,16 @@ func (b *Base) Additions() []inbound.Addition {
 }
 
 func (b *Base) ListenConfig() C.InboundListenConfig {
+	var lc C.InboundListenConfig
 	if b.unixPath != "" {
-		return unixListenConfig{address: b.RawAddress(), path: b.unixPath, mode: b.unixMode}
+		lc = unixListenConfig{address: b.RawAddress(), path: b.unixPath, mode: b.unixMode}
+	} else {
+		lc = b.config.ListenConfig()
 	}
-	return b.config.ListenConfig()
+	if b.proxyProtocol != nil {
+		return proxyProtocolListenConfig{InboundListenConfig: lc, config: *b.proxyProtocol}
+	}
+	return lc
 }
 
 // IsUnix reports whether the listener listens on a unix socket.
@@ -137,6 +159,16 @@ type BaseOption struct {
 	// UnixMode is the permission mask of the socket of a "unix:" listen
 	// address, 0660 when unset.
 	UnixMode int `inbound:"unix-mode,omitempty"`
+	// ProxyProtocol makes the listener expect a PROXY protocol header (v1 or
+	// v2) on every accepted TCP connection, and take the client address from
+	// it. Only the TCP stream listeners have it, and only their TCP side: UDP
+	// (the UDP relay of socks and shadowsocks, the QUIC listeners) has no PROXY
+	// protocol header.
+	ProxyProtocol bool `inbound:"proxy-protocol,omitempty"`
+	// ProxyProtocolTrusted are the peers (CIDRs, addresses, "loopback",
+	// "private") that may send the header, loopback when empty. A connection
+	// from any other peer is closed.
+	ProxyProtocolTrusted []string `inbound:"proxy-protocol-trusted,omitempty"`
 
 	//
 	// The following parameters are used internally, assign value by the structure decoder are disallowed

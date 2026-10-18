@@ -2077,6 +2077,27 @@ sub-rules:
 # forwards, set trusted-proxy-header and trusted-proxies: [loopback] (vless, trojan, hysteria2-realm).
 #   nginx: proxy_pass http://unix:/run/citrus/vless.sock;  (or grpc_pass unix:/run/citrus/vless.sock;)
 #   Caddy: reverse_proxy unix//run/citrus/vless.sock
+# PROXY protocol（仅 TCP）：基于 TCP 的 listeners（同上，含 UNIX socket）可设置 proxy-protocol: true，
+# 此时每个 TCP 连接都必须以 PROXY protocol v1 或 v2 头开头（前置 SNI 路由、HAProxy、nginx stream 等
+# 带 proxy_protocol 转发时发送），连接的来源地址（日志、SRC-IP 规则、IP 过滤、用户 IP 数/设备数限制、
+# 认证事件）取自该头；本地地址保持不变。没有头、头格式错误或 5 秒内没有头的连接会被直接关闭。
+# 只有 proxy-protocol-trusted 中的对端可以发送该头（CIDR、单个地址、"loopback"、"private"；默认仅回环
+# 127.0.0.0/8 与 ::1），其他对端的连接被直接关闭，因为头里的地址可以是任意值。
+# LOCAL 命令（v2）和 UNKNOWN（v1）保持真实对端地址。UDP 不受影响（UDP 没有该头），socks/shadowsocks 的 UDP 部分保持不变；
+# hysteria2、tuic、shadowquic、mieru、tun、redir、tproxy 没有 TCP 流，设置该选项会报错。REALITY 的 dest 回落照常工作。
+# PROXY protocol (TCP only): the TCP stream listeners (the ones above, unix sockets included) accept
+# proxy-protocol: true. Every TCP connection must then start with a PROXY protocol v1 or v2 header, as an
+# SNI router, HAProxy or nginx stream with proxy_protocol sends in front of a forwarded connection, and the
+# source address of the connection (logs, SRC-IP rules, IP filters, per-user IP and device limits, auth
+# events) is the client address of the header; the local address is unchanged. A connection without a
+# header, with a malformed one or with none within 5 seconds is closed. Only the peers in
+# proxy-protocol-trusted may send the header (CIDRs, single addresses, "loopback", "private"; loopback
+# 127.0.0.0/8 and ::1 only when empty): a connection from any other peer is closed, since the address in
+# a header from the internet could be anything. The v2 LOCAL command and the v1 UNKNOWN line keep the
+# address of the peer. UDP has no such header and is not touched (the UDP side of socks/shadowsocks stays
+# as it is); the listeners without TCP streams (hysteria2, tuic, shadowquic, mieru, tun, redir, tproxy)
+# refuse the option.
+# REALITY keeps falling back to its dest for other clients: the header is consumed before the handshake.
 listeners:
   # - name: vless-unix
   #   type: vless
@@ -2090,6 +2111,21 @@ listeners:
   #   allow-insecure: true # TLS is terminated by the reverse proxy
   #   trusted-proxy-header: X-Forwarded-For
   #   trusted-proxies: [loopback]
+
+  # - name: vless-reality-behind-sni-router
+  #   type: vless
+  #   listen: 127.0.0.1
+  #   port: 10443
+  #   proxy-protocol: true # every connection starts with a PROXY protocol v1/v2 header
+  #   proxy-protocol-trusted: [loopback] # peers allowed to send it; the default
+  #   users:
+  #     - username: 1
+  #       uuid: 9d0cb9d0-964f-4ef6-897d-6c6b3ccf9e68
+  #   reality-config:
+  #     dest: example.com:443
+  #     private-key: ...
+  #     short-id: [""]
+  #     server-names: [example.com]
 
   - name: socks5-in-1
     type: socks
