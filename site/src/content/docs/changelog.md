@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (127 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (128 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, `v1.0.0-beta.2`, — из `dev` в том состоянии, что описано на этой странице.
 
@@ -64,6 +64,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#70](https://github.com/getmikan/Citrus/pull/70) `GET /events`: поток событий ядра.
 - [#71](https://github.com/getmikan/Citrus/pull/71) TrustTunnel: таймеры HTTP/2-сессии на каждом прокси.
 - [#73](https://github.com/getmikan/Citrus/pull/73) Группы `type: chain` для каскадов с проверкой, которая называет сломавшийся хоп.
+- [#136](https://github.com/getmikan/Citrus/pull/136) PROXY protocol v1 и v2 на TCP-входящих (`proxy-protocol`, `proxy-protocol-trusted`): адрес клиента из заголовка фронтенда, например SNI-роутера на 443.
 
 ## Производительность
 

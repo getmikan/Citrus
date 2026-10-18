@@ -85,6 +85,11 @@ func Read(r io.Reader) (Header, error) {
 // of which got is the start. The line is read a byte at a time: nothing past
 // the "\n" may be consumed.
 func readV1(r io.Reader, got []byte) (Header, error) {
+	// a line shorter than the 12 bytes read for the signature has its end in
+	// them, with stream data after it: no valid line is that short
+	if i := bytes.IndexByte(got, '\n'); i >= 0 && i != len(got)-1 {
+		return Header{}, fmt.Errorf("%w: v1 line shorter than its signature", ErrMalformed)
+	}
 	line := make([]byte, len(got), maxV1Length)
 	copy(line, got)
 	var b [1]byte
