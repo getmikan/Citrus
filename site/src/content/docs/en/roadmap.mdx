@@ -3,12 +3,13 @@ title: Roadmap
 description: What is done in Citrus and its forks, what is in progress, what comes next and what needs a decision.
 ---
 
-The roadmap covers every getmikan repository: the [Citrus](https://github.com/getmikan/Citrus) core and the [utls](https://github.com/getmikan/utls), [tls](https://github.com/getmikan/tls) and [http](https://github.com/getmikan/http) forks. Moving the [Mikan](https://github.com/Miroshka000/mikan) panel to Citrus depends on the core, so it is here too. This is a plan, not a schedule.
+The roadmap covers every getmikan repository: the [Citrus](https://github.com/getmikan/Citrus) core and the [utls](https://github.com/getmikan/utls), [tls](https://github.com/getmikan/tls), [http](https://github.com/getmikan/http) and [smux](https://github.com/getmikan/smux) forks. Moving the [Mikan](https://github.com/Miroshka000/mikan) panel to Citrus depends on the core, so it is here too. This is a plan, not a schedule.
 
 ## Done
 
 The details, with a link to every PR, are in the [changelog](/Citrus/en/changelog/).
 
+- **Releases.** The beta releases [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) and [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), built from `dev`; see [the second beta's news post](/Citrus/en/news/beta-2/).
 - **Xray compatibility.** Post-quantum REALITY on the client and the server (X25519MLKEM768, ML-DSA-65), XHTTP with Xray's behaviour, ECH keys and links in Xray's formats. Automated tests against Xray v26.10.10 in CI.
 - **Users in the core.** Multi-user Shadowsocks 2022, traffic and online-address stats, limits on speed, connections, addresses, quota and expiry, inbound users changed without a restart, `PUT /rules`.
 - **Events and observability.** `GET /events` (WebSocket, SSE, NDJSON), Prometheus `/metrics`, `/healthz` and `/readyz` probes, rejected-authentication events, JSON logs.
@@ -16,17 +17,18 @@ The details, with a link to every PR, are in the [changelog](/Citrus/en/changelo
 - **Networking and DNS.** Listeners on a unix socket, DNSCrypt v2, a BitTorrent sniffer and the `PROTOCOL` rule, `trusted-proxy-header` from trusted proxies.
 - **Cleanup.** VMess, SSR, Hysteria v1, TUIC v4, Shadowsocks stream ciphers, v2ray-plugin and mKCP removed.
 - **Hardening.** A security review, a code review and a static audit, all closed with fixes; TLS 1.2 minimum; self-update checked against `checksums.txt`; CI pinned by digest. See [Security](/Citrus/en/security/).
-- **Performance.** An idle connection takes 30 KB less memory, XHTTP over h2 uses half the CPU per gigabyte, Snell v4 reads through a buffer. A benchmark harness backs the numbers.
+- **Performance.** Upload: write batching, up to +50% on REALITY, Trojan and SS2022 ([#119](https://github.com/getmikan/Citrus/pull/119)). Download: 64 KiB reads and TLS records sent to the socket together, with 32 streams REALITY 2802 → 4235 MB/s, Trojan 2737 → 3936, SS2022 3895 → 4392 ([#124](https://github.com/getmikan/Citrus/pull/124)). Latency under load: an echo next to eight downloads 55–63 → 20 ms ([#131](https://github.com/getmikan/Citrus/pull/131)). Idle tunnel memory: Trojan −36%, AnyTLS −18%, REALITY −12% ([#129](https://github.com/getmikan/Citrus/pull/129)). QUIC: the gap to sing-box on new streams 10–12% → 4–6% ([#125](https://github.com/getmikan/Citrus/pull/125)); fewer allocations per new connection ([#118](https://github.com/getmikan/Citrus/pull/118)). Earlier: XHTTP over h2 uses half the CPU per gigabyte, an idle connection takes 30 KB less memory.
+- **Comparison and measurements.** A comparison of four servers, Xray, sing-box, mihomo and Citrus, on eight protocols ([#126](https://github.com/getmikan/Citrus/pull/126)); a nightly performance check in CI against mihomo ([#127](https://github.com/getmikan/Citrus/pull/127)).
 - **Client compatibility.** Automated tests: mihomo v1.19.31 and v1.19.32 clients against a Citrus server on every protocol, see [Compatibility](/Citrus/en/compatibility/).
 - **Go 1.26.** The minimum Go version is 1.26, so `golang.org/x/net`, `x/crypto` and `x/text` are on current releases with their security fixes. The separate builds on old Go versions (`-go120` to `-go125`) are gone; see [Migrating from mihomo](/Citrus/en/migration/#platforms-and-builds).
-- **Forks.** utls `v1.8.8-citrus.1`–`.3`, tls `v0.1.8-citrus.1`, http `v0.1.8-citrus.1`–`.2`.
+- **Forks.** utls `v1.8.8-citrus.1`–`.3`, tls `v0.1.8-citrus.1`, http `v0.1.8-citrus.1`–`.2`; utls and tls have `dev` commits after these tags (download, memory). The new smux fork stops a caller's buffer from being sent after an error; it has no tag yet.
 - **Documentation.** The site in two languages: getting started, configuration, controller, users, limits, metrics, events, chains, migrating from mihomo.
 
 ## In progress
 
-- **The first release.** Merging `dev` into `main` and the first `vX.Y.Z` tag. Everything above exists only on `dev` so far, and `Prerelease-main` is still built from the old `main`.
+- **AnyTLS rework** ([#130](https://github.com/getmikan/Citrus/pull/130)), for the next beta. With 32 streams it is already faster than sing-box; single-stream upload and memory still need work.
 - **Moving the Mikan panel to Citrus.** The panel embeds the core as a library, and the move depends on the first release:
-  - replace utls, tls and http in the panel's `go.mod` with the getmikan forks, as Citrus does;
+  - replace utls, tls, http and smux in the panel's `go.mod` with the getmikan forks, as Citrus does;
   - take events from `/events` instead of polling `/traffic/users`, `/limits/users` and the other endpoints;
   - set a controller `secret`: without one the core will not open the controller on a network address;
   - move custom node configs that use VMess, which Citrus removed, to VLESS.
@@ -35,8 +37,7 @@ The details, with a link to every PR, are in the [changelog](/Citrus/en/changelo
 
 ## Next
 
-- **Shadowsocks 2022 performance.** Every connection currently allocates two 64 KB buffers up front. The plan is a sing-shadowsocks fork that takes buffers only while data flows.
-- **TLS performance.** Record coalescing and `writev` in the tls fork: bulk transfers currently cost one system call per TLS record.
+- **Shadowsocks 2022 performance.** Every connection currently allocates two 64 KB buffers up front; in all, sing-shadowsocks allocates about 150 KiB per connection in advance. The plan is a sing-shadowsocks fork that takes buffers only while data flows.
 - **Release signing.** Sign `checksums.txt` in CI and verify the signature with a key built into Citrus on self-update.
 - **Verify downloaded dashboards and geodata.**
 - **Further hardening.** More reviews and audits as the code grows.
@@ -44,3 +45,6 @@ The details, with a link to every PR, are in the [changelog](/Citrus/en/changelo
 ## Needs a decision
 
 - **Weekly sync from mihomo.** The workflow is ready and tested, but to let it open PRs the repository settings must allow GitHub Actions to create pull requests.
+- **A sing-quic fork.** Hysteria2 padding costs about 4% CPU per stream; fixing it needs a fork of sing-quic.
+- **The TUIC stream limit.** The TUIC server accepts at most 2048 streams per QUIC connection; a sing-box client, which does not wait for stream credit, gets errors past that.
+- **Release tags for the smux, tls and utls forks.** smux has no tags yet, and tls and utls have `dev` commits after their `-citrus` tags.
