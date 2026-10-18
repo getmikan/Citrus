@@ -35,7 +35,9 @@ citrus`), `SKIP` (`server:proto` pairs, default `xray:reality-x25519`), `DUR`
 2s), `IDLE` (`1000,5000`), `SERVER_CPUS` (`2,4`), `CLIENT_CPUS` (`6-19`),
 `SINK_CPUS` (`20-27`), `SERVER_MEM` (`2g`), `OUT` (`results/<date>`),
 `PHASES` (`mem,hs,bulk,fixed,lat`), `FP` (client uTLS fingerprint of the
-REALITY runs, `chrome`), `SKIP_BUILD=1` to reuse the image.
+REALITY runs, `chrome`), `SETTLE` (memory phase: wait before each reading,
+5s), `SKIP_BUILD=1` to reuse the image, `BUILD=host` to build Citrus and
+`cmp` with the host's Go instead of in `golang:1.26.9` (CI).
 
 Sharing the host: `NAME` (`cmp`: containers `$NAME-server`, `$NAME-client`,
 `$NAME-sink`), `NET` (`citrus-cmp`), `SUBNET` (`10.77.0`, the first three
@@ -102,7 +104,7 @@ without the inbound is `n/a` (no config, the run is skipped):
 |---|---|---|---|
 | `reality` | VLESS + REALITY + `xtls-rprx-vision`, target = the sink's TLS 1.3 server | Xray, fingerprint `chrome` | all four |
 | `reality-x25519` | same inbound | Xray, fingerprint `ios` (X25519 key share only); handshake phase only; skipped for Xray, whose REALITY server rejects these ClientHellos | sing-box, mihomo, Citrus |
-| `reality-tlsin` | same inbound | like `reality`, but every tunnel carries TLS 1.3 to the sink, so Vision's inner-TLS path is used; bulk and fixed-rate phases only | all four |
+| `reality-tlsin` | same inbound | like `reality`, but every tunnel carries TLS 1.3 to the sink, so Vision's inner-TLS path is used; bulk and fixed-rate phases only (see below) | all four |
 | `xhttp` | VLESS + XHTTP `stream-one`, TLS (h2) | Xray, XHTTP `stream-one`, ALPN h2, default xmux | Xray, mihomo, Citrus (sing-box has no XHTTP) |
 | `trojan` | Trojan over TLS | Xray | all four |
 | `ss2022` | Shadowsocks `2022-blake3-aes-128-gcm`, one user, TCP | Xray | all four |
@@ -145,6 +147,37 @@ Each phase has an unmeasured ramp, then the window (`DUR`). Output:
 Citrus) and `headline.md` (the main metrics with the winner per protocol: a
 tie when the minâ€“max ranges overlap, and Citrus against the best other
 server) from `cmp report`, `env.txt`.
+
+`reality-tlsin` and Vision's direct copy: Xray's client switches a tunnel's
+upload to direct copy only when one of its reads from the local socket holds
+nothing but whole TLS application-data records. The TLS sink therefore
+writes one byte once its handshake is done, which `cmp` waits for before it
+sends the command (so the client's Finished flight and the command record
+are not read together), and acknowledges the upload command with one byte
+before `cmp` sends any data (so the command record is read alone). Every
+upload stream then goes direct, on every server; without this a stream went
+direct or stayed padded (~7× slower) depending on how the reads split. The
+Xray client of this protocol logs at debug level, and `cmp measure` counts
+per bulk phase the tunnels whose upload and download went direct (`vision`
+in the run JSON, a table in `tables.md`, an anomaly when one did not);
+`cmp report` ranks the `reality-tlsin` upload metrics only when every upload
+stream of every run went direct.
+
+## CI perf check
+
+`.github/workflows/perf-nightly.yml` runs a short version nightly on `dev`
+(and on pull requests that touch this directory or the workflow): Citrus and
+mihomo only, REALITY, Trojan, SS2022 and Hysteria2, the `mem` (1000 tunnels),
+`hs` and `bulk` phases, 2 repetitions of 1 s ramp + 3 s windows, on a 4-vCPU
+`ubuntu-latest` runner (server cpuset 0, client 1-2, sink 3). Absolute numbers
+of a shared runner drift between runs, so `cmp gate` compares the ratio
+Citrus/mihomo of the same job (oriented so that above 1 is Citrus better:
+mihomo/Citrus for CPU and memory) against `ci/baseline.json`, and fails when a
+ratio falls more than the baseline's `tolerance` (20%) below it, or when
+Citrus has no value where mihomo has one. The table is in the job summary,
+the run (`runs/`, `tables.md`, `ratios.json` with this run's ratios) in the
+`perf-results` artifact. To move the baseline after an intended change, take
+the ratios of a few runs (their `ratios.json`) and commit the lower values.
 
 ## Caveats
 

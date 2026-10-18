@@ -1,0 +1,121 @@
+name: Perf check
+# A short version of the server comparison (test/bench/compare): Citrus built
+# from dev against the pinned mihomo release, in the same job, on REALITY,
+# Trojan, SS2022 and Hysteria2 (bulk, new connections, idle-tunnel memory).
+# Shared runners are noisy, so the gate is the ratio Citrus/mihomo measured
+# here, against the committed baseline (test/bench/compare/ci/baseline.json):
+# the job fails only when a ratio falls more than the baseline's tolerance
+# below it. The table goes to the job summary, the raw results to an artifact.
+# Pull requests that touch the harness or this workflow run it on their head.
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - dev
+      - main
+    paths:
+      - "test/bench/compare/**"
+      - ".github/workflows/perf-nightly.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CGO_ENABLED: 0
+      GOTOOLCHAIN: local
+    steps:
+      # schedule and workflow_dispatch: dev; pull_request: the PR
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event_name != 'pull_request' && 'dev' || '' }}
+          persist-credentials: false
+
+      - name: Set up Go
+        run: bash .github/scripts/setup-go.sh 1.26
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "build=$(go env GOCACHE)" >>"$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+
+      - name: Cache Go modules and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.mod }}
+          key: go-perf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/go-toolchains.txt', 'go.sum') }}
+          restore-keys: |
+            go-perf-${{ runner.os }}-${{ runner.arch }}-
+            go-pr-build-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Vet the harness
+        working-directory: test/bench/compare
+        run: go vet ./...
+
+      # 4 vCPUs: the server gets one, the client (Xray) two, the sink one.
+      - name: Compare Citrus and mihomo
+        env:
+          BUILD: host
+          SERVERS: mihomo citrus
+          PROTOS: reality trojan ss2022 hy2
+          PHASES: mem,hs,bulk
+          REPS: "2"
+          DUR: 3s
+          RAMP: 1s
+          IDLE: "1000"
+          SETTLE: 2s
+          SERVER_CPUS: "0"
+          CLIENT_CPUS: 1-2
+          SINK_CPUS: "3"
+        run: |
+          echo "CPUs: $(nproc), $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
+          if [ "$(nproc)" -lt 4 ]; then
+            echo "::error::the cpusets need 4 CPUs, the runner has $(nproc)"
+            exit 1
+          fi
+          OUT="$RUNNER_TEMP/perf" test/bench/compare/run.sh
+
+      - name: Gate on the Citrus/mihomo ratios
+        working-directory: test/bench/compare
+        run: |
+          {
+            echo "## Perf check: Citrus \`$(git rev-parse --short HEAD)\` vs mihomo"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/perf/env.txt"
+            echo '```'
+            echo
+          } >>"$GITHUB_STEP_SUMMARY"
+          go run ./cmd/cmp gate -dir "$RUNNER_TEMP/perf" -baseline ci/baseline.json \
+            -write "$RUNNER_TEMP/perf/ratios.json" -summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Anomalies
+        if: ${{ always() }}
+        run: |
+          f="$RUNNER_TEMP/perf/tables.md"
+          [ -f "$f" ] || exit 0
+          sed -n '/^#### Anomalies/,$p' "$f" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perf-results
+          path: ${{ runner.temp }}/perf
+          if-no-files-found: ignore
+          retention-days: 30

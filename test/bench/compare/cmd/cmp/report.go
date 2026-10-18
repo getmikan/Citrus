@@ -302,6 +302,55 @@ func cmdReport(args []string) error {
 			fmt.Fprintf(&md, "| %s | %s |\n", p, strings.Join(cells, " | "))
 		}
 	}
+	// Vision direct copy per bulk phase (reality-tlsin), summed over the
+	// repetitions: streams whose upload / download went direct, of all.
+	var vrows []string
+	for _, p := range protoOrder {
+		for _, ph := range []string{"dl1", "ul1", "dl32", "ul32", "dl1_fixed", "ul1_fixed"} {
+			var cells []string
+			any := false
+			for _, s := range servers {
+				var n, up, down, noLog int
+				for _, r := range runs[key{p, s}] {
+					b, ok := r.Bulk[ph]
+					if !ok {
+						continue
+					}
+					if b.Vision == nil {
+						noLog++
+						continue
+					}
+					n += b.Streams
+					up += b.Vision.UpDirect
+					down += b.Vision.DownDirect
+				}
+				switch {
+				case n == 0 && noLog == 0:
+					cells = append(cells, missing(p, s))
+				case n == 0:
+					cells = append(cells, "no log")
+					any = true
+				default:
+					c := fmt.Sprintf("up %d/%d, down %d/%d", up, n, down, n)
+					if noLog > 0 {
+						c += fmt.Sprintf(" (%d runs without log)", noLog)
+					}
+					cells = append(cells, c)
+					any = true
+				}
+			}
+			if any && p == "reality-tlsin" {
+				vrows = append(vrows, fmt.Sprintf("| %s %s | %s |\n", p, ph, strings.Join(cells, " | ")))
+			}
+		}
+	}
+	if len(vrows) > 0 {
+		md.WriteString("\n#### Vision direct copy: streams that switched, of all (Xray client's debug log, every repetition)\n\n" +
+			strings.Replace(header, "| protocol |", "| protocol, phase |", 1))
+		for _, r := range vrows {
+			md.WriteString(r)
+		}
+	}
 	md.WriteString("\n#### Anomalies recorded by the harness\n\n")
 	if len(anomalies) == 0 {
 		md.WriteString("None.\n")
@@ -427,7 +476,7 @@ func cmdReport(args []string) error {
 					vs = fmt.Sprintf("%+.0f%% vs %s", d, serverTitle[other])
 				}
 			}
-			if notComparable[p][k] {
+			if notComparable[p][k] && !visionAllDirect(runs, p) {
 				winner, vs = "not comparable (client-side Vision switch)", "–"
 			}
 			row := "| " + p
@@ -479,10 +528,37 @@ func full(p memPoint) bool { return p.Reached == p.Target }
 
 // notComparable lists metrics whose value a protocol variant's client decides
 // rather than the server. reality-tlsin uploads: Xray's client switches Vision
-// to direct copy only when one of its reads holds whole TLS records, which
-// depends on how the bench's inner command record and the bulk data split
-// across its socket reads, so a stream is padded to the end (~400 MB/s on any
-// server) or goes direct (~3000 MB/s) at random.
+// to direct copy only when one of its reads holds nothing but whole TLS
+// records. Before the TLS sink's ready byte and upload ack (handleSinkTLS)
+// that depended on how the inner command record and the bulk data split
+// across its socket reads, so a stream was padded to the end (~400 MB/s on
+// any server) or went direct (~3000 MB/s) at random. The metrics are ranked
+// only when the client log shows every upload stream of every run going
+// direct (visionAllDirect): never for results recorded before the fix, which
+// have no Vision data.
 var notComparable = map[string]map[string]bool{
 	"reality-tlsin": {"ul1_mbps": true, "ul32_mbps": true, "ul32_cpu_gb": true, "ulfix_cpu_gb": true},
+}
+
+// visionAllDirect: every upload phase of every run of the protocol has
+// Vision data, and all its streams went direct.
+func visionAllDirect[K comparable](runs map[K][]*result, proto string) bool {
+	seen := false
+	for _, rs := range runs {
+		for _, r := range rs {
+			if r.Proto != proto {
+				continue
+			}
+			for _, b := range r.Bulk {
+				if b.Dir != "up" {
+					continue
+				}
+				if b.Vision == nil || b.Vision.Streams != b.Streams || b.Vision.UpDirect != b.Streams {
+					return false
+				}
+				seen = true
+			}
+		}
+	}
+	return seen
 }

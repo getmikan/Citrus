@@ -466,8 +466,16 @@ func xrayClient(m *material, proto, addr string, port, socksPort int) obj {
 				"security": "tls", "tlsSettings": tls},
 		}
 	}
+	level := "warning"
+	if proto == "reality-tlsin" {
+		// Vision's padding commands are logged at debug level only: cmp
+		// measure reads them to tell, per stream, whether Vision went direct
+		// (visionCount). A stream that goes direct logs a few lines; one that
+		// stays padded logs every write.
+		level = "debug"
+	}
 	return obj{
-		"log": obj{"loglevel": "warning", "access": "none"},
+		"log": obj{"loglevel": level, "access": "none"},
 		"inbounds": []obj{{"listen": "127.0.0.1", "port": socksPort, "protocol": "socks",
 			"settings": obj{"udp": false}}},
 		"outbounds": []obj{out},

@@ -47,6 +47,8 @@ func main() {
 		err = cmdMeasure(os.Args[2:])
 	case "report":
 		err = cmdReport(os.Args[2:])
+	case "gate":
+		err = cmdGate(os.Args[2:])
 	default:
 		printUsage()
 	}
@@ -57,6 +59,6 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "usage: cmp gen|sink|measure|report [flags]")
+	fmt.Fprintln(os.Stderr, "usage: cmp gen|sink|measure|report|gate [flags]")
 	os.Exit(2)
 }

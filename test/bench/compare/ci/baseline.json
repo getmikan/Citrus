@@ -1,0 +1,50 @@
+{
+  "note": "Citrus/mihomo ratios (above 1 = Citrus better): per metric the lowest of three CI runs of PR #127 (2026-10-18, Citrus dev f6136f7 vs mihomo v1.19.32, ubuntu-latest, 4 vCPUs). The gate fails below (1 - tolerance) x these.",
+  "ratios": {
+    "hy2": {
+      "dl1_mbps": 0.966,
+      "dl32_cpu_gb": 0.982,
+      "dl32_mbps": 0.969,
+      "hs_cpu_ms": 1.016,
+      "hs_rate": 1.015,
+      "mem1k_rss": 2.371,
+      "ul1_mbps": 0.997,
+      "ul32_cpu_gb": 0.979,
+      "ul32_mbps": 0.97
+    },
+    "reality": {
+      "dl1_mbps": 0.942,
+      "dl32_cpu_gb": 1.236,
+      "dl32_mbps": 1.237,
+      "hs_cpu_ms": 0.966,
+      "hs_rate": 0.967,
+      "mem1k_rss": 1.885,
+      "ul1_mbps": 1.513,
+      "ul32_cpu_gb": 1.6,
+      "ul32_mbps": 1.602
+    },
+    "ss2022": {
+      "dl1_mbps": 1.056,
+      "dl32_cpu_gb": 1.086,
+      "dl32_mbps": 1.087,
+      "hs_cpu_ms": 1.021,
+      "hs_rate": 1.024,
+      "mem1k_rss": 1.182,
+      "ul1_mbps": 1.544,
+      "ul32_cpu_gb": 1.601,
+      "ul32_mbps": 1.602
+    },
+    "trojan": {
+      "dl1_mbps": 0.85,
+      "dl32_cpu_gb": 1.171,
+      "dl32_mbps": 1.171,
+      "hs_cpu_ms": 0.997,
+      "hs_rate": 1,
+      "mem1k_rss": 1.795,
+      "ul1_mbps": 1.47,
+      "ul32_cpu_gb": 1.584,
+      "ul32_mbps": 1.584
+    }
+  },
+  "tolerance": 0.2
+}

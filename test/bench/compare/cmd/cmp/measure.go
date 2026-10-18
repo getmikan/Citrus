@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,7 @@ type measureOpts struct {
 	dur           time.Duration // timed window of a throughput / handshake phase
 	ramp          time.Duration // before each window, not measured
 	idleLevels    []int
+	settle        time.Duration // memory phase: wait before each reading
 	hsWorkers     int
 	fixedRate     int64 // bytes/s for the fixed-rate CPU phase
 	phases        map[string]bool
@@ -61,6 +63,11 @@ type bulkResult struct {
 	usage
 	Errors     int    `json:"errors"`
 	FirstError string `json:"first_error,omitempty"`
+	// reality-tlsin: Vision on the Xray client, from its debug log. Streams
+	// is the number of tunnels of the phase seen in the log, UpDirect those
+	// whose upload switched to direct copy, DownDirect those whose download
+	// did (the server's padding command).
+	Vision *visionCount `json:"vision,omitempty"`
 }
 
 type hsResult struct {
@@ -150,6 +157,7 @@ func cmdMeasure(args []string) error {
 	fs.DurationVar(&o.dur, "dur", 10*time.Second, "measured window per phase")
 	fs.DurationVar(&o.ramp, "ramp", 2*time.Second, "unmeasured ramp before each window")
 	idle := fs.String("idle", "1000,5000", "idle tunnel levels")
+	fs.DurationVar(&o.settle, "settle", 5*time.Second, "memory phase: wait before each reading")
 	fs.IntVar(&o.hsWorkers, "hs-workers", 128, "concurrent clients in the handshake phase")
 	fs.StringVar(&o.pprof, "pprof", "", "external controller URL of a mihomo/Citrus server started with log-level debug: "+
 		"the log level is set to warning, then a CPU profile is taken in every handshake and bulk window")
@@ -341,21 +349,23 @@ func probeKeyShare(o measureOpts, m *material, serverAddr string) string {
 // startClient starts the protocol's client (clientFor) with cfg, a SOCKS5
 // inbound on socksPort.
 func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), error) {
-	// Per network (CMP_NET): with --pid=host the pkill below sees the clients
-	// of every benchmark setup on the host, not only ours.
+	// Per network (CMP_NET), so that two benchmark setups on a host do not
+	// share the directory (and its pid file).
 	dir := filepath.Join(os.TempDir(), "cmp-"+netPrefix()+"-"+role)
 	path := filepath.Join(dir, "config.json")
 	if err := writeJSON(path, cfg); err != nil {
 		return nil, err
 	}
 	client := clientFor(o.proto)
-	logf, err := os.Create(filepath.Join(o.logDir, fmt.Sprintf("%s-%s-%s-rep%d.log", o.server, o.proto, client+"-"+role, o.rep)))
+	logf, err := os.Create(clientLog(o, role))
 	if err != nil {
 		return nil, err
 	}
-	// A client left over from an interrupted run would hold the port.
-	exec.Command("pkill", "-f", path).Run()
-	time.Sleep(200 * time.Millisecond)
+	// A client left over from an interrupted run would hold the port: kill
+	// the one of the pid file. Not pkill: with --pid=host it reads every
+	// process of the host, and blocks on one stuck in the kernel (D state).
+	pidFile := filepath.Join(dir, "pid")
+	killStale(pidFile, path)
 	bin := o.xray
 	if client == "singbox" {
 		bin = o.singbox
@@ -366,6 +376,7 @@ func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), er
 		logf.Close()
 		return nil, err
 	}
+	os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
 	stop := func() {
 		cmd.Process.Kill()
 		cmd.Wait()
@@ -376,6 +387,31 @@ func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), er
 		return nil, err
 	}
 	return stop, nil
+}
+
+// killStale kills the process of pidFile if its command line still names
+// cfgPath (the pid may have been reused).
+func killStale(pidFile, cfgPath string) {
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 0 {
+		return
+	}
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || !strings.Contains(string(cmdline), cfgPath) {
+		return
+	}
+	if p, err := os.FindProcess(pid); err == nil {
+		p.Kill()
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func clientLog(o measureOpts, role string) string {
+	return filepath.Join(o.logDir, fmt.Sprintf("%s-%s-%s-rep%d.log", o.server, o.proto, clientFor(o.proto)+"-"+role, o.rep))
 }
 
 func (r *runner) ready(timeout time.Duration) error {
@@ -522,6 +558,10 @@ func (r *runner) bulk(streams int, dir byte, rate int64) *bulkResult {
 	if rate > 0 {
 		res.TargetMBps = float64(rate*int64(streams)) / 1e6
 	}
+	var logFrom int64 = -1
+	if r.o.proto == "reality-tlsin" {
+		logFrom = fileSize(clientLog(r.o, "client"))
+	}
 	var counter atomic.Int64
 	var stopping atomic.Bool
 	var errs errBox
@@ -594,6 +634,18 @@ func (r *runner) bulk(streams int, dir byte, rate int64) *bulkResult {
 		r.anomaly("fixed rate %s: %.1f MB/s of %.1f", res.Dir, res.MBps, res.TargetMBps)
 	}
 	time.Sleep(time.Second) // let the closes propagate before the next phase
+	if logFrom >= 0 {
+		v, err := visionFromLog(clientLog(r.o, "client"), logFrom)
+		if err != nil {
+			r.anomaly("vision %d x %s: %v", streams, res.Dir, err)
+		} else {
+			res.Vision = v
+			if v.Streams != streams || v.UpDirect != streams || v.DownDirect != streams {
+				r.anomaly("vision %d x %s: %d streams in the client log, upload direct on %d, download direct on %d",
+					streams, res.Dir, v.Streams, v.UpDirect, v.DownDirect)
+			}
+		}
+	}
 	return res
 }
 
@@ -708,7 +760,7 @@ func (r *runner) openIdle() (net.Conn, error) {
 }
 
 func (r *runner) memory() *memResult {
-	const settle = 5 * time.Second
+	settle := r.o.settle
 	time.Sleep(settle)
 	g := r.o.serverCG
 	res := &memResult{BaseRSS: g.rss(), BaseMemCurrent: g.memCurrent()}
