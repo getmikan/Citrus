@@ -1,0 +1,28 @@
+{
+  "find-process-mode": "off",
+  "ipv6": false,
+  "listeners": [
+    {
+      "certificate": "<redacted: self-signed P-256 certificate for bench.test>",
+      "listen": "0.0.0.0",
+      "name": "in",
+      "port": 443,
+      "private-key": "<redacted>",
+      "type": "vless",
+      "users": [
+        {
+          "username": "u",
+          "uuid": "<redacted>"
+        }
+      ],
+      "xhttp-config": {
+        "mode": "stream-one",
+        "path": "/xh"
+      }
+    }
+  ],
+  "log-level": "warning",
+  "rules": [
+    "MATCH,DIRECT"
+  ]
+}

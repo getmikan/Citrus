@@ -43,8 +43,11 @@ octets of the /24), `IMAGE` (`citrus-cmp`, also the prefix of the Go cache
 volumes) let a second setup run next to another one without touching it.
 `ALONE=1` makes every run wait until no other container runs on the host
 (our own excepted, and the names matching the extended regex
-`ALONE_IGNORE`), and records the waits in `$OUT/waits.txt`: the numbers are
-only valid with the host otherwise idle. Example:
+`ALONE_IGNORE`), and records the waits in `$OUT/waits.txt`; a container that
+starts during a run marks it `disturbed` there. The numbers are only valid
+with the host otherwise idle: redo such runs with `ONLY` (space-separated run
+tags, e.g. `ONLY="citrus-trojan-rep2 xray-ss2022-rep1"`, with the same
+`REPS`) into another `OUT` and copy their `runs/*.json` over. Example:
 `ALONE=1 ALONE_IGNORE='^(db|web)-' NAME=c4 NET=c4-net SUBNET=10.81.0 IMAGE=c4-cmp test/bench/compare/run.sh`.
 
 A quick smoke run: `PROTOS="trojan hy2" REPS=1 DUR=3s IDLE=200,500 OUT=/tmp/smoke test/bench/compare/run.sh`.

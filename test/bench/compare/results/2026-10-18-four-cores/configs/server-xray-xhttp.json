@@ -1,0 +1,52 @@
+{
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "<redacted>"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h2"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/cfg/cert.pem",
+              "keyFile": "/cfg/key.pem"
+            }
+          ]
+        },
+        "xhttpSettings": {
+          "mode": "stream-one",
+          "path": "/xh"
+        }
+      }
+    }
+  ],
+  "log": {
+    "access": "none",
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "finalRules": [
+          {
+            "action": "allow"
+          }
+        ]
+      }
+    }
+  ]
+}

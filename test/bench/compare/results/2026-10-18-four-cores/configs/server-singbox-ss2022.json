@@ -1,0 +1,25 @@
+{
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "listen_port": 443,
+      "method": "2022-blake3-aes-128-gcm",
+      "network": "tcp",
+      "password": "<redacted>",
+      "tag": "in",
+      "type": "shadowsocks"
+    }
+  ],
+  "log": {
+    "level": "warn"
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "hysteria",
+      "settings": {
+        "clients": [
+          {
+            "auth": "<redacted>"
+          }
+        ],
+        "version": 2
+      },
+      "streamSettings": {
+        "finalmask": {
+          "quicParams": {
+            "maxIncomingStreams": 1152921504606846976
+          }
+        },
+        "hysteriaSettings": {
+          "version": 2
+        },
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h3"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/cfg/cert.pem",
+              "keyFile": "/cfg/key.pem"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "log": {
+    "access": "none",
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "finalRules": [
+          {
+            "action": "allow"
+          }
+        ]
+      }
+    }
+  ]
+}

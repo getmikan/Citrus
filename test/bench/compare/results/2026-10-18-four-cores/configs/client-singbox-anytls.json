@@ -1,0 +1,30 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 1080,
+      "tag": "in",
+      "type": "socks"
+    }
+  ],
+  "log": {
+    "level": "warn"
+  },
+  "outbounds": [
+    {
+      "password": "<redacted>",
+      "server": "10.81.0.10",
+      "server_port": 443,
+      "tag": "out",
+      "tls": {
+        "certificate": "<redacted: self-signed P-256 certificate for bench.test>",
+        "enabled": true,
+        "server_name": "bench.test"
+      },
+      "type": "anytls"
+    }
+  ],
+  "route": {
+    "final": "out"
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "server": "mihomo",
+  "proto": "anytls",
+  "rep": 2,
+  "start": "2026-10-17T21:25:37.501439014Z",
+  "keyshare": "X25519MLKEM768",
+  "memory": {
+    "base_rss": 51838976,
+    "base_cgroup_memory_current": 17920000,
+    "points": [
+      {
+        "target": 1000,
+        "reached": 1000,
+        "open_sec": 0.471082663,
+        "rss": 117440512,
+        "cgroup_memory_current": 89018368,
+        "cgroup_anon": 82440192,
+        "cgroup_sock": 0,
+        "rss_per_conn": 65601.536,
+        "cgroup_mem_per_conn": 71098.368,
+        "errors": 0
+      },
+      {
+        "target": 5000,
+        "reached": 5000,
+        "open_sec": 1.055246837,
+        "rss": 438337536,
+        "cgroup_memory_current": 433254400,
+        "cgroup_anon": 403394560,
+        "cgroup_sock": 0,
+        "rss_per_conn": 77299.712,
+        "cgroup_mem_per_conn": 83066.88,
+        "errors": 0
+      }
+    ],
+    "after_close_rss": 439255040
+  },
+  "handshake": {
+    "workers": 128,
+    "conns": 100998,
+    "conns_per_sec": 10100.099233619974,
+    "rate_first_half": 11672.6,
+    "rate_second_half": 8527,
+    "ttfb_p50_ms": 11.265507,
+    "ttfb_p99_ms": 38.122643,
+    "server_cpu_ms_per_conn": 0.1855896354383255,
+    "server_cpu_sec": 18.744182,
+    "server_cores": 1.8744737346584417,
+    "client_util": 0.377211518427357,
+    "sink_util": 0.1168717625363343,
+    "window_sec": 9.999703732,
+    "errors": 0
+  },
+  "bulk": {
+    "dl1": {
+      "streams": 1,
+      "dir": "down",
+      "mbps": 892.6067304508216,
+      "bytes": 8926232576,
+      "cpu_sec_per_gb": 0.5089271382211406,
+      "server_cpu_sec": 4.542802,
+      "server_cores": 0.4542717888852657,
+      "client_util": 0.12179629486852273,
+      "sink_util": 0.01736972838905704,
+      "window_sec": 10.000185156,
+      "errors": 0
+    },
+    "dl1_fixed": {
+      "streams": 1,
+      "dir": "down",
+      "target_mbps": 62.5,
+      "mbps": 62.49854749787552,
+      "bytes": 625016832,
+      "cpu_sec_per_gb": 1.858751541590483,
+      "server_cpu_sec": 1.161751,
+      "server_cores": 0.11616927150884215,
+      "client_util": 0.018686776725277715,
+      "sink_util": 0.01424746017072933,
+      "window_sec": 10.000501724,
+      "errors": 0
+    },
+    "dl32": {
+      "streams": 32,
+      "dir": "down",
+      "mbps": 2157.276119645051,
+      "bytes": 21573206016,
+      "cpu_sec_per_gb": 0.8670007131127375,
+      "server_cpu_sec": 18.703985,
+      "server_cores": 1.8703599341133383,
+      "client_util": 0.27925303479919183,
+      "sink_util": 0.04314422288769616,
+      "window_sec": 10.000206195,
+      "errors": 0
+    },
+    "ul1": {
+      "streams": 1,
+      "dir": "up",
+      "mbps": 1258.2989758638723,
+      "bytes": 12583665664,
+      "cpu_sec_per_gb": 0.9087771644089352,
+      "server_cpu_sec": 11.435748,
+      "server_cores": 1.143513375264237,
+      "client_util": 0.052603310085401825,
+      "sink_util": 0.05905664022532498,
+      "window_sec": 10.000537158,
+      "errors": 0
+    },
+    "ul1_fixed": {
+      "streams": 1,
+      "dir": "up",
+      "target_mbps": 62.5,
+      "mbps": 62.49866952927675,
+      "bytes": 625000448,
+      "cpu_sec_per_gb": 2.458383837830465,
+      "server_cpu_sec": 1.536491,
+      "server_cores": 0.1536457190566813,
+      "client_util": 0.015078239634923912,
+      "sink_util": 0.00658726754849505,
+      "window_sec": 10.000220048,
+      "errors": 0
+    },
+    "ul32": {
+      "streams": 32,
+      "dir": "up",
+      "mbps": 2923.251330441649,
+      "bytes": 29235773440,
+      "cpu_sec_per_gb": 0.641927262109745,
+      "server_cpu_sec": 18.76724,
+      "server_cores": 1.876514723009077,
+      "client_util": 0.13438769822031307,
+      "sink_util": 0.14791239167405723,
+      "window_sec": 10.001115243,
+      "errors": 0
+    }
+  },
+  "latency": {
+    "idle_rtt_p50_ms": 0.560174,
+    "idle_rtt_p99_ms": 0.748339,
+    "load_rtt_p50_ms": 91.295156,
+    "load_rtt_p99_ms": 164.100514,
+    "load_new_conn_ttfb_p50_ms": 133.248342,
+    "load_new_conn_ttfb_p99_ms": 208.27019,
+    "load_bulk_mbps": 2212.191750288619,
+    "bulk_streams": 8,
+    "rtt_samples": 500,
+    "server_cpu_sec": 87.295075,
+    "server_cores": 1.8761535396386955,
+    "client_util": 0.2811759647963986,
+    "sink_util": 0.043603620732070685,
+    "window_sec": 46.528747864,
+    "errors": 0
+  },
+  "rss_start": 51838976,
+  "rss_end": 90603520,
+  "server_cpus": 2,
+  "client_cpus": 14,
+  "anomalies": [
+    "handshake rate fell from 11673/s to 8527/s within the window"
+  ],
+  "seconds": 176.148108407
+}
