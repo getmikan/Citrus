@@ -53,10 +53,10 @@ github.com/getmikan/http v0.1.8-citrus.2 h1:eBNDiHT/4KQMIhEZ+T81w4MrMo00gwMPm7ja
 github.com/getmikan/http v0.1.8-citrus.2/go.mod h1:Nxx0zZAo2AhRfanyL+fmmK6ACMtVsfpwIl1aFAik2Eg=
 github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876 h1:K+AdGZRxqkfrP+P8Guo32VNfvm7zfNMFCLd3GvxNt7I=
 github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876/go.mod h1:/yI4OiGOSn0SURhZdJF3CbtPg3nwK700bG8TZLMBvAg=
-github.com/getmikan/tls v0.1.8-citrus.1 h1:YR2EesUPoucmkm5h11tkrZ+47EfMoXTQUNNgRELaRaM=
-github.com/getmikan/tls v0.1.8-citrus.1/go.mod h1:0XeVdL0cBw+8i5Hqy3lVeP9IyD/LFTq02ExvHM6rzEM=
-github.com/getmikan/utls v1.8.8-citrus.3 h1:gjspcQTkRv7qdEiE3GlA8YCkscymuzItqwHNe1Vs6es=
-github.com/getmikan/utls v1.8.8-citrus.3/go.mod h1:gxkPJpm+5l3rStQM59z70up244h0tv4TlSkB5dlakjU=
+github.com/getmikan/tls v0.1.9-0.20261017232115-26a142e53351 h1:SRpPfeHAzuxPpwcc2Dj3K1oPy93Gl4tve3FlJ65UVTs=
+github.com/getmikan/tls v0.1.9-0.20261017232115-26a142e53351/go.mod h1:0XeVdL0cBw+8i5Hqy3lVeP9IyD/LFTq02ExvHM6rzEM=
+github.com/getmikan/utls v1.8.9-0.20261017232116-b76689d5c62f h1:J1HZfbKSYttdGsUTkP7oUd24tT3/uhWrdXvgq33xmeU=
+github.com/getmikan/utls v1.8.9-0.20261017232116-b76689d5c62f/go.mod h1:gxkPJpm+5l3rStQM59z70up244h0tv4TlSkB5dlakjU=
 github.com/github/fakeca v0.1.0 h1:Km/MVOFvclqxPM9dZBC4+QE564nU4gz4iZ0D9pMw28I=
 github.com/github/fakeca v0.1.0/go.mod h1:+bormgoGMMuamOscx7N91aOuUST7wdaJ2rNjeohylyo=
 github.com/go-ole/go-ole v1.3.0 h1:Dt6ye7+vXGIKZ7Xtk4s6/xVdGDQynvom7xCFEdWr6uE=
