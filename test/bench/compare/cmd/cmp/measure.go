@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -348,8 +349,8 @@ func probeKeyShare(o measureOpts, m *material, serverAddr string) string {
 // startClient starts the protocol's client (clientFor) with cfg, a SOCKS5
 // inbound on socksPort.
 func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), error) {
-	// Per network (CMP_NET): with --pid=host the pkill below sees the clients
-	// of every benchmark setup on the host, not only ours.
+	// Per network (CMP_NET), so that two benchmark setups on a host do not
+	// share the directory (and its pid file).
 	dir := filepath.Join(os.TempDir(), "cmp-"+netPrefix()+"-"+role)
 	path := filepath.Join(dir, "config.json")
 	if err := writeJSON(path, cfg); err != nil {
@@ -360,9 +361,11 @@ func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), er
 	if err != nil {
 		return nil, err
 	}
-	// A client left over from an interrupted run would hold the port.
-	exec.Command("pkill", "-f", path).Run()
-	time.Sleep(200 * time.Millisecond)
+	// A client left over from an interrupted run would hold the port: kill
+	// the one of the pid file. Not pkill: with --pid=host it reads every
+	// process of the host, and blocks on one stuck in the kernel (D state).
+	pidFile := filepath.Join(dir, "pid")
+	killStale(pidFile, path)
 	bin := o.xray
 	if client == "singbox" {
 		bin = o.singbox
@@ -373,6 +376,7 @@ func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), er
 		logf.Close()
 		return nil, err
 	}
+	os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
 	stop := func() {
 		cmd.Process.Kill()
 		cmd.Wait()
@@ -383,6 +387,27 @@ func startClient(o measureOpts, role string, cfg obj, socksPort int) (func(), er
 		return nil, err
 	}
 	return stop, nil
+}
+
+// killStale kills the process of pidFile if its command line still names
+// cfgPath (the pid may have been reused).
+func killStale(pidFile, cfgPath string) {
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 0 {
+		return
+	}
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || !strings.Contains(string(cmdline), cfgPath) {
+		return
+	}
+	if p, err := os.FindProcess(pid); err == nil {
+		p.Kill()
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func clientLog(o measureOpts, role string) string {
