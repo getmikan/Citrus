@@ -1,39 +1,56 @@
-# Server comparison: Xray-core vs mihomo vs Citrus
+# Server comparison: Xray-core vs sing-box vs mihomo vs Citrus
 
-A reproducible comparison of the **server side** of three cores, each in its
+A reproducible comparison of the **server side** of four cores, each in its
 own container, under the same load:
 
 | server | binary | pin |
 |---|---|---|
-| Xray-core | release `Xray-linux-64.zip` v26.10.10 | SHA-256 `72a5fde819713a103c6fc26a87aa025c1518c918a34eba4bc38d64dc0728e5d9` (also checked against the release's `.dgst`) |
+| Xray-core | release `Xray-linux-64.zip` v26.10.17 | SHA-256 `ecdd54eccd24c4c21a8f00968e7dbf7f5996da92383d2321170b560dc4a95158` (the asset digest on GitHub, also checked against the release's `.dgst`) |
+| sing-box | release `sing-box-1.14.3-linux-amd64-musl.tar.gz` v1.14.3 (musl: the runtime image is alpine) | SHA-256 `41fc81fd041134d4d7d850a928d7d2cde17a7d6563953f406b22d32a68bfab1f` (the asset digest on GitHub; the release publishes no checksum file) |
 | mihomo | release `mihomo-linux-amd64-v1.19.32.gz` | SHA-256 `8451100836c9eda194331c2babfad490b2faf30cebc1a04b0e76fd8ac2d35d10` |
 | Citrus | built from this checkout | the flags of the linux-amd64 release build: `GOAMD64=v3 CGO_ENABLED=0 go build -tags with_gvisor -trimpath -ldflags "-extldflags --static -X ... -w -s -buildid="` in `golang:1.26.9` |
 
-The pins are the ones of `.github/workflows/interop.yml`. Results and the
-interpretation of the last run: [`results/2026-10-16/RESULTS.md`](results/2026-10-16/RESULTS.md).
+The pins live in `fetch.sh`. Results and the interpretation of the runs:
+[`results/2026-10-18-four-cores/RESULTS.md`](results/2026-10-18-four-cores/RESULTS.md)
+(four cores, nine protocol variants), [`results/2026-10-16/RESULTS.md`](results/2026-10-16/RESULTS.md)
+(Xray, mihomo, Citrus on REALITY, XHTTP, Trojan, SS2022).
 
 ## Run
 
 ```sh
-test/bench/compare/run.sh          # about 2 hours with the defaults (3 repetitions)
+test/bench/compare/run.sh          # about 4 hours with the defaults (3 repetitions)
 ```
 
 Needs bash and Docker with a Linux engine (Linux, or Git Bash + Docker Desktop
 on Windows) and network access for the downloads. Everything runs in
 containers: the downloads (`fetch.sh`, in `alpine`), the Citrus build
-(`build.sh`, in `golang:1.26.9`, module cache in the `citrus-cmp-gomod`
-volume), the runtime image `citrus-cmp` (`Dockerfile`, alpine with the three
-servers, the Xray client and the `cmp` tool).
+(`build.sh`, in `golang:1.26.9`, module cache in the `$IMAGE-gomod`
+volume), the runtime image `$IMAGE` (`Dockerfile`, alpine with the four
+servers, the clients and the `cmp` tool). On Windows the scripts must have LF
+line endings in the working tree (`sh` in the containers runs them).
 
-Knobs (environment): `REPS` (3), `PROTOS`, `SERVERS`, `SKIP`
-(`server:proto` pairs, default `xray:reality-x25519`), `DUR` (measured window
-per phase, 10s), `RAMP` (unmeasured start of each phase, 2s), `IDLE`
-(`1000,5000`), `SERVER_CPUS` (`2,4`), `CLIENT_CPUS` (`6-19`), `SINK_CPUS`
-(`20-27`), `SERVER_MEM` (`2g`), `OUT` (`results/<date>`), `PHASES`
-(`mem,hs,bulk,fixed,lat`), `FP` (client uTLS fingerprint of the REALITY
-runs, `chrome`), `SKIP_BUILD=1` to reuse the image.
+Knobs (environment): `REPS` (3), `PROTOS`, `SERVERS` (`xray singbox mihomo
+citrus`), `SKIP` (`server:proto` pairs, default `xray:reality-x25519`), `DUR`
+(measured window per phase, 10s), `RAMP` (unmeasured start of each phase,
+2s), `IDLE` (`1000,5000`), `SERVER_CPUS` (`2,4`), `CLIENT_CPUS` (`6-19`),
+`SINK_CPUS` (`20-27`), `SERVER_MEM` (`2g`), `OUT` (`results/<date>`),
+`PHASES` (`mem,hs,bulk,fixed,lat`), `FP` (client uTLS fingerprint of the
+REALITY runs, `chrome`), `SKIP_BUILD=1` to reuse the image.
 
-A quick smoke run: `PROTOS=trojan REPS=1 DUR=3s IDLE=200,500 OUT=/tmp/smoke test/bench/compare/run.sh`.
+Sharing the host: `NAME` (`cmp`: containers `$NAME-server`, `$NAME-client`,
+`$NAME-sink`), `NET` (`citrus-cmp`), `SUBNET` (`10.77.0`, the first three
+octets of the /24), `IMAGE` (`citrus-cmp`, also the prefix of the Go cache
+volumes) let a second setup run next to another one without touching it.
+`ALONE=1` makes every run wait until no other container runs on the host
+(our own excepted, and the names matching the extended regex
+`ALONE_IGNORE`), and records the waits in `$OUT/waits.txt`; a container that
+starts during a run marks it `disturbed` there. The numbers are only valid
+with the host otherwise idle: redo such runs with `ONLY` (space-separated run
+tags, e.g. `ONLY="citrus-trojan-rep2 xray-ss2022-rep1"`, with the same
+`REPS`) into another `OUT` and copy their `runs/*.json` over. Example:
+`ALONE=1 ALONE_IGNORE='^(db|web)-' NAME=c4 NET=c4-net SUBNET=10.81.0 IMAGE=c4-cmp test/bench/compare/run.sh`.
+
+A quick smoke run: `PROTOS="trojan hy2" REPS=1 DUR=3s IDLE=200,500 OUT=/tmp/smoke test/bench/compare/run.sh`.
 
 CPU profiles (mihomo and Citrus): `PPROF=1` starts them with `log-level:
 debug` and an external controller (secret `bench`), which mounts
@@ -48,22 +65,26 @@ then `go tool pprof -top /tmp/prof/pprof/citrus-trojan-handshake-cpu.pb.gz`
 ## Layout
 
 ```
-10.77.0.10  cmp-server  cpuset 2,4   2 GiB   one of xray / mihomo / citrus, fresh per run
-10.77.0.20  cmp-sink    cpuset 20-27         cmp sink: TCP sink :9000, TLS sink :9443, REALITY target :8443
-10.77.0.30  cmp-client  cpuset 6-19  8 GiB   cmp measure + Xray client (SOCKS5 127.0.0.1:1080)
+<SUBNET>.10  <NAME>-server  cpuset 2,4   2 GiB   one of xray / sing-box / mihomo / citrus, fresh per run
+<SUBNET>.20  <NAME>-sink    cpuset 20-27         cmp sink: TCP sink :9000, TLS sink :9443, REALITY target :8443
+<SUBNET>.30  <NAME>-client  cpuset 6-19  8 GiB   cmp measure + the protocol's client (SOCKS5 127.0.0.1:1080)
 ```
 
 - Same Docker network for all three, same sysctls
-  (`ip_local_port_range 1024 65000`, `tcp_tw_reuse 1`) and `nofile` limit.
+  (`ip_local_port_range 1024 65000`, `tcp_tw_reuse 1`), `nofile` limit and
+  `NET_ADMIN` capability (so that the QUIC servers and clients can raise their
+  UDP buffers past `net.core.rmem_max` with `SO_RCVBUFFORCE`, as on a real
+  host; it changes nothing for TCP).
 - The server gets two vCPUs on different virtual cores; their hyperthread
   siblings (3, 5) are left idle. `GOMAXPROCS` is left to the runtime (it sees
   the cpuset: 2).
-- **One client for every server**: Xray v26.10.10, driven through its SOCKS5
-  inbound by `cmp measure` in the same container. Xray speaks all four
-  protocols, and it is neither of the two mihomo-family servers, so the client
-  does not favour Citrus or mihomo; only the server changes between runs of a
-  protocol. Its CPU (and the sink's) is recorded per window and a run is
-  flagged when either goes above 70% of its cpuset.
+- **One client per protocol, the same for every server**, driven through its
+  SOCKS5 inbound by `cmp measure` in the same container. Xray v26.10.17
+  wherever Xray speaks the protocol (REALITY, XHTTP, Trojan, SS2022,
+  Hysteria2): it is neither sing-box nor of the mihomo family. sing-box
+  v1.14.3 for TUIC and AnyTLS, which Xray lacks. Within a protocol only the
+  server changes. The client's CPU (and the sink's) is recorded per window
+  and a run is flagged when either goes above 70% of its cpuset.
 - `cmp measure` reads the server container's cgroup through the host's
   `/sys/fs/cgroup` (`cpu.stat` for CPU time, `memory.current` and
   `memory.stat`) and the server process's `VmRSS` through `--pid=host`.
@@ -74,19 +95,28 @@ then `go tool pprof -top /tmp/prof/pprof/citrus-trojan-handshake-cpu.pb.gz`
 ## Protocols
 
 All server configs are generated by `cmp gen` (`results/<date>/configs` has
-copies with the keys redacted). Same settings on the three servers:
+copies with the keys redacted). Same settings on every server; a server
+without the inbound is `n/a` (no config, the run is skipped):
 
-| name | inbound | client |
-|---|---|---|
-| `reality` | VLESS + REALITY + `xtls-rprx-vision`, target = the sink's TLS 1.3 server | fingerprint `chrome` |
-| `reality-x25519` | same inbound | fingerprint `ios` (X25519 key share only); handshake phase only; skipped for Xray, whose v26.10.10 REALITY server rejects these ClientHellos |
-| `reality-tlsin` | same inbound | like `reality`, but every tunnel carries TLS 1.3 to the sink, so Vision's inner-TLS path is used; bulk and fixed-rate phases only |
-| `xhttp` | VLESS + XHTTP `stream-one`, TLS (h2) | XHTTP `stream-one`, ALPN h2, default xmux |
-| `trojan` | Trojan over TLS | |
-| `ss2022` | Shadowsocks `2022-blake3-aes-128-gcm`, one user, TCP | |
+| name | inbound | client | servers |
+|---|---|---|---|
+| `reality` | VLESS + REALITY + `xtls-rprx-vision`, target = the sink's TLS 1.3 server | Xray, fingerprint `chrome` | all four |
+| `reality-x25519` | same inbound | Xray, fingerprint `ios` (X25519 key share only); handshake phase only; skipped for Xray, whose REALITY server rejects these ClientHellos | sing-box, mihomo, Citrus |
+| `reality-tlsin` | same inbound | like `reality`, but every tunnel carries TLS 1.3 to the sink, so Vision's inner-TLS path is used; bulk and fixed-rate phases only | all four |
+| `xhttp` | VLESS + XHTTP `stream-one`, TLS (h2) | Xray, XHTTP `stream-one`, ALPN h2, default xmux | Xray, mihomo, Citrus (sing-box has no XHTTP) |
+| `trojan` | Trojan over TLS | Xray | all four |
+| `ss2022` | Shadowsocks `2022-blake3-aes-128-gcm`, one user, TCP | Xray | all four |
+| `hy2` | Hysteria2 (QUIC), ALPN h3, no bandwidth hints (BBR) | Xray | all four |
+| `tuic` | TUIC v5 (QUIC), ALPN h3, congestion control BBR on both ends | sing-box | sing-box, mihomo, Citrus |
+| `anytls` | AnyTLS over TLS, default padding | sing-box | sing-box, mihomo, Citrus |
 
-Before each TLS run a probe connection goes through a relay that reads the
+Before each TCP+TLS run a probe connection goes through a relay that reads the
 key share group of the server's ServerHello (`keyshare` in the results).
+
+Hysteria2 and TUIC carry every proxied connection as a stream of one QUIC
+connection, and the AnyTLS client reuses idle sessions: on these protocols a
+"new connection" in the handshake and latency phases is a new stream (or
+session reuse), not a new handshake, and an idle tunnel is an idle stream.
 
 ## Phases (per run)
 
@@ -108,10 +138,13 @@ key share group of the server's ServerHello (`keyshare` in the results).
    connections at 10/s during the download (TTFB).
 
 Each phase has an unmeasured ramp, then the window (`DUR`). Output:
-`runs/<server>-<proto>-rep<N>.json` (all numbers), `logs/` (server and client
-logs, container state: OOM, restarts), `summary.csv` and `tables.md`
-(median, min–max over the repetitions) and `compact.md` (medians, one cell
-per protocol: Xray / mihomo / Citrus) from `cmp report`, `env.txt`.
+`runs/<server>-<proto>-rep<N>.json` (all numbers; `singbox` is sing-box),
+`logs/` (server and client logs, container state: OOM, restarts),
+`summary.csv` and `tables.md` (median, min–max over the repetitions),
+`compact.md` (medians, one cell per protocol: Xray / sing-box / mihomo /
+Citrus) and `headline.md` (the main metrics with the winner per protocol: a
+tie when the min–max ranges overlap, and Citrus against the best other
+server) from `cmp report`, `env.txt`.
 
 ## Caveats
 
@@ -121,5 +154,9 @@ per protocol: Xray / mihomo / Citrus) from `cmp report`, `env.txt`.
   read differences within the min–max spread as noise.
 - Everything is on one host bridge: no latency, no loss. CPU per GB, CPU per
   connection and memory per tunnel carry over to real nodes better than MB/s.
+  For the QUIC protocols this matters most: without loss, congestion control
+  barely acts, and one QUIC connection is served by about one core on each
+  end, so the client can be the limit even under the 70% flag.
 - The servers run with their defaults beyond what the protocol needs (log
-  level `warning`; Citrus keeps its default per-user traffic accounting on).
+  level `warning`/`warn`; Citrus keeps its default per-user traffic accounting
+  on).

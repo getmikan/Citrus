@@ -1,0 +1,24 @@
+{
+  "find-process-mode": "off",
+  "ipv6": false,
+  "listeners": [
+    {
+      "alpn": [
+        "h3"
+      ],
+      "certificate": "<redacted: self-signed P-256 certificate for bench.test>",
+      "listen": "0.0.0.0",
+      "name": "in",
+      "port": 443,
+      "private-key": "<redacted>",
+      "type": "hysteria2",
+      "users": {
+        "u": "<redacted>"
+      }
+    }
+  ],
+  "log-level": "warning",
+  "rules": [
+    "MATCH,DIRECT"
+  ]
+}

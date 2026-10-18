@@ -18,6 +18,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -33,13 +34,50 @@ type material struct {
 	ShortID     string `json:"short_id"`
 	UUID        string `json:"uuid"`
 	TrojanPass  string `json:"trojan_password"`
-	SSPSK       string `json:"ss_psk"` // 2022-blake3-aes-128-gcm key, base64
+	SSPSK       string `json:"ss_psk"`   // 2022-blake3-aes-128-gcm key, base64
+	Password    string `json:"password"` // Hysteria2, TUIC (with UUID), AnyTLS
 }
 
-var servers = []string{"xray", "mihomo", "citrus"}
+// servers in table order. "singbox" is sing-box.
+var servers = []string{"xray", "singbox", "mihomo", "citrus"}
+
+var serverTitle = map[string]string{"xray": "Xray", "singbox": "sing-box", "mihomo": "mihomo", "citrus": "Citrus"}
 
 // serverProtos are the inbounds; the client-side variants map onto them (baseProto).
-var serverProtos = []string{"reality", "xhttp", "trojan", "ss2022"}
+var serverProtos = []string{"reality", "xhttp", "trojan", "ss2022", "hy2", "tuic", "anytls"}
+
+// supports lists the inbounds each server has. A missing pair is "n/a" in the
+// results: cmp gen writes no config for it and run.sh skips it.
+var supports = map[string][]string{
+	"xray":    {"reality", "xhttp", "trojan", "ss2022", "hy2"},
+	"singbox": {"reality", "trojan", "ss2022", "hy2", "tuic", "anytls"}, // no XHTTP in sing-box
+	"mihomo":  serverProtos,
+	"citrus":  serverProtos,
+}
+
+func supported(server, proto string) bool {
+	return slices.Contains(supports[server], baseProto(proto))
+}
+
+// clientFor is the client of a protocol, the same for every server: Xray
+// where Xray speaks the protocol (it is neither sing-box nor of the mihomo
+// family), otherwise sing-box (TUIC, AnyTLS).
+func clientFor(proto string) string {
+	switch baseProto(proto) {
+	case "tuic", "anytls":
+		return "singbox"
+	}
+	return "xray"
+}
+
+// isQUIC: the protocol runs over UDP (no TCP relay for the key share probe).
+func isQUIC(proto string) bool {
+	switch baseProto(proto) {
+	case "hy2", "tuic":
+		return true
+	}
+	return false
+}
 
 func baseProto(p string) string {
 	switch p {
@@ -90,6 +128,7 @@ func newMaterial() (*material, error) {
 	m.UUID = fmt.Sprintf("%x-%x-%x-%x-%x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:16])
 	m.TrojanPass = hex.EncodeToString(randBytes(16))
 	m.SSPSK = base64.StdEncoding.EncodeToString(randBytes(16))
+	m.Password = hex.EncodeToString(randBytes(16))
 	return m, nil
 }
 
@@ -97,6 +136,29 @@ func randBytes(n int) []byte {
 	b := make([]byte, n)
 	rand.Read(b)
 	return b
+}
+
+// serverConfig is the config of server for proto, and its file name under
+// the config directory; nil if the server has no such inbound.
+func serverConfig(m *material, server, proto string) (obj, string) {
+	if !supported(server, proto) {
+		return nil, ""
+	}
+	switch server {
+	case "xray":
+		return xrayServer(m, proto), filepath.Join("xray", proto+".json")
+	case "singbox":
+		return singboxServer(m, proto), filepath.Join("singbox", proto+".json")
+	default: // mihomo and Citrus read the same config (JSON is valid YAML)
+		return clashServer(m, proto), filepath.Join(server, proto+".yaml")
+	}
+}
+
+func clientConfig(m *material, proto, addr string, port, socksPort int) obj {
+	if clientFor(proto) == "singbox" {
+		return singboxClient(m, proto, addr, port, socksPort)
+	}
+	return xrayClient(m, proto, addr, port, socksPort)
 }
 
 func cmdGen(args []string) error {
@@ -116,17 +178,26 @@ func cmdGen(args []string) error {
 			CertPEM: "<redacted: self-signed P-256 certificate for " + benchSNI + ">", KeyPEM: "<redacted>",
 			CertSHA256: "<redacted>", RealityPriv: "<redacted>", RealityPub: "<redacted>",
 			ShortID: "<redacted>", UUID: "<redacted>", TrojanPass: "<redacted>", SSPSK: "<redacted>",
+			Password: "<redacted>",
 		}
 		for _, p := range serverProtos {
-			if err := writeJSON(filepath.Join(*redacted, "server-xray-"+p+".json"), xrayServer(&r, p)); err != nil {
-				return err
-			}
-			if err := writeJSON(filepath.Join(*redacted, "server-mihomo-citrus-"+p+".yaml"), clashServer(&r, p)); err != nil {
-				return err
+			for _, s := range []string{"xray", "singbox", "mihomo"} {
+				cfg, _ := serverConfig(&r, s, p)
+				if cfg == nil {
+					continue
+				}
+				name := "server-" + s + "-" + p + ".json"
+				if s == "mihomo" {
+					name = "server-mihomo-citrus-" + p + ".yaml"
+				}
+				if err := writeJSON(filepath.Join(*redacted, name), cfg); err != nil {
+					return err
+				}
 			}
 		}
 		for _, p := range protoOrder {
-			if err := writeJSON(filepath.Join(*redacted, "client-xray-"+p+".json"), xrayClient(&r, p, serverIP, serverPort, 1080)); err != nil {
+			name := fmt.Sprintf("client-%s-%s.json", clientFor(p), p)
+			if err := writeJSON(filepath.Join(*redacted, name), clientConfig(&r, p, serverIP, serverPort, 1080)); err != nil {
 				return err
 			}
 		}
@@ -141,12 +212,12 @@ func cmdGen(args []string) error {
 		return err
 	}
 	for _, p := range serverProtos {
-		if err := writeJSON(filepath.Join(*out, "xray", p+".json"), xrayServer(m, p)); err != nil {
-			return err
-		}
-		// mihomo and Citrus read the same config (JSON is valid YAML).
-		for _, s := range []string{"mihomo", "citrus"} {
-			if err := writeJSON(filepath.Join(*out, s, p+".yaml"), clashServer(m, p)); err != nil {
+		for _, s := range servers {
+			cfg, name := serverConfig(m, s, p)
+			if cfg == nil {
+				continue
+			}
+			if err := writeJSON(filepath.Join(*out, name), cfg); err != nil {
 				return err
 			}
 		}
@@ -205,6 +276,18 @@ func xrayServer(m *material, proto string) obj {
 	case "ss2022":
 		in["protocol"] = "shadowsocks"
 		in["settings"] = obj{"method": "2022-blake3-aes-128-gcm", "password": m.SSPSK, "network": "tcp"}
+	case "hy2":
+		ts := tls["tlsSettings"].(obj)
+		ts["alpn"] = []string{"h3"}
+		in["protocol"] = "hysteria"
+		in["settings"] = obj{"version": 2, "clients": []obj{{"auth": m.Password}}}
+		in["streamSettings"] = obj{"network": "hysteria", "hysteriaSettings": obj{"version": 2},
+			"security": "tls", "tlsSettings": ts,
+			// Xray's server allows 1024 concurrent streams by default, where the
+			// Hysteria2 servers of sing-box, mihomo and Citrus (sing-quic) allow
+			// 2^60; its client opens streams without waiting for credit, so with
+			// the default new tunnels fail under churn and past 1024 idle ones.
+			"finalmask": obj{"quicParams": obj{"maxIncomingStreams": int64(1) << 60}}}
 	}
 	return obj{
 		"log":      obj{"loglevel": "warning", "access": "none"},
@@ -215,9 +298,64 @@ func xrayServer(m *material, proto string) obj {
 	}
 }
 
+// singboxServer is the sing-box config: one inbound, everything direct.
+func singboxServer(m *material, proto string) obj {
+	in := obj{"tag": "in", "listen": "0.0.0.0", "listen_port": serverPort}
+	tls := func(alpn ...string) obj {
+		t := obj{"enabled": true, "certificate_path": "/cfg/cert.pem", "key_path": "/cfg/key.pem"}
+		if len(alpn) > 0 {
+			t["alpn"] = alpn
+		}
+		return t
+	}
+	switch proto {
+	case "reality":
+		in["type"] = "vless"
+		in["users"] = []obj{{"name": "u", "uuid": m.UUID, "flow": "xtls-rprx-vision"}}
+		in["tls"] = obj{"enabled": true, "server_name": benchSNI, "reality": obj{
+			"enabled":     true,
+			"handshake":   obj{"server": sinkIP, "server_port": targetPort},
+			"private_key": m.RealityPriv,
+			"short_id":    []string{m.ShortID},
+		}}
+	case "trojan":
+		in["type"] = "trojan"
+		in["users"] = []obj{{"name": "u", "password": m.TrojanPass}}
+		in["tls"] = tls()
+	case "ss2022":
+		in["type"] = "shadowsocks"
+		in["method"] = "2022-blake3-aes-128-gcm"
+		in["password"] = m.SSPSK
+		in["network"] = "tcp"
+	case "hy2":
+		in["type"] = "hysteria2"
+		in["users"] = []obj{{"name": "u", "password": m.Password}}
+		in["tls"] = tls("h3")
+	case "tuic":
+		in["type"] = "tuic"
+		in["users"] = []obj{{"name": "u", "uuid": m.UUID, "password": m.Password}}
+		in["congestion_control"] = "bbr"
+		in["tls"] = tls("h3")
+	case "anytls":
+		in["type"] = "anytls"
+		in["users"] = []obj{{"name": "u", "password": m.Password}}
+		in["tls"] = tls()
+	}
+	return obj{
+		"log":       obj{"level": "warn"},
+		"inbounds":  []obj{in},
+		"outbounds": []obj{{"type": "direct", "tag": "direct"}},
+		"route":     obj{"final": "direct"},
+	}
+}
+
 // clashServer is the mihomo / Citrus config: one listener, everything DIRECT.
 func clashServer(m *material, proto string) obj {
 	l := obj{"name": "in", "listen": "0.0.0.0", "port": serverPort}
+	cert := func() {
+		l["certificate"] = m.CertPEM
+		l["private-key"] = m.KeyPEM
+	}
 	switch proto {
 	case "reality":
 		l["type"] = "vless"
@@ -231,19 +369,32 @@ func clashServer(m *material, proto string) obj {
 	case "xhttp":
 		l["type"] = "vless"
 		l["users"] = []obj{{"username": "u", "uuid": m.UUID}}
-		l["certificate"] = m.CertPEM
-		l["private-key"] = m.KeyPEM
+		cert()
 		l["xhttp-config"] = obj{"path": "/xh", "mode": "stream-one"}
 	case "trojan":
 		l["type"] = "trojan"
 		l["users"] = []obj{{"username": "u", "password": m.TrojanPass}}
-		l["certificate"] = m.CertPEM
-		l["private-key"] = m.KeyPEM
+		cert()
 	case "ss2022":
 		l["type"] = "shadowsocks"
 		l["cipher"] = "2022-blake3-aes-128-gcm"
 		l["password"] = m.SSPSK
 		l["udp"] = false
+	case "hy2":
+		l["type"] = "hysteria2"
+		l["users"] = obj{"u": m.Password}
+		l["alpn"] = []string{"h3"}
+		cert()
+	case "tuic":
+		l["type"] = "tuic"
+		l["users"] = obj{m.UUID: m.Password}
+		l["alpn"] = []string{"h3"}
+		l["congestion-controller"] = "bbr"
+		cert()
+	case "anytls":
+		l["type"] = "anytls"
+		l["users"] = obj{"u": m.Password}
+		cert()
 	}
 	return obj{
 		"log-level":         "warning",
@@ -254,7 +405,7 @@ func clashServer(m *material, proto string) obj {
 	}
 }
 
-// --- client -----------------------------------------------------------------------
+// --- clients ----------------------------------------------------------------------
 
 // Client fingerprints. REALITY's authentication is X25519 either way; these
 // choose the TLS key exchange the client offers. The probe records what the
@@ -306,11 +457,44 @@ func xrayClient(m *material, proto, addr string, port, socksPort int) obj {
 			"settings": obj{"servers": []obj{{"address": addr, "port": port,
 				"method": "2022-blake3-aes-128-gcm", "password": m.SSPSK}}},
 		}
+	case "hy2":
+		tls["alpn"] = []string{"h3"}
+		out = obj{
+			"protocol": "hysteria",
+			"settings": obj{"version": 2, "address": addr, "port": port},
+			"streamSettings": obj{"network": "hysteria", "hysteriaSettings": obj{"version": 2, "auth": m.Password},
+				"security": "tls", "tlsSettings": tls},
+		}
 	}
 	return obj{
 		"log": obj{"loglevel": "warning", "access": "none"},
 		"inbounds": []obj{{"listen": "127.0.0.1", "port": socksPort, "protocol": "socks",
 			"settings": obj{"udp": false}}},
 		"outbounds": []obj{out},
+	}
+}
+
+// singboxClient is the sing-box client config: a SOCKS inbound on socksPort,
+// one outbound to addr:port.
+func singboxClient(m *material, proto, addr string, port, socksPort int) obj {
+	out := obj{"tag": "out", "server": addr, "server_port": port}
+	tls := obj{"enabled": true, "server_name": benchSNI, "certificate": m.CertPEM}
+	switch baseProto(proto) {
+	case "tuic":
+		out["type"] = "tuic"
+		out["uuid"] = m.UUID
+		out["password"] = m.Password
+		out["congestion_control"] = "bbr"
+		tls["alpn"] = []string{"h3"}
+	case "anytls":
+		out["type"] = "anytls"
+		out["password"] = m.Password
+	}
+	out["tls"] = tls
+	return obj{
+		"log":       obj{"level": "warn"},
+		"inbounds":  []obj{{"type": "socks", "tag": "in", "listen": "127.0.0.1", "listen_port": socksPort}},
+		"outbounds": []obj{out},
+		"route":     obj{"final": "out"},
 	}
 }

@@ -1,0 +1,731 @@
+metric,unit,proto,server,n,median,min,max,values
+dl1_mbps,MB/s,reality,xray,3,1132,1077,1150,1077 1132 1150
+dl1_mbps,MB/s,reality,singbox,3,1167,1151,1240,1151 1167 1240
+dl1_mbps,MB/s,reality,mihomo,3,1191,1158,1210,1158 1191 1210
+dl1_mbps,MB/s,reality,citrus,3,1161,1139,1191,1139 1161 1191
+dl1_mbps,MB/s,reality-tlsin,xray,3,2103,1692,2307,1692 2103 2307
+dl1_mbps,MB/s,reality-tlsin,singbox,3,2128,2093,2146,2093 2128 2146
+dl1_mbps,MB/s,reality-tlsin,mihomo,3,2052,1982,2414,1982 2052 2414
+dl1_mbps,MB/s,reality-tlsin,citrus,3,2466,1983,2472,1983 2466 2472
+dl1_mbps,MB/s,xhttp,xray,3,381,380,381,380 381 381
+dl1_mbps,MB/s,xhttp,mihomo,3,352,286,355,286 352 355
+dl1_mbps,MB/s,xhttp,citrus,3,358,346,362,346 358 362
+dl1_mbps,MB/s,trojan,xray,3,1170,1073,1179,1073 1170 1179
+dl1_mbps,MB/s,trojan,singbox,3,1132,1093,1225,1093 1132 1225
+dl1_mbps,MB/s,trojan,mihomo,3,1176,1155,1176,1155 1176 1176
+dl1_mbps,MB/s,trojan,citrus,3,1175,1169,1182,1169 1175 1182
+dl1_mbps,MB/s,ss2022,xray,3,1014,999,1025,999 1014 1025
+dl1_mbps,MB/s,ss2022,singbox,3,1995,1940,2023,1940 1995 2023
+dl1_mbps,MB/s,ss2022,mihomo,3,1717,1709,1733,1709 1717 1733
+dl1_mbps,MB/s,ss2022,citrus,3,1732,1704,1739,1704 1732 1739
+dl1_mbps,MB/s,hy2,xray,3,493,474,504,474 493 504
+dl1_mbps,MB/s,hy2,singbox,3,671,649,695,649 671 695
+dl1_mbps,MB/s,hy2,mihomo,3,656,564,693,564 656 693
+dl1_mbps,MB/s,hy2,citrus,3,686,627,689,627 686 689
+dl1_mbps,MB/s,tuic,singbox,3,418,416,471,416 418 471
+dl1_mbps,MB/s,tuic,mihomo,3,485,418,530,418 485 530
+dl1_mbps,MB/s,tuic,citrus,3,525,476,545,476 525 545
+dl1_mbps,MB/s,anytls,singbox,3,1186,1106,1193,1106 1186 1193
+dl1_mbps,MB/s,anytls,mihomo,3,893,811,922,811 893 922
+dl1_mbps,MB/s,anytls,citrus,3,848,836,891,836 848 891
+ul1_mbps,MB/s,reality,xray,3,769,749,793,749 769 793
+ul1_mbps,MB/s,reality,singbox,3,792,767,804,767 792 804
+ul1_mbps,MB/s,reality,mihomo,3,791,780,806,780 791 806
+ul1_mbps,MB/s,reality,citrus,3,1181,1171,1347,1171 1181 1347
+ul1_mbps,MB/s,reality-tlsin,xray,3,2903,2848,3135,2848 2903 3135
+ul1_mbps,MB/s,reality-tlsin,singbox,3,3030,2886,3054,2886 3030 3054
+ul1_mbps,MB/s,reality-tlsin,mihomo,3,378,373,382,373 378 382
+ul1_mbps,MB/s,reality-tlsin,citrus,3,392,385,2209,385 392 2209
+ul1_mbps,MB/s,xhttp,xray,3,538,534,547,534 538 547
+ul1_mbps,MB/s,xhttp,mihomo,3,433,421,434,421 433 434
+ul1_mbps,MB/s,xhttp,citrus,3,494,492,500,492 494 500
+ul1_mbps,MB/s,trojan,xray,3,1141,1127,1144,1127 1141 1144
+ul1_mbps,MB/s,trojan,singbox,3,812,789,824,789 812 824
+ul1_mbps,MB/s,trojan,mihomo,3,794,780,821,780 794 821
+ul1_mbps,MB/s,trojan,citrus,3,1163,1155,1559,1155 1163 1559
+ul1_mbps,MB/s,ss2022,xray,3,1245,1231,1249,1231 1245 1249
+ul1_mbps,MB/s,ss2022,singbox,3,753,743,766,743 753 766
+ul1_mbps,MB/s,ss2022,mihomo,3,743,729,750,729 743 750
+ul1_mbps,MB/s,ss2022,citrus,3,1727,1618,1728,1618 1727 1728
+ul1_mbps,MB/s,hy2,xray,3,357,344,363,344 357 363
+ul1_mbps,MB/s,hy2,singbox,3,359,322,377,322 359 377
+ul1_mbps,MB/s,hy2,mihomo,3,355,311,355,311 355 355
+ul1_mbps,MB/s,hy2,citrus,3,342,325,377,325 342 377
+ul1_mbps,MB/s,tuic,singbox,3,454,453,466,453 454 466
+ul1_mbps,MB/s,tuic,mihomo,3,571,546,648,546 571 648
+ul1_mbps,MB/s,tuic,citrus,3,696,684,721,684 696 721
+ul1_mbps,MB/s,anytls,singbox,3,1464,1278,1557,1278 1464 1557
+ul1_mbps,MB/s,anytls,mihomo,3,1250,1246,1258,1246 1250 1258
+ul1_mbps,MB/s,anytls,citrus,3,1610,1601,1647,1601 1610 1647
+dl32_mbps,MB/s,reality,xray,3,2173,2132,2188,2132 2173 2188
+dl32_mbps,MB/s,reality,singbox,3,2653,2621,2667,2621 2653 2667
+dl32_mbps,MB/s,reality,mihomo,3,2837,2706,2839,2706 2837 2839
+dl32_mbps,MB/s,reality,citrus,3,2800,2715,2859,2715 2800 2859
+dl32_mbps,MB/s,reality-tlsin,xray,3,1331,928,1397,928 1331 1397
+dl32_mbps,MB/s,reality-tlsin,singbox,3,5339,5191,5544,5191 5339 5544
+dl32_mbps,MB/s,reality-tlsin,mihomo,3,9797,9188,10516,9188 9797 10516
+dl32_mbps,MB/s,reality-tlsin,citrus,3,9032,7973,9057,7973 9032 9057
+dl32_mbps,MB/s,xhttp,xray,3,925,894,941,894 925 941
+dl32_mbps,MB/s,xhttp,mihomo,3,1185,1166,1186,1166 1185 1186
+dl32_mbps,MB/s,xhttp,citrus,3,1189,1158,1193,1158 1189 1193
+dl32_mbps,MB/s,trojan,xray,3,2095,2068,2176,2068 2095 2176
+dl32_mbps,MB/s,trojan,singbox,3,2856,2704,2892,2704 2856 2892
+dl32_mbps,MB/s,trojan,mihomo,3,2794,2730,2807,2730 2794 2807
+dl32_mbps,MB/s,trojan,citrus,3,2807,2794,2832,2794 2807 2832
+dl32_mbps,MB/s,ss2022,xray,3,1985,1925,2012,1925 1985 2012
+dl32_mbps,MB/s,ss2022,singbox,3,4234,4016,4283,4016 4234 4283
+dl32_mbps,MB/s,ss2022,mihomo,3,3906,3880,3933,3880 3906 3933
+dl32_mbps,MB/s,ss2022,citrus,3,3870,3855,3903,3855 3870 3903
+dl32_mbps,MB/s,hy2,xray,3,586,564,609,564 586 609
+dl32_mbps,MB/s,hy2,singbox,3,645,617,672,617 645 672
+dl32_mbps,MB/s,hy2,mihomo,3,639,561,642,561 639 642
+dl32_mbps,MB/s,hy2,citrus,3,623,583,638,583 623 638
+dl32_mbps,MB/s,tuic,singbox,3,455,414,455,414 455 455
+dl32_mbps,MB/s,tuic,mihomo,3,450,425,529,425 450 529
+dl32_mbps,MB/s,tuic,citrus,3,426,419,449,419 426 449
+dl32_mbps,MB/s,anytls,singbox,3,2504,2497,2513,2497 2504 2513
+dl32_mbps,MB/s,anytls,mihomo,3,2157,2117,2264,2117 2157 2264
+dl32_mbps,MB/s,anytls,citrus,3,2214,2214,2251,2214 2214 2251
+ul32_mbps,MB/s,reality,xray,3,1871,1863,1880,1863 1871 1880
+ul32_mbps,MB/s,reality,singbox,3,1818,1815,1854,1815 1818 1854
+ul32_mbps,MB/s,reality,mihomo,3,1841,1822,1870,1822 1841 1870
+ul32_mbps,MB/s,reality,citrus,3,2843,2817,2906,2817 2843 2906
+ul32_mbps,MB/s,reality-tlsin,xray,3,2433,2323,2673,2323 2433 2673
+ul32_mbps,MB/s,reality-tlsin,singbox,3,2360,2344,2416,2344 2360 2416
+ul32_mbps,MB/s,reality-tlsin,mihomo,3,5601,5075,7475,5075 5601 7475
+ul32_mbps,MB/s,reality-tlsin,citrus,3,2377,2250,2518,2250 2377 2518
+ul32_mbps,MB/s,xhttp,xray,3,1187,1169,1245,1169 1187 1245
+ul32_mbps,MB/s,xhttp,mihomo,3,1461,1459,1578,1459 1461 1578
+ul32_mbps,MB/s,xhttp,citrus,3,1531,1513,1681,1513 1531 1681
+ul32_mbps,MB/s,trojan,xray,3,3412,3174,3500,3174 3412 3500
+ul32_mbps,MB/s,trojan,singbox,3,1849,1842,1882,1842 1849 1882
+ul32_mbps,MB/s,trojan,mihomo,3,1826,1815,1857,1815 1826 1857
+ul32_mbps,MB/s,trojan,citrus,3,2880,2854,2899,2854 2880 2899
+ul32_mbps,MB/s,ss2022,xray,3,3355,3160,3421,3160 3355 3421
+ul32_mbps,MB/s,ss2022,singbox,3,1840,1816,1850,1816 1840 1850
+ul32_mbps,MB/s,ss2022,mihomo,3,1808,1800,1834,1800 1808 1834
+ul32_mbps,MB/s,ss2022,citrus,3,2770,2754,2780,2754 2770 2780
+ul32_mbps,MB/s,hy2,xray,3,580,558,591,558 580 591
+ul32_mbps,MB/s,hy2,singbox,3,515,481,520,481 515 520
+ul32_mbps,MB/s,hy2,mihomo,3,613,552,615,552 613 615
+ul32_mbps,MB/s,hy2,citrus,3,575,533,584,533 575 584
+ul32_mbps,MB/s,tuic,singbox,3,488,462,502,462 488 502
+ul32_mbps,MB/s,tuic,mihomo,3,583,553,586,553 583 586
+ul32_mbps,MB/s,tuic,citrus,3,575,554,578,554 575 578
+ul32_mbps,MB/s,anytls,singbox,3,3223,3203,3274,3203 3223 3274
+ul32_mbps,MB/s,anytls,mihomo,3,2923,2844,3024,2844 2923 3024
+ul32_mbps,MB/s,anytls,citrus,3,2792,2677,2884,2677 2792 2884
+dl1_cpu_gb,CPU s/GB,reality,xray,3,0.49,0.48,0.52,0.48 0.49 0.52
+dl1_cpu_gb,CPU s/GB,reality,singbox,3,0.50,0.47,0.51,0.47 0.50 0.51
+dl1_cpu_gb,CPU s/GB,reality,mihomo,3,0.44,0.43,0.44,0.43 0.44 0.44
+dl1_cpu_gb,CPU s/GB,reality,citrus,3,0.43,0.43,0.44,0.43 0.43 0.44
+dl1_cpu_gb,CPU s/GB,reality-tlsin,xray,3,0.42,0.41,0.62,0.41 0.42 0.62
+dl1_cpu_gb,CPU s/GB,reality-tlsin,singbox,3,0.45,0.44,0.45,0.44 0.45 0.45
+dl1_cpu_gb,CPU s/GB,reality-tlsin,mihomo,3,0.42,0.40,0.43,0.40 0.42 0.43
+dl1_cpu_gb,CPU s/GB,reality-tlsin,citrus,3,0.40,0.40,0.43,0.40 0.40 0.43
+dl1_cpu_gb,CPU s/GB,xhttp,xray,3,2.94,2.93,2.95,2.93 2.94 2.95
+dl1_cpu_gb,CPU s/GB,xhttp,mihomo,3,3.19,3.17,3.75,3.17 3.19 3.75
+dl1_cpu_gb,CPU s/GB,xhttp,citrus,3,3.20,3.16,3.32,3.16 3.20 3.32
+dl1_cpu_gb,CPU s/GB,trojan,xray,3,0.61,0.59,0.68,0.59 0.61 0.68
+dl1_cpu_gb,CPU s/GB,trojan,singbox,3,0.45,0.42,0.46,0.42 0.45 0.46
+dl1_cpu_gb,CPU s/GB,trojan,mihomo,3,0.44,0.42,0.46,0.42 0.44 0.46
+dl1_cpu_gb,CPU s/GB,trojan,citrus,3,0.43,0.43,0.44,0.43 0.43 0.44
+dl1_cpu_gb,CPU s/GB,ss2022,xray,3,0.55,0.55,0.56,0.55 0.55 0.56
+dl1_cpu_gb,CPU s/GB,ss2022,singbox,3,0.37,0.35,0.39,0.35 0.37 0.39
+dl1_cpu_gb,CPU s/GB,ss2022,mihomo,3,0.39,0.39,0.40,0.39 0.39 0.40
+dl1_cpu_gb,CPU s/GB,ss2022,citrus,3,0.39,0.39,0.40,0.39 0.39 0.40
+dl1_cpu_gb,CPU s/GB,hy2,xray,3,2.33,2.28,2.42,2.28 2.33 2.42
+dl1_cpu_gb,CPU s/GB,hy2,singbox,3,1.88,1.81,1.94,1.81 1.88 1.94
+dl1_cpu_gb,CPU s/GB,hy2,mihomo,3,1.92,1.89,2.15,1.89 1.92 2.15
+dl1_cpu_gb,CPU s/GB,hy2,citrus,3,1.89,1.83,2.00,1.83 1.89 2.00
+dl1_cpu_gb,CPU s/GB,tuic,singbox,3,1.85,1.84,2.20,1.84 1.85 2.20
+dl1_cpu_gb,CPU s/GB,tuic,mihomo,3,2.09,1.91,2.25,1.91 2.09 2.25
+dl1_cpu_gb,CPU s/GB,tuic,citrus,3,2.31,1.92,2.47,1.92 2.31 2.47
+dl1_cpu_gb,CPU s/GB,anytls,singbox,3,0.45,0.44,0.48,0.44 0.45 0.48
+dl1_cpu_gb,CPU s/GB,anytls,mihomo,3,0.51,0.49,0.54,0.49 0.51 0.54
+dl1_cpu_gb,CPU s/GB,anytls,citrus,3,0.50,0.50,0.52,0.50 0.50 0.52
+dl32_cpu_gb,CPU s/GB,reality,xray,3,0.88,0.87,0.89,0.87 0.88 0.89
+dl32_cpu_gb,CPU s/GB,reality,singbox,3,0.72,0.70,0.72,0.70 0.72 0.72
+dl32_cpu_gb,CPU s/GB,reality,mihomo,3,0.68,0.67,0.70,0.67 0.68 0.70
+dl32_cpu_gb,CPU s/GB,reality,citrus,3,0.67,0.66,0.70,0.66 0.67 0.70
+dl32_cpu_gb,CPU s/GB,reality-tlsin,xray,3,1.37,1.28,1.96,1.28 1.37 1.96
+dl32_cpu_gb,CPU s/GB,reality-tlsin,singbox,3,0.36,0.35,0.37,0.35 0.36 0.37
+dl32_cpu_gb,CPU s/GB,reality-tlsin,mihomo,3,0.19,0.18,0.20,0.18 0.19 0.20
+dl32_cpu_gb,CPU s/GB,reality-tlsin,citrus,3,0.21,0.21,0.24,0.21 0.21 0.24
+dl32_cpu_gb,CPU s/GB,xhttp,xray,3,2.15,2.12,2.23,2.12 2.15 2.23
+dl32_cpu_gb,CPU s/GB,xhttp,mihomo,3,1.63,1.62,1.64,1.62 1.63 1.64
+dl32_cpu_gb,CPU s/GB,xhttp,citrus,3,1.59,1.59,1.59,1.59 1.59 1.59
+dl32_cpu_gb,CPU s/GB,trojan,xray,3,0.90,0.88,0.92,0.88 0.90 0.92
+dl32_cpu_gb,CPU s/GB,trojan,singbox,3,0.67,0.66,0.71,0.66 0.67 0.71
+dl32_cpu_gb,CPU s/GB,trojan,mihomo,3,0.68,0.68,0.69,0.68 0.68 0.69
+dl32_cpu_gb,CPU s/GB,trojan,citrus,3,0.67,0.67,0.68,0.67 0.67 0.68
+dl32_cpu_gb,CPU s/GB,ss2022,xray,3,0.96,0.95,0.99,0.95 0.96 0.99
+dl32_cpu_gb,CPU s/GB,ss2022,singbox,3,0.45,0.44,0.47,0.44 0.45 0.47
+dl32_cpu_gb,CPU s/GB,ss2022,mihomo,3,0.49,0.48,0.49,0.48 0.49 0.49
+dl32_cpu_gb,CPU s/GB,ss2022,citrus,3,0.49,0.48,0.49,0.48 0.49 0.49
+dl32_cpu_gb,CPU s/GB,hy2,xray,3,2.33,2.27,2.33,2.27 2.33 2.33
+dl32_cpu_gb,CPU s/GB,hy2,singbox,3,2.09,1.99,2.10,1.99 2.09 2.10
+dl32_cpu_gb,CPU s/GB,hy2,mihomo,3,2.04,2.02,2.38,2.02 2.04 2.38
+dl32_cpu_gb,CPU s/GB,hy2,citrus,3,2.10,2.03,2.32,2.03 2.10 2.32
+dl32_cpu_gb,CPU s/GB,tuic,singbox,3,2.16,2.04,2.21,2.04 2.16 2.21
+dl32_cpu_gb,CPU s/GB,tuic,mihomo,3,2.23,2.03,2.25,2.03 2.23 2.25
+dl32_cpu_gb,CPU s/GB,tuic,citrus,3,2.18,2.07,2.19,2.07 2.18 2.19
+dl32_cpu_gb,CPU s/GB,anytls,singbox,3,0.75,0.75,0.77,0.75 0.75 0.77
+dl32_cpu_gb,CPU s/GB,anytls,mihomo,3,0.87,0.84,0.89,0.84 0.87 0.89
+dl32_cpu_gb,CPU s/GB,anytls,citrus,3,0.85,0.84,0.85,0.84 0.85 0.85
+ul32_cpu_gb,CPU s/GB,reality,xray,3,1.02,1.01,1.02,1.01 1.02 1.02
+ul32_cpu_gb,CPU s/GB,reality,singbox,3,1.05,1.02,1.05,1.02 1.05 1.05
+ul32_cpu_gb,CPU s/GB,reality,mihomo,3,1.04,1.03,1.05,1.03 1.04 1.05
+ul32_cpu_gb,CPU s/GB,reality,citrus,3,0.66,0.65,0.67,0.65 0.66 0.67
+ul32_cpu_gb,CPU s/GB,reality-tlsin,xray,3,0.77,0.70,0.81,0.70 0.77 0.81
+ul32_cpu_gb,CPU s/GB,reality-tlsin,singbox,3,0.80,0.78,0.81,0.78 0.80 0.81
+ul32_cpu_gb,CPU s/GB,reality-tlsin,mihomo,3,0.33,0.25,0.37,0.25 0.33 0.37
+ul32_cpu_gb,CPU s/GB,reality-tlsin,citrus,3,0.82,0.78,0.87,0.78 0.82 0.87
+ul32_cpu_gb,CPU s/GB,xhttp,xray,3,1.65,1.58,1.68,1.58 1.65 1.68
+ul32_cpu_gb,CPU s/GB,xhttp,mihomo,3,1.34,1.22,1.35,1.22 1.34 1.35
+ul32_cpu_gb,CPU s/GB,xhttp,citrus,3,1.24,1.17,1.29,1.17 1.24 1.29
+ul32_cpu_gb,CPU s/GB,trojan,xray,3,0.55,0.54,0.58,0.54 0.55 0.58
+ul32_cpu_gb,CPU s/GB,trojan,singbox,3,1.04,1.02,1.04,1.02 1.04 1.04
+ul32_cpu_gb,CPU s/GB,trojan,mihomo,3,1.04,1.03,1.05,1.03 1.04 1.05
+ul32_cpu_gb,CPU s/GB,trojan,citrus,3,0.66,0.65,0.67,0.65 0.66 0.67
+ul32_cpu_gb,CPU s/GB,ss2022,xray,3,0.55,0.55,0.59,0.55 0.55 0.59
+ul32_cpu_gb,CPU s/GB,ss2022,singbox,3,1.06,1.05,1.07,1.05 1.06 1.07
+ul32_cpu_gb,CPU s/GB,ss2022,mihomo,3,1.05,1.05,1.07,1.05 1.05 1.07
+ul32_cpu_gb,CPU s/GB,ss2022,citrus,3,0.69,0.69,0.69,0.69 0.69 0.69
+ul32_cpu_gb,CPU s/GB,hy2,xray,3,2.94,2.92,2.98,2.92 2.94 2.98
+ul32_cpu_gb,CPU s/GB,hy2,singbox,3,2.91,2.89,3.11,2.89 2.91 3.11
+ul32_cpu_gb,CPU s/GB,hy2,mihomo,3,2.82,2.80,3.07,2.80 2.82 3.07
+ul32_cpu_gb,CPU s/GB,hy2,citrus,3,3.00,2.96,3.23,2.96 3.00 3.23
+ul32_cpu_gb,CPU s/GB,tuic,singbox,3,2.90,2.75,2.91,2.75 2.90 2.91
+ul32_cpu_gb,CPU s/GB,tuic,mihomo,3,2.81,2.77,2.92,2.77 2.81 2.92
+ul32_cpu_gb,CPU s/GB,tuic,citrus,3,2.87,2.84,2.97,2.84 2.87 2.97
+ul32_cpu_gb,CPU s/GB,anytls,singbox,3,0.59,0.58,0.59,0.58 0.59 0.59
+ul32_cpu_gb,CPU s/GB,anytls,mihomo,3,0.64,0.64,0.66,0.64 0.64 0.66
+ul32_cpu_gb,CPU s/GB,anytls,citrus,3,0.71,0.69,0.74,0.69 0.71 0.74
+dlfix_cpu_gb,CPU s/GB,reality,xray,3,1.76,1.72,1.81,1.72 1.76 1.81
+dlfix_cpu_gb,CPU s/GB,reality,singbox,3,1.70,1.59,1.73,1.59 1.70 1.73
+dlfix_cpu_gb,CPU s/GB,reality,mihomo,3,1.57,1.50,1.59,1.50 1.57 1.59
+dlfix_cpu_gb,CPU s/GB,reality,citrus,3,1.51,1.48,1.66,1.48 1.51 1.66
+dlfix_cpu_gb,CPU s/GB,reality-tlsin,xray,3,1.05,1.04,1.09,1.04 1.05 1.09
+dlfix_cpu_gb,CPU s/GB,reality-tlsin,singbox,3,1.26,1.25,1.32,1.25 1.26 1.32
+dlfix_cpu_gb,CPU s/GB,reality-tlsin,mihomo,3,1.07,1.05,1.20,1.05 1.07 1.20
+dlfix_cpu_gb,CPU s/GB,reality-tlsin,citrus,3,1.10,1.07,1.12,1.07 1.10 1.12
+dlfix_cpu_gb,CPU s/GB,xhttp,xray,3,5.49,5.49,5.54,5.49 5.49 5.54
+dlfix_cpu_gb,CPU s/GB,xhttp,mihomo,3,4.66,4.65,4.79,4.65 4.66 4.79
+dlfix_cpu_gb,CPU s/GB,xhttp,citrus,3,4.81,4.78,4.98,4.78 4.81 4.98
+dlfix_cpu_gb,CPU s/GB,trojan,xray,3,2.27,2.18,2.64,2.18 2.27 2.64
+dlfix_cpu_gb,CPU s/GB,trojan,singbox,3,1.54,1.51,1.59,1.51 1.54 1.59
+dlfix_cpu_gb,CPU s/GB,trojan,mihomo,3,1.51,1.48,1.54,1.48 1.51 1.54
+dlfix_cpu_gb,CPU s/GB,trojan,citrus,3,1.50,1.47,1.53,1.47 1.50 1.53
+dlfix_cpu_gb,CPU s/GB,ss2022,xray,3,2.23,2.19,2.55,2.19 2.23 2.55
+dlfix_cpu_gb,CPU s/GB,ss2022,singbox,3,1.39,1.38,1.51,1.38 1.39 1.51
+dlfix_cpu_gb,CPU s/GB,ss2022,mihomo,3,1.37,1.35,1.38,1.35 1.37 1.38
+dlfix_cpu_gb,CPU s/GB,ss2022,citrus,3,1.40,1.40,1.41,1.40 1.40 1.41
+dlfix_cpu_gb,CPU s/GB,hy2,xray,3,5.63,5.59,5.73,5.59 5.63 5.73
+dlfix_cpu_gb,CPU s/GB,hy2,singbox,3,4.83,4.66,5.93,4.66 4.83 5.93
+dlfix_cpu_gb,CPU s/GB,hy2,mihomo,3,4.55,4.50,4.83,4.50 4.55 4.83
+dlfix_cpu_gb,CPU s/GB,hy2,citrus,3,4.63,4.54,5.30,4.54 4.63 5.30
+dlfix_cpu_gb,CPU s/GB,tuic,singbox,3,4.76,4.56,4.80,4.56 4.76 4.80
+dlfix_cpu_gb,CPU s/GB,tuic,mihomo,3,4.52,4.41,4.82,4.41 4.52 4.82
+dlfix_cpu_gb,CPU s/GB,tuic,citrus,3,4.70,4.63,4.72,4.63 4.70 4.72
+dlfix_cpu_gb,CPU s/GB,anytls,singbox,3,1.72,1.68,1.92,1.68 1.72 1.92
+dlfix_cpu_gb,CPU s/GB,anytls,mihomo,3,1.77,1.71,1.86,1.71 1.77 1.86
+dlfix_cpu_gb,CPU s/GB,anytls,citrus,3,1.75,1.63,1.76,1.63 1.75 1.76
+ulfix_cpu_gb,CPU s/GB,reality,xray,3,1.99,1.99,2.12,1.99 1.99 2.12
+ulfix_cpu_gb,CPU s/GB,reality,singbox,3,2.02,2.00,2.10,2.00 2.02 2.10
+ulfix_cpu_gb,CPU s/GB,reality,mihomo,3,1.97,1.97,2.08,1.97 1.97 2.08
+ulfix_cpu_gb,CPU s/GB,reality,citrus,3,1.99,1.98,2.41,1.98 1.99 2.41
+ulfix_cpu_gb,CPU s/GB,reality-tlsin,xray,3,1.20,1.15,1.28,1.15 1.20 1.28
+ulfix_cpu_gb,CPU s/GB,reality-tlsin,singbox,3,1.13,1.12,1.18,1.12 1.13 1.18
+ulfix_cpu_gb,CPU s/GB,reality-tlsin,mihomo,3,1.16,1.15,1.26,1.15 1.16 1.26
+ulfix_cpu_gb,CPU s/GB,reality-tlsin,citrus,3,1.63,1.55,1.75,1.55 1.63 1.75
+ulfix_cpu_gb,CPU s/GB,xhttp,xray,3,5.31,5.28,5.31,5.28 5.31 5.31
+ulfix_cpu_gb,CPU s/GB,xhttp,mihomo,3,4.37,4.14,4.38,4.14 4.37 4.38
+ulfix_cpu_gb,CPU s/GB,xhttp,citrus,3,3.54,3.47,3.60,3.47 3.54 3.60
+ulfix_cpu_gb,CPU s/GB,trojan,xray,3,2.08,2.05,2.34,2.05 2.08 2.34
+ulfix_cpu_gb,CPU s/GB,trojan,singbox,3,1.96,1.89,1.98,1.89 1.96 1.98
+ulfix_cpu_gb,CPU s/GB,trojan,mihomo,3,1.98,1.94,2.01,1.94 1.98 2.01
+ulfix_cpu_gb,CPU s/GB,trojan,citrus,3,1.99,1.97,2.07,1.97 1.99 2.07
+ulfix_cpu_gb,CPU s/GB,ss2022,xray,3,2.29,2.02,2.30,2.02 2.29 2.30
+ulfix_cpu_gb,CPU s/GB,ss2022,singbox,3,2.03,1.99,2.10,1.99 2.03 2.10
+ulfix_cpu_gb,CPU s/GB,ss2022,mihomo,3,2.01,1.97,2.02,1.97 2.01 2.02
+ulfix_cpu_gb,CPU s/GB,ss2022,citrus,3,2.11,2.10,2.11,2.10 2.11 2.11
+ulfix_cpu_gb,CPU s/GB,hy2,xray,3,5.88,5.49,6.05,5.49 5.88 6.05
+ulfix_cpu_gb,CPU s/GB,hy2,singbox,3,5.90,5.61,6.06,5.61 5.90 6.06
+ulfix_cpu_gb,CPU s/GB,hy2,mihomo,3,5.62,5.36,5.99,5.36 5.62 5.99
+ulfix_cpu_gb,CPU s/GB,hy2,citrus,3,6.31,5.45,6.40,5.45 6.31 6.40
+ulfix_cpu_gb,CPU s/GB,tuic,singbox,3,3.90,3.77,4.61,3.77 3.90 4.61
+ulfix_cpu_gb,CPU s/GB,tuic,mihomo,3,4.15,4.01,4.16,4.01 4.15 4.16
+ulfix_cpu_gb,CPU s/GB,tuic,citrus,3,4.10,4.04,4.40,4.04 4.10 4.40
+ulfix_cpu_gb,CPU s/GB,anytls,singbox,3,2.22,2.14,2.36,2.14 2.22 2.36
+ulfix_cpu_gb,CPU s/GB,anytls,mihomo,3,2.32,2.30,2.46,2.30 2.32 2.46
+ulfix_cpu_gb,CPU s/GB,anytls,citrus,3,2.10,2.08,2.15,2.08 2.10 2.15
+dlfix_cores,cores,reality,xray,3,0.110,0.107,0.113,0.107 0.110 0.113
+dlfix_cores,cores,reality,singbox,3,0.106,0.099,0.108,0.099 0.106 0.108
+dlfix_cores,cores,reality,mihomo,3,0.098,0.094,0.099,0.094 0.098 0.099
+dlfix_cores,cores,reality,citrus,3,0.095,0.093,0.104,0.093 0.095 0.104
+dlfix_cores,cores,reality-tlsin,xray,3,0.066,0.065,0.068,0.065 0.066 0.068
+dlfix_cores,cores,reality-tlsin,singbox,3,0.079,0.078,0.082,0.078 0.079 0.082
+dlfix_cores,cores,reality-tlsin,mihomo,3,0.067,0.066,0.075,0.066 0.067 0.075
+dlfix_cores,cores,reality-tlsin,citrus,3,0.069,0.067,0.070,0.067 0.069 0.070
+dlfix_cores,cores,xhttp,xray,3,0.343,0.343,0.347,0.343 0.343 0.347
+dlfix_cores,cores,xhttp,mihomo,3,0.291,0.291,0.299,0.291 0.291 0.299
+dlfix_cores,cores,xhttp,citrus,3,0.301,0.299,0.312,0.299 0.301 0.312
+dlfix_cores,cores,trojan,xray,3,0.142,0.136,0.165,0.136 0.142 0.165
+dlfix_cores,cores,trojan,singbox,3,0.096,0.094,0.099,0.094 0.096 0.099
+dlfix_cores,cores,trojan,mihomo,3,0.094,0.092,0.097,0.092 0.094 0.097
+dlfix_cores,cores,trojan,citrus,3,0.094,0.092,0.096,0.092 0.094 0.096
+dlfix_cores,cores,ss2022,xray,3,0.139,0.137,0.159,0.137 0.139 0.159
+dlfix_cores,cores,ss2022,singbox,3,0.087,0.086,0.095,0.086 0.087 0.095
+dlfix_cores,cores,ss2022,mihomo,3,0.086,0.084,0.086,0.084 0.086 0.086
+dlfix_cores,cores,ss2022,citrus,3,0.087,0.087,0.088,0.087 0.087 0.088
+dlfix_cores,cores,hy2,xray,3,0.352,0.349,0.358,0.349 0.352 0.358
+dlfix_cores,cores,hy2,singbox,3,0.302,0.291,0.371,0.291 0.302 0.371
+dlfix_cores,cores,hy2,mihomo,3,0.284,0.281,0.302,0.281 0.284 0.302
+dlfix_cores,cores,hy2,citrus,3,0.290,0.284,0.331,0.284 0.290 0.331
+dlfix_cores,cores,tuic,singbox,3,0.297,0.285,0.300,0.285 0.297 0.300
+dlfix_cores,cores,tuic,mihomo,3,0.282,0.276,0.301,0.276 0.282 0.301
+dlfix_cores,cores,tuic,citrus,3,0.294,0.289,0.295,0.289 0.294 0.295
+dlfix_cores,cores,anytls,singbox,3,0.107,0.105,0.120,0.105 0.107 0.120
+dlfix_cores,cores,anytls,mihomo,3,0.111,0.107,0.116,0.107 0.111 0.116
+dlfix_cores,cores,anytls,citrus,3,0.109,0.102,0.110,0.102 0.109 0.110
+hs_rate,conn/s,reality,xray,3,3578,3244,3639,3244 3578 3639
+hs_rate,conn/s,reality,singbox,3,3115,3049,3279,3049 3115 3279
+hs_rate,conn/s,reality,mihomo,3,2980,2854,2996,2854 2980 2996
+hs_rate,conn/s,reality,citrus,3,3363,3220,3414,3220 3363 3414
+hs_rate,conn/s,reality-x25519,singbox,3,3785,3616,3875,3616 3785 3875
+hs_rate,conn/s,reality-x25519,mihomo,3,3752,3672,3854,3672 3752 3854
+hs_rate,conn/s,reality-x25519,citrus,3,3851,3812,3976,3812 3851 3976
+hs_rate,conn/s,xhttp,xray,3,9147,9129,9690,9129 9147 9690
+hs_rate,conn/s,xhttp,mihomo,3,10366,10230,10506,10230 10366 10506
+hs_rate,conn/s,xhttp,citrus,3,10496,10304,10644,10304 10496 10644
+hs_rate,conn/s,trojan,xray,3,4371,3999,4443,3999 4371 4443
+hs_rate,conn/s,trojan,singbox,3,5030,4904,5122,4904 5030 5122
+hs_rate,conn/s,trojan,mihomo,3,5263,5221,5391,5221 5263 5391
+hs_rate,conn/s,trojan,citrus,3,5209,5151,5295,5151 5209 5295
+hs_rate,conn/s,ss2022,xray,3,8435,8241,8635,8241 8435 8635
+hs_rate,conn/s,ss2022,singbox,3,9595,8829,9608,8829 9595 9608
+hs_rate,conn/s,ss2022,mihomo,3,9477,9212,9598,9212 9477 9598
+hs_rate,conn/s,ss2022,citrus,3,9513,9025,9549,9025 9513 9549
+hs_rate,conn/s,hy2,xray,3,14651,14525,15140,14525 14651 15140
+hs_rate,conn/s,hy2,singbox,3,18607,17509,18733,17509 18607 18733
+hs_rate,conn/s,hy2,mihomo,3,17117,16085,17568,16085 17117 17568
+hs_rate,conn/s,hy2,citrus,3,16322,16109,17358,16109 16322 17358
+hs_rate,conn/s,tuic,singbox,3,20701,20607,21264,20607 20701 21264
+hs_rate,conn/s,tuic,mihomo,3,18585,18129,19516,18129 18585 19516
+hs_rate,conn/s,tuic,citrus,3,18771,18130,19169,18130 18771 19169
+hs_rate,conn/s,anytls,singbox,3,14763,14282,15231,14282 14763 15231
+hs_rate,conn/s,anytls,mihomo,3,12491,10100,13735,10100 12491 13735
+hs_rate,conn/s,anytls,citrus,3,11713,11568,11819,11568 11713 11819
+hs_ttfb_p50,ms,reality,xray,3,32.5,32.2,36.4,32.2 32.5 36.4
+hs_ttfb_p50,ms,reality,singbox,3,39.6,38.0,40.9,38.0 39.6 40.9
+hs_ttfb_p50,ms,reality,mihomo,3,42.7,42.7,44.6,42.7 42.7 44.6
+hs_ttfb_p50,ms,reality,citrus,3,36.8,36.4,38.7,36.4 36.8 38.7
+hs_ttfb_p50,ms,reality-x25519,singbox,3,33.1,32.4,34.7,32.4 33.1 34.7
+hs_ttfb_p50,ms,reality-x25519,mihomo,3,34.1,33.2,34.8,33.2 34.1 34.8
+hs_ttfb_p50,ms,reality-x25519,citrus,3,32.4,31.3,32.4,31.3 32.4 32.4
+hs_ttfb_p50,ms,xhttp,xray,3,11.6,11.2,11.7,11.2 11.6 11.7
+hs_ttfb_p50,ms,xhttp,mihomo,3,11.5,11.3,11.7,11.3 11.5 11.7
+hs_ttfb_p50,ms,xhttp,citrus,3,11.3,11.2,11.5,11.2 11.3 11.5
+hs_ttfb_p50,ms,trojan,xray,3,25.1,25.0,27.4,25.0 25.1 27.4
+hs_ttfb_p50,ms,trojan,singbox,3,24.6,24.3,25.5,24.3 24.6 25.5
+hs_ttfb_p50,ms,trojan,mihomo,3,23.6,22.8,23.9,22.8 23.6 23.9
+hs_ttfb_p50,ms,trojan,citrus,3,23.8,23.4,24.0,23.4 23.8 24.0
+hs_ttfb_p50,ms,ss2022,xray,3,10.9,10.7,11.0,10.7 10.9 11.0
+hs_ttfb_p50,ms,ss2022,singbox,3,13.2,13.2,14.3,13.2 13.2 14.3
+hs_ttfb_p50,ms,ss2022,mihomo,3,13.3,13.1,13.7,13.1 13.3 13.7
+hs_ttfb_p50,ms,ss2022,citrus,3,13.1,13.1,13.8,13.1 13.1 13.8
+hs_ttfb_p50,ms,hy2,xray,3,7.7,7.5,7.7,7.5 7.7 7.7
+hs_ttfb_p50,ms,hy2,singbox,3,6.5,6.4,7.0,6.4 6.5 7.0
+hs_ttfb_p50,ms,hy2,mihomo,3,7.2,7.0,7.6,7.0 7.2 7.6
+hs_ttfb_p50,ms,hy2,citrus,3,7.5,7.0,7.6,7.0 7.5 7.6
+hs_ttfb_p50,ms,tuic,singbox,3,5.8,5.7,5.9,5.7 5.8 5.9
+hs_ttfb_p50,ms,tuic,mihomo,3,6.5,6.2,6.7,6.2 6.5 6.7
+hs_ttfb_p50,ms,tuic,citrus,3,6.5,6.4,6.8,6.4 6.5 6.8
+hs_ttfb_p50,ms,anytls,singbox,3,8.3,8.0,8.5,8.0 8.3 8.5
+hs_ttfb_p50,ms,anytls,mihomo,3,9.7,8.8,11.3,8.8 9.7 11.3
+hs_ttfb_p50,ms,anytls,citrus,3,10.1,10.1,10.3,10.1 10.1 10.3
+hs_ttfb_p99,ms,reality,xray,3,75.3,73.7,79.4,73.7 75.3 79.4
+hs_ttfb_p99,ms,reality,singbox,3,73.6,70.3,75.4,70.3 73.6 75.4
+hs_ttfb_p99,ms,reality,mihomo,3,73.3,68.3,74.6,68.3 73.3 74.6
+hs_ttfb_p99,ms,reality,citrus,3,70.0,68.5,71.5,68.5 70.0 71.5
+hs_ttfb_p99,ms,reality-x25519,singbox,3,58.7,58.7,60.6,58.7 58.7 60.6
+hs_ttfb_p99,ms,reality-x25519,mihomo,3,51.6,50.7,52.4,50.7 51.6 52.4
+hs_ttfb_p99,ms,reality-x25519,citrus,3,57.7,57.0,61.7,57.0 57.7 61.7
+hs_ttfb_p99,ms,xhttp,xray,3,57.7,55.7,58.2,55.7 57.7 58.2
+hs_ttfb_p99,ms,xhttp,mihomo,3,29.5,29.2,30.5,29.2 29.5 30.5
+hs_ttfb_p99,ms,xhttp,citrus,3,29.0,28.3,30.4,28.3 29.0 30.4
+hs_ttfb_p99,ms,trojan,xray,3,84.0,83.3,95.7,83.3 84.0 95.7
+hs_ttfb_p99,ms,trojan,singbox,3,48.6,47.4,50.6,47.4 48.6 50.6
+hs_ttfb_p99,ms,trojan,mihomo,3,48.0,46.9,48.4,46.9 48.0 48.4
+hs_ttfb_p99,ms,trojan,citrus,3,47.1,45.6,48.7,45.6 47.1 48.7
+hs_ttfb_p99,ms,ss2022,xray,3,74.0,72.1,75.5,72.1 74.0 75.5
+hs_ttfb_p99,ms,ss2022,singbox,3,26.2,25.6,27.8,25.6 26.2 27.8
+hs_ttfb_p99,ms,ss2022,mihomo,3,26.0,25.5,27.0,25.5 26.0 27.0
+hs_ttfb_p99,ms,ss2022,citrus,3,27.2,26.7,28.8,26.7 27.2 28.8
+hs_ttfb_p99,ms,hy2,xray,3,32.6,30.4,33.7,30.4 32.6 33.7
+hs_ttfb_p99,ms,hy2,singbox,3,15.3,15.2,15.4,15.2 15.3 15.4
+hs_ttfb_p99,ms,hy2,mihomo,3,14.6,14.4,15.7,14.4 14.6 15.7
+hs_ttfb_p99,ms,hy2,citrus,3,16.7,15.7,16.7,15.7 16.7 16.7
+hs_ttfb_p99,ms,tuic,singbox,3,13.6,13.3,13.7,13.3 13.6 13.7
+hs_ttfb_p99,ms,tuic,mihomo,3,14.5,13.7,14.9,13.7 14.5 14.9
+hs_ttfb_p99,ms,tuic,citrus,3,14.7,14.5,14.9,14.5 14.7 14.9
+hs_ttfb_p99,ms,anytls,singbox,3,19.6,19.4,20.8,19.4 19.6 20.8
+hs_ttfb_p99,ms,anytls,mihomo,3,22.6,21.2,38.1,21.2 22.6 38.1
+hs_ttfb_p99,ms,anytls,citrus,3,28.2,27.8,29.1,27.8 28.2 29.1
+hs_cpu_ms,CPU ms,reality,xray,3,0.536,0.532,0.597,0.532 0.536 0.597
+hs_cpu_ms,CPU ms,reality,singbox,3,0.605,0.574,0.619,0.574 0.605 0.619
+hs_cpu_ms,CPU ms,reality,mihomo,3,0.645,0.634,0.682,0.634 0.645 0.682
+hs_cpu_ms,CPU ms,reality,citrus,3,0.564,0.564,0.588,0.564 0.564 0.588
+hs_cpu_ms,CPU ms,reality-x25519,singbox,3,0.500,0.492,0.529,0.492 0.500 0.529
+hs_cpu_ms,CPU ms,reality-x25519,mihomo,3,0.519,0.502,0.533,0.502 0.519 0.533
+hs_cpu_ms,CPU ms,reality-x25519,citrus,3,0.497,0.479,0.502,0.479 0.497 0.502
+hs_cpu_ms,CPU ms,xhttp,xray,3,0.217,0.205,0.218,0.205 0.217 0.218
+hs_cpu_ms,CPU ms,xhttp,mihomo,3,0.190,0.187,0.193,0.187 0.190 0.193
+hs_cpu_ms,CPU ms,xhttp,citrus,3,0.189,0.186,0.192,0.186 0.189 0.192
+hs_cpu_ms,CPU ms,trojan,xray,3,0.451,0.447,0.493,0.447 0.451 0.493
+hs_cpu_ms,CPU ms,trojan,singbox,3,0.380,0.374,0.390,0.374 0.380 0.390
+hs_cpu_ms,CPU ms,trojan,mihomo,3,0.366,0.356,0.368,0.356 0.366 0.368
+hs_cpu_ms,CPU ms,trojan,citrus,3,0.369,0.368,0.374,0.368 0.369 0.374
+hs_cpu_ms,CPU ms,ss2022,xray,3,0.233,0.228,0.240,0.228 0.233 0.240
+hs_cpu_ms,CPU ms,ss2022,singbox,3,0.201,0.199,0.218,0.199 0.201 0.218
+hs_cpu_ms,CPU ms,ss2022,mihomo,3,0.200,0.199,0.208,0.199 0.200 0.208
+hs_cpu_ms,CPU ms,ss2022,citrus,3,0.201,0.201,0.211,0.201 0.201 0.211
+hs_cpu_ms,CPU ms,hy2,xray,3,0.130,0.126,0.131,0.126 0.130 0.131
+hs_cpu_ms,CPU ms,hy2,singbox,3,0.100,0.099,0.108,0.099 0.100 0.108
+hs_cpu_ms,CPU ms,hy2,mihomo,3,0.113,0.110,0.121,0.110 0.113 0.121
+hs_cpu_ms,CPU ms,hy2,citrus,3,0.116,0.108,0.116,0.108 0.116 0.116
+hs_cpu_ms,CPU ms,tuic,singbox,3,0.088,0.085,0.089,0.085 0.088 0.089
+hs_cpu_ms,CPU ms,tuic,mihomo,3,0.100,0.097,0.104,0.097 0.100 0.104
+hs_cpu_ms,CPU ms,tuic,citrus,3,0.096,0.095,0.101,0.095 0.096 0.101
+hs_cpu_ms,CPU ms,anytls,singbox,3,0.133,0.130,0.136,0.130 0.133 0.136
+hs_cpu_ms,CPU ms,anytls,mihomo,3,0.157,0.142,0.186,0.142 0.157 0.186
+hs_cpu_ms,CPU ms,anytls,citrus,3,0.163,0.161,0.166,0.161 0.163 0.166
+mem1k_rss,KiB,reality,xray,3,52.8,48.7,53.1,48.7 52.8 53.1
+mem1k_rss,KiB,reality,singbox,3,70.8,64.4,70.9,64.4 70.8 70.9
+mem1k_rss,KiB,reality,mihomo,3,71.0,63.4,72.4,63.4 71.0 72.4
+mem1k_rss,KiB,reality,citrus,3,48.8,47.9,52.0,47.9 48.8 52.0
+mem1k_rss,KiB,xhttp,xray,3,50.2,50.0,50.4,50.0 50.2 50.4
+mem1k_rss,KiB,xhttp,mihomo,3,50.4,47.9,50.6,47.9 50.4 50.6
+mem1k_rss,KiB,xhttp,citrus,3,44.4,44.1,44.6,44.1 44.4 44.6
+mem1k_rss,KiB,trojan,xray,3,59.9,58.9,64.2,58.9 59.9 64.2
+mem1k_rss,KiB,trojan,singbox,3,36.1,34.7,37.0,34.7 36.1 37.0
+mem1k_rss,KiB,trojan,mihomo,3,51.7,49.5,56.4,49.5 51.7 56.4
+mem1k_rss,KiB,trojan,citrus,3,45.7,44.4,47.0,44.4 45.7 47.0
+mem1k_rss,KiB,ss2022,xray,3,58.2,52.4,58.5,52.4 58.2 58.5
+mem1k_rss,KiB,ss2022,singbox,3,95.2,94.8,96.0,94.8 95.2 96.0
+mem1k_rss,KiB,ss2022,mihomo,3,52.6,47.6,55.8,47.6 52.6 55.8
+mem1k_rss,KiB,ss2022,citrus,3,51.7,50.8,51.7,50.8 51.7 51.7
+mem1k_rss,KiB,hy2,xray,3,32.3,32.0,32.5,32.0 32.3 32.5
+mem1k_rss,KiB,hy2,singbox,3,19.3,18.6,19.5,18.6 19.3 19.5
+mem1k_rss,KiB,hy2,mihomo,3,22.2,22.0,23.3,22.0 22.2 23.3
+mem1k_rss,KiB,hy2,citrus,3,17.2,16.4,19.3,16.4 17.2 19.3
+mem1k_rss,KiB,tuic,singbox,3,17.2,16.8,19.0,16.8 17.2 19.0
+mem1k_rss,KiB,tuic,mihomo,3,18.6,18.4,18.8,18.4 18.6 18.8
+mem1k_rss,KiB,tuic,citrus,3,13.4,11.9,13.7,11.9 13.4 13.7
+mem1k_rss,KiB,anytls,singbox,3,67.2,65.9,69.0,65.9 67.2 69.0
+mem1k_rss,KiB,anytls,mihomo,3,65.0,64.1,67.4,64.1 65.0 67.4
+mem1k_rss,KiB,anytls,citrus,3,66.5,65.0,67.2,65.0 66.5 67.2
+mem5k_rss,KiB,reality,xray,3,68.1,63.8,68.2,63.8 68.1 68.2
+mem5k_rss,KiB,reality,singbox,3,73.2,70.1,73.8,70.1 73.2 73.8
+mem5k_rss,KiB,reality,mihomo,3,74.3,72.2,76.8,72.2 74.3 76.8
+mem5k_rss,KiB,reality,citrus,3,55.1,53.2,58.1,53.2 55.1 58.1
+mem5k_rss,KiB,xhttp,xray,3,62.5,62.5,63.6,62.5 62.5 63.6
+mem5k_rss,KiB,xhttp,mihomo,3,56.2,55.6,57.7,55.6 56.2 57.7
+mem5k_rss,KiB,xhttp,citrus,3,53.4,53.0,53.4,53.0 53.4 53.4
+mem5k_rss,KiB,trojan,xray,3,84.9,74.5,85.5,74.5 84.9 85.5
+mem5k_rss,KiB,trojan,singbox,3,38.0,37.8,38.7,37.8 38.0 38.7
+mem5k_rss,KiB,trojan,mihomo,3,63.1,61.2,63.3,61.2 63.1 63.3
+mem5k_rss,KiB,trojan,citrus,3,51.6,48.9,52.8,48.9 51.6 52.8
+mem5k_rss,KiB,ss2022,xray,3,60.2,60.1,62.6,60.1 60.2 62.6
+mem5k_rss,KiB,ss2022,singbox,3,90.1,89.5,91.4,89.5 90.1 91.4
+mem5k_rss,KiB,ss2022,mihomo,3,54.5,52.1,54.9,52.1 54.5 54.9
+mem5k_rss,KiB,ss2022,citrus,3,48.8,48.3,49.0,48.3 48.8 49.0
+mem5k_rss,KiB,hy2,xray,3,41.3,40.6,41.3,40.6 41.3 41.3
+mem5k_rss,KiB,hy2,singbox,3,23.7,23.2,23.7,23.2 23.7 23.7
+mem5k_rss,KiB,hy2,mihomo,3,28.6,27.7,29.2,27.7 28.6 29.2
+mem5k_rss,KiB,hy2,citrus,3,26.0,25.8,26.2,25.8 26.0 26.2
+mem5k_rss,KiB,tuic,singbox,3,20.8,20.5,21.5,20.5 20.8 21.5
+mem5k_rss,KiB,tuic,mihomo,3,24.1,24.0,24.1,24.0 24.1 24.1
+mem5k_rss,KiB,anytls,singbox,3,69.3,67.8,71.4,67.8 69.3 71.4
+mem5k_rss,KiB,anytls,mihomo,3,75.5,74.2,81.9,74.2 75.5 81.9
+mem5k_rss,KiB,anytls,citrus,3,66.3,64.3,67.5,64.3 66.3 67.5
+mem_slope,KiB,reality,xray,3,71.8,66.5,73.0,66.5 71.8 73.0
+mem_slope,KiB,reality,singbox,3,73.8,71.5,74.5,71.5 73.8 74.5
+mem_slope,KiB,reality,mihomo,3,74.8,72.5,80.2,72.5 74.8 80.2
+mem_slope,KiB,reality,citrus,3,56.7,53.5,60.6,53.5 56.7 60.6
+mem_slope,KiB,xhttp,xray,3,65.6,65.6,66.9,65.6 65.6 66.9
+mem_slope,KiB,xhttp,mihomo,3,58.3,57.0,59.5,57.0 58.3 59.5
+mem_slope,KiB,xhttp,citrus,3,55.7,55.2,55.7,55.2 55.7 55.7
+mem_slope,KiB,trojan,xray,3,91.2,77.1,92.1,77.1 91.2 92.1
+mem_slope,KiB,trojan,singbox,3,38.9,38.0,39.3,38.0 38.9 39.3
+mem_slope,KiB,trojan,mihomo,3,65.9,62.4,66.8,62.4 65.9 66.8
+mem_slope,KiB,trojan,citrus,3,53.4,49.7,54.2,49.7 53.4 54.2
+mem_slope,KiB,ss2022,xray,3,60.7,60.5,65.2,60.5 60.7 65.2
+mem_slope,KiB,ss2022,singbox,3,88.8,88.1,90.2,88.1 88.8 90.2
+mem_slope,KiB,ss2022,mihomo,3,55.5,51.1,56.3,51.1 55.5 56.3
+mem_slope,KiB,ss2022,citrus,3,48.0,47.7,48.3,47.7 48.0 48.3
+mem_slope,KiB,hy2,xray,3,43.5,42.7,43.6,42.7 43.5 43.6
+mem_slope,KiB,hy2,singbox,3,24.8,24.3,24.8,24.3 24.8 24.8
+mem_slope,KiB,hy2,mihomo,3,30.2,28.8,30.9,28.8 30.2 30.9
+mem_slope,KiB,hy2,citrus,3,28.2,27.9,28.2,27.9 28.2 28.2
+mem_slope,KiB,tuic,singbox,3,21.8,21.3,22.2,21.3 21.8 22.2
+mem_slope,KiB,tuic,mihomo,3,25.4,25.4,25.5,25.4 25.4 25.5
+mem_slope,KiB,anytls,singbox,3,69.3,68.0,72.7,68.0 69.3 72.7
+mem_slope,KiB,anytls,mihomo,3,78.3,75.9,86.2,75.9 78.3 86.2
+mem_slope,KiB,anytls,citrus,3,66.1,64.2,67.8,64.2 66.1 67.8
+mem5k_cg,KiB,reality,xray,3,73.9,69.6,74.0,69.6 73.9 74.0
+mem5k_cg,KiB,reality,singbox,3,79.0,75.8,79.7,75.8 79.0 79.7
+mem5k_cg,KiB,reality,mihomo,3,80.1,78.1,82.7,78.1 80.1 82.7
+mem5k_cg,KiB,reality,citrus,3,61.0,58.8,63.6,58.8 61.0 63.6
+mem5k_cg,KiB,xhttp,xray,3,66.6,66.6,67.7,66.6 66.6 67.7
+mem5k_cg,KiB,xhttp,mihomo,3,60.4,59.8,61.9,59.8 60.4 61.9
+mem5k_cg,KiB,xhttp,citrus,3,57.4,57.1,57.5,57.1 57.4 57.5
+mem5k_cg,KiB,trojan,xray,3,90.6,80.1,91.2,80.1 90.6 91.2
+mem5k_cg,KiB,trojan,singbox,3,43.6,43.3,44.2,43.3 43.6 44.2
+mem5k_cg,KiB,trojan,mihomo,3,68.8,67.0,69.0,67.0 68.8 69.0
+mem5k_cg,KiB,trojan,citrus,3,57.1,54.4,58.3,54.4 57.1 58.3
+mem5k_cg,KiB,ss2022,xray,3,66.1,66.0,68.5,66.0 66.1 68.5
+mem5k_cg,KiB,ss2022,singbox,3,96.1,95.5,97.4,95.5 96.1 97.4
+mem5k_cg,KiB,ss2022,mihomo,3,60.5,58.1,60.9,58.1 60.5 60.9
+mem5k_cg,KiB,ss2022,citrus,3,54.6,54.2,54.8,54.2 54.6 54.8
+mem5k_cg,KiB,hy2,xray,3,45.3,44.7,45.4,44.7 45.3 45.4
+mem5k_cg,KiB,hy2,singbox,3,27.7,27.2,27.8,27.2 27.7 27.8
+mem5k_cg,KiB,hy2,mihomo,3,32.8,31.9,33.3,31.9 32.8 33.3
+mem5k_cg,KiB,hy2,citrus,3,30.2,30.0,30.2,30.0 30.2 30.2
+mem5k_cg,KiB,tuic,singbox,3,24.9,24.5,25.7,24.5 24.9 25.7
+mem5k_cg,KiB,tuic,mihomo,3,28.2,28.1,28.2,28.1 28.2 28.2
+mem5k_cg,KiB,anytls,singbox,3,74.8,73.4,76.9,73.4 74.8 76.9
+mem5k_cg,KiB,anytls,mihomo,3,81.1,79.8,87.6,79.8 81.1 87.6
+mem5k_cg,KiB,anytls,citrus,3,71.9,69.9,73.1,69.9 71.9 73.1
+mem5k_total,MiB,reality,xray,3,383.3,361.8,383.6,361.8 383.3 383.6
+mem5k_total,MiB,reality,singbox,3,417.0,402.9,420.5,402.9 417.0 420.5
+mem5k_total,MiB,reality,mihomo,3,413.4,404.4,426.7,404.4 413.4 426.7
+mem5k_total,MiB,reality,citrus,3,319.8,311.3,334.7,311.3 319.8 334.7
+mem5k_total,MiB,xhttp,xray,3,356.3,355.9,362.0,355.9 356.3 362.0
+mem5k_total,MiB,xhttp,mihomo,3,324.9,322.0,332.9,322.0 324.9 332.9
+mem5k_total,MiB,xhttp,citrus,3,311.7,310.4,311.7,310.4 311.7 311.7
+mem5k_total,MiB,trojan,xray,3,472.5,423.2,477.8,423.2 472.5 477.8
+mem5k_total,MiB,trojan,singbox,3,244.4,243.3,248.0,243.3 244.4 248.0
+mem5k_total,MiB,trojan,mihomo,3,356.0,348.2,358.7,348.2 356.0 358.7
+mem5k_total,MiB,trojan,citrus,3,302.3,288.5,307.3,288.5 302.3 307.3
+mem5k_total,MiB,ss2022,xray,3,355.5,354.3,368.0,354.3 355.5 368.0
+mem5k_total,MiB,ss2022,singbox,3,499.9,494.0,506.6,494.0 499.9 506.6
+mem5k_total,MiB,ss2022,mihomo,3,319.1,301.2,319.1,301.2 319.1 319.1
+mem5k_total,MiB,ss2022,citrus,3,289.6,289.0,291.2,289.0 289.6 291.2
+mem5k_total,MiB,hy2,xray,3,248.4,246.2,248.6,246.2 248.4 248.6
+mem5k_total,MiB,hy2,singbox,3,179.8,176.9,181.0,176.9 179.8 181.0
+mem5k_total,MiB,hy2,mihomo,3,194.2,188.7,197.3,188.7 194.2 197.3
+mem5k_total,MiB,hy2,citrus,3,182.8,182.3,183.4,182.3 182.8 183.4
+mem5k_total,MiB,tuic,singbox,3,164.7,164.3,168.0,164.3 164.7 168.0
+mem5k_total,MiB,tuic,mihomo,3,169.9,169.7,170.5,169.7 169.9 170.5
+mem5k_total,MiB,anytls,singbox,3,398.8,392.2,409.5,392.2 398.8 409.5
+mem5k_total,MiB,anytls,mihomo,3,418.0,411.7,449.5,411.7 418.0 449.5
+mem5k_total,MiB,anytls,citrus,3,374.5,364.2,380.6,364.2 374.5 380.6
+lat_idle_p50,ms,reality,xray,3,0.43,0.42,0.43,0.42 0.43 0.43
+lat_idle_p50,ms,reality,singbox,3,0.44,0.44,0.46,0.44 0.44 0.46
+lat_idle_p50,ms,reality,mihomo,3,0.47,0.44,0.48,0.44 0.47 0.48
+lat_idle_p50,ms,reality,citrus,3,0.44,0.43,0.45,0.43 0.44 0.45
+lat_idle_p50,ms,xhttp,xray,3,0.56,0.55,0.56,0.55 0.56 0.56
+lat_idle_p50,ms,xhttp,mihomo,3,0.56,0.56,0.58,0.56 0.56 0.58
+lat_idle_p50,ms,xhttp,citrus,3,0.57,0.56,0.58,0.56 0.57 0.58
+lat_idle_p50,ms,trojan,xray,3,0.48,0.47,0.50,0.47 0.48 0.50
+lat_idle_p50,ms,trojan,singbox,3,0.43,0.43,0.46,0.43 0.43 0.46
+lat_idle_p50,ms,trojan,mihomo,3,0.45,0.44,0.47,0.44 0.45 0.47
+lat_idle_p50,ms,trojan,citrus,3,0.44,0.42,0.45,0.42 0.44 0.45
+lat_idle_p50,ms,ss2022,xray,3,0.48,0.44,0.49,0.44 0.48 0.49
+lat_idle_p50,ms,ss2022,singbox,3,0.44,0.42,0.46,0.42 0.44 0.46
+lat_idle_p50,ms,ss2022,mihomo,3,0.42,0.41,0.44,0.41 0.42 0.44
+lat_idle_p50,ms,ss2022,citrus,3,0.44,0.41,0.45,0.41 0.44 0.45
+lat_idle_p50,ms,hy2,xray,3,0.69,0.67,0.70,0.67 0.69 0.70
+lat_idle_p50,ms,hy2,singbox,3,0.74,0.73,0.86,0.73 0.74 0.86
+lat_idle_p50,ms,hy2,mihomo,3,0.70,0.69,0.71,0.69 0.70 0.71
+lat_idle_p50,ms,hy2,citrus,3,0.72,0.71,0.76,0.71 0.72 0.76
+lat_idle_p50,ms,tuic,singbox,3,0.70,0.69,0.74,0.69 0.70 0.74
+lat_idle_p50,ms,tuic,mihomo,3,0.71,0.70,0.71,0.70 0.71 0.71
+lat_idle_p50,ms,tuic,citrus,3,0.75,0.70,0.75,0.70 0.75 0.75
+lat_idle_p50,ms,anytls,singbox,3,0.50,0.48,0.51,0.48 0.50 0.51
+lat_idle_p50,ms,anytls,mihomo,3,0.55,0.49,0.56,0.49 0.55 0.56
+lat_idle_p50,ms,anytls,citrus,3,0.52,0.50,0.53,0.50 0.52 0.53
+lat_idle_p99,ms,reality,xray,3,0.64,0.59,0.71,0.59 0.64 0.71
+lat_idle_p99,ms,reality,singbox,3,0.61,0.57,0.70,0.57 0.61 0.70
+lat_idle_p99,ms,reality,mihomo,3,0.69,0.60,0.73,0.60 0.69 0.73
+lat_idle_p99,ms,reality,citrus,3,0.62,0.54,0.70,0.54 0.62 0.70
+lat_idle_p99,ms,xhttp,xray,3,0.73,0.69,0.74,0.69 0.73 0.74
+lat_idle_p99,ms,xhttp,mihomo,3,0.76,0.74,0.81,0.74 0.76 0.81
+lat_idle_p99,ms,xhttp,citrus,3,0.73,0.68,0.80,0.68 0.73 0.80
+lat_idle_p99,ms,trojan,xray,3,0.68,0.64,0.77,0.64 0.68 0.77
+lat_idle_p99,ms,trojan,singbox,3,0.62,0.56,0.65,0.56 0.62 0.65
+lat_idle_p99,ms,trojan,mihomo,3,0.59,0.56,0.75,0.56 0.59 0.75
+lat_idle_p99,ms,trojan,citrus,3,0.59,0.58,0.65,0.58 0.59 0.65
+lat_idle_p99,ms,ss2022,xray,3,0.70,0.65,0.70,0.65 0.70 0.70
+lat_idle_p99,ms,ss2022,singbox,3,0.62,0.61,0.66,0.61 0.62 0.66
+lat_idle_p99,ms,ss2022,mihomo,3,0.55,0.53,0.64,0.53 0.55 0.64
+lat_idle_p99,ms,ss2022,citrus,3,0.65,0.55,0.68,0.55 0.65 0.68
+lat_idle_p99,ms,hy2,xray,3,0.89,0.80,0.92,0.80 0.89 0.92
+lat_idle_p99,ms,hy2,singbox,3,1.20,1.04,1.22,1.04 1.20 1.22
+lat_idle_p99,ms,hy2,mihomo,3,0.96,0.88,1.12,0.88 0.96 1.12
+lat_idle_p99,ms,hy2,citrus,3,1.06,0.91,1.08,0.91 1.06 1.08
+lat_idle_p99,ms,tuic,singbox,3,0.95,0.87,1.04,0.87 0.95 1.04
+lat_idle_p99,ms,tuic,mihomo,3,0.88,0.88,0.89,0.88 0.88 0.89
+lat_idle_p99,ms,tuic,citrus,3,0.91,0.86,1.08,0.86 0.91 1.08
+lat_idle_p99,ms,anytls,singbox,3,0.68,0.66,0.77,0.66 0.68 0.77
+lat_idle_p99,ms,anytls,mihomo,3,0.75,0.59,0.79,0.59 0.75 0.79
+lat_idle_p99,ms,anytls,citrus,3,0.76,0.68,0.82,0.68 0.76 0.82
+lat_load_p50,ms,reality,xray,3,76.83,70.27,78.23,70.27 76.83 78.23
+lat_load_p50,ms,reality,singbox,3,84.65,83.92,87.18,83.92 84.65 87.18
+lat_load_p50,ms,reality,mihomo,3,80.85,78.76,81.85,78.76 80.85 81.85
+lat_load_p50,ms,reality,citrus,3,80.09,79.92,85.72,79.92 80.09 85.72
+lat_load_p50,ms,xhttp,xray,3,4.99,4.28,6.78,4.28 4.99 6.78
+lat_load_p50,ms,xhttp,mihomo,3,1.44,1.20,1.55,1.20 1.44 1.55
+lat_load_p50,ms,xhttp,citrus,3,1.42,1.30,1.66,1.30 1.42 1.66
+lat_load_p50,ms,trojan,xray,3,71.75,68.86,74.32,68.86 71.75 74.32
+lat_load_p50,ms,trojan,singbox,3,76.07,76.02,80.76,76.02 76.07 80.76
+lat_load_p50,ms,trojan,mihomo,3,79.44,78.92,79.46,78.92 79.44 79.46
+lat_load_p50,ms,trojan,citrus,3,80.45,77.41,80.52,77.41 80.45 80.52
+lat_load_p50,ms,ss2022,xray,3,80.08,78.70,80.48,78.70 80.08 80.48
+lat_load_p50,ms,ss2022,singbox,3,45.85,44.70,45.86,44.70 45.85 45.86
+lat_load_p50,ms,ss2022,mihomo,3,71.34,69.79,71.47,69.79 71.34 71.47
+lat_load_p50,ms,ss2022,citrus,3,69.33,68.07,72.60,68.07 69.33 72.60
+lat_load_p50,ms,hy2,xray,3,1.03,1.02,1.10,1.02 1.03 1.10
+lat_load_p50,ms,hy2,singbox,3,1.08,1.00,1.22,1.00 1.08 1.22
+lat_load_p50,ms,hy2,mihomo,3,1.03,0.88,1.24,0.88 1.03 1.24
+lat_load_p50,ms,hy2,citrus,3,1.19,0.85,1.34,0.85 1.19 1.34
+lat_load_p50,ms,tuic,singbox,3,1.84,1.69,2.75,1.69 1.84 2.75
+lat_load_p50,ms,tuic,mihomo,3,2.66,2.30,3.17,2.30 2.66 3.17
+lat_load_p50,ms,tuic,citrus,3,2.46,2.35,2.86,2.35 2.46 2.86
+lat_load_p50,ms,anytls,singbox,3,88.43,88.41,91.32,88.41 88.43 91.32
+lat_load_p50,ms,anytls,mihomo,3,90.81,90.77,91.30,90.77 90.81 91.30
+lat_load_p50,ms,anytls,citrus,3,91.01,89.97,92.22,89.97 91.01 92.22
+lat_load_p99,ms,reality,xray,3,147.91,137.22,161.07,137.22 147.91 161.07
+lat_load_p99,ms,reality,singbox,3,151.90,139.95,158.99,139.95 151.90 158.99
+lat_load_p99,ms,reality,mihomo,3,145.91,141.20,148.08,141.20 145.91 148.08
+lat_load_p99,ms,reality,citrus,3,148.62,148.22,154.54,148.22 148.62 154.54
+lat_load_p99,ms,xhttp,xray,3,19.00,18.62,19.80,18.62 19.00 19.80
+lat_load_p99,ms,xhttp,mihomo,3,17.25,16.71,20.53,16.71 17.25 20.53
+lat_load_p99,ms,xhttp,citrus,3,19.85,18.48,20.10,18.48 19.85 20.10
+lat_load_p99,ms,trojan,xray,3,135.01,130.97,139.95,130.97 135.01 139.95
+lat_load_p99,ms,trojan,singbox,3,135.33,132.18,142.86,132.18 135.33 142.86
+lat_load_p99,ms,trojan,mihomo,3,142.86,138.23,144.95,138.23 142.86 144.95
+lat_load_p99,ms,trojan,citrus,3,144.09,143.84,152.78,143.84 144.09 152.78
+lat_load_p99,ms,ss2022,xray,3,140.01,139.94,150.79,139.94 140.01 150.79
+lat_load_p99,ms,ss2022,singbox,3,103.65,95.00,104.60,95.00 103.65 104.60
+lat_load_p99,ms,ss2022,mihomo,3,137.62,136.44,146.42,136.44 137.62 146.42
+lat_load_p99,ms,ss2022,citrus,3,137.03,130.50,145.09,130.50 137.03 145.09
+lat_load_p99,ms,hy2,xray,3,3.86,3.51,4.00,3.51 3.86 4.00
+lat_load_p99,ms,hy2,singbox,3,2.40,2.29,2.46,2.29 2.40 2.46
+lat_load_p99,ms,hy2,mihomo,3,2.33,1.79,2.95,1.79 2.33 2.95
+lat_load_p99,ms,hy2,citrus,3,2.57,1.77,4.22,1.77 2.57 4.22
+lat_load_p99,ms,tuic,singbox,3,9.87,9.56,11.42,9.56 9.87 11.42
+lat_load_p99,ms,tuic,mihomo,3,10.69,10.30,15.38,10.30 10.69 15.38
+lat_load_p99,ms,tuic,citrus,3,10.56,10.13,10.58,10.13 10.56 10.58
+lat_load_p99,ms,anytls,singbox,3,153.96,151.90,157.94,151.90 153.96 157.94
+lat_load_p99,ms,anytls,mihomo,3,163.40,152.92,164.10,152.92 163.40 164.10
+lat_load_p99,ms,anytls,citrus,3,150.32,146.32,162.25,146.32 150.32 162.25
+lat_ttfb_p50,ms,reality,xray,3,321.36,299.83,325.04,299.83 321.36 325.04
+lat_ttfb_p50,ms,reality,singbox,3,362.62,357.47,367.63,357.47 362.62 367.63
+lat_ttfb_p50,ms,reality,mihomo,3,305.84,303.98,323.25,303.98 305.84 323.25
+lat_ttfb_p50,ms,reality,citrus,3,284.09,274.30,286.98,274.30 284.09 286.98
+lat_ttfb_p50,ms,xhttp,xray,3,8.07,7.43,12.98,7.43 8.07 12.98
+lat_ttfb_p50,ms,xhttp,mihomo,3,2.77,2.46,3.11,2.46 2.77 3.11
+lat_ttfb_p50,ms,xhttp,citrus,3,3.04,3.02,3.31,3.02 3.04 3.31
+lat_ttfb_p50,ms,trojan,xray,3,182.21,181.76,192.71,181.76 182.21 192.71
+lat_ttfb_p50,ms,trojan,singbox,3,169.20,167.22,176.88,167.22 169.20 176.88
+lat_ttfb_p50,ms,trojan,mihomo,3,156.54,155.12,158.31,155.12 156.54 158.31
+lat_ttfb_p50,ms,trojan,citrus,3,153.26,152.98,154.24,152.98 153.26 154.24
+lat_ttfb_p50,ms,ss2022,xray,3,165.56,164.33,168.67,164.33 165.56 168.67
+lat_ttfb_p50,ms,ss2022,singbox,3,70.37,69.18,76.98,69.18 70.37 76.98
+lat_ttfb_p50,ms,ss2022,mihomo,3,106.04,105.57,110.29,105.57 106.04 110.29
+lat_ttfb_p50,ms,ss2022,citrus,3,100.96,96.17,103.37,96.17 100.96 103.37
+lat_ttfb_p50,ms,hy2,xray,3,1.62,1.56,1.70,1.56 1.62 1.70
+lat_ttfb_p50,ms,hy2,singbox,3,1.74,1.71,1.81,1.71 1.74 1.81
+lat_ttfb_p50,ms,hy2,mihomo,3,1.91,1.57,1.97,1.57 1.91 1.97
+lat_ttfb_p50,ms,hy2,citrus,3,1.80,1.47,2.01,1.47 1.80 2.01
+lat_ttfb_p50,ms,tuic,singbox,3,3.49,2.43,3.73,2.43 3.49 3.73
+lat_ttfb_p50,ms,tuic,mihomo,3,4.03,2.83,5.40,2.83 4.03 5.40
+lat_ttfb_p50,ms,tuic,citrus,3,3.02,2.77,3.73,2.77 3.02 3.73
+lat_ttfb_p50,ms,anytls,singbox,3,150.75,148.98,152.71,148.98 150.75 152.71
+lat_ttfb_p50,ms,anytls,mihomo,3,133.25,131.97,135.19,131.97 133.25 135.19
+lat_ttfb_p50,ms,anytls,citrus,3,129.54,128.79,132.20,128.79 129.54 132.20
+lat_ttfb_p99,ms,reality,xray,3,464.58,461.44,496.88,461.44 464.58 496.88
+lat_ttfb_p99,ms,reality,singbox,3,510.37,495.52,520.45,495.52 510.37 520.45
+lat_ttfb_p99,ms,reality,mihomo,3,437.96,437.84,483.74,437.84 437.96 483.74
+lat_ttfb_p99,ms,reality,citrus,3,412.32,396.55,421.84,396.55 412.32 421.84
+lat_ttfb_p99,ms,xhttp,xray,3,28.65,24.83,29.59,24.83 28.65 29.59
+lat_ttfb_p99,ms,xhttp,mihomo,3,31.52,31.03,33.28,31.03 31.52 33.28
+lat_ttfb_p99,ms,xhttp,citrus,3,32.10,27.49,32.29,27.49 32.10 32.29
+lat_ttfb_p99,ms,trojan,xray,3,284.50,284.43,299.41,284.43 284.50 299.41
+lat_ttfb_p99,ms,trojan,singbox,3,258.67,247.49,260.83,247.49 258.67 260.83
+lat_ttfb_p99,ms,trojan,mihomo,3,247.63,238.50,255.61,238.50 247.63 255.61
+lat_ttfb_p99,ms,trojan,citrus,3,238.14,231.73,256.09,231.73 238.14 256.09
+lat_ttfb_p99,ms,ss2022,xray,3,265.51,259.10,283.18,259.10 265.51 283.18
+lat_ttfb_p99,ms,ss2022,singbox,3,147.78,141.80,150.66,141.80 147.78 150.66
+lat_ttfb_p99,ms,ss2022,mihomo,3,197.02,190.55,209.53,190.55 197.02 209.53
+lat_ttfb_p99,ms,ss2022,citrus,3,187.66,181.27,196.35,181.27 187.66 196.35
+lat_ttfb_p99,ms,hy2,xray,3,4.68,3.96,4.84,3.96 4.68 4.84
+lat_ttfb_p99,ms,hy2,singbox,3,3.65,3.24,8.81,3.24 3.65 8.81
+lat_ttfb_p99,ms,hy2,mihomo,3,3.34,2.44,6.50,2.44 3.34 6.50
+lat_ttfb_p99,ms,hy2,citrus,3,3.83,2.85,5.69,2.85 3.83 5.69
+lat_ttfb_p99,ms,tuic,singbox,3,9.69,9.15,13.51,9.15 9.69 13.51
+lat_ttfb_p99,ms,tuic,mihomo,3,11.49,9.76,15.13,9.76 11.49 15.13
+lat_ttfb_p99,ms,tuic,citrus,3,10.57,10.14,10.96,10.14 10.57 10.96
+lat_ttfb_p99,ms,anytls,singbox,3,241.78,236.94,250.80,236.94 241.78 250.80
+lat_ttfb_p99,ms,anytls,mihomo,3,216.77,208.27,217.90,208.27 216.77 217.90
+lat_ttfb_p99,ms,anytls,citrus,3,208.81,208.67,213.36,208.67 208.81 213.36
+lat_bulk_mbps,MB/s,reality,xray,3,2072,2046,2115,2046 2072 2115
+lat_bulk_mbps,MB/s,reality,singbox,3,2605,2584,2678,2584 2605 2678
+lat_bulk_mbps,MB/s,reality,mihomo,3,2738,2622,2810,2622 2738 2810
+lat_bulk_mbps,MB/s,reality,citrus,3,2848,2786,2856,2786 2848 2856
+lat_bulk_mbps,MB/s,xhttp,xray,3,939,928,964,928 939 964
+lat_bulk_mbps,MB/s,xhttp,mihomo,3,1175,1164,1194,1164 1175 1194
+lat_bulk_mbps,MB/s,xhttp,citrus,3,1195,1191,1206,1191 1195 1206
+lat_bulk_mbps,MB/s,trojan,xray,3,2069,1996,2096,1996 2069 2096
+lat_bulk_mbps,MB/s,trojan,singbox,3,2811,2810,2892,2810 2811 2892
+lat_bulk_mbps,MB/s,trojan,mihomo,3,2756,2656,2795,2656 2756 2795
+lat_bulk_mbps,MB/s,trojan,citrus,3,2790,2784,2813,2784 2790 2813
+lat_bulk_mbps,MB/s,ss2022,xray,3,1973,1941,2011,1941 1973 2011
+lat_bulk_mbps,MB/s,ss2022,singbox,3,4145,3969,4276,3969 4145 4276
+lat_bulk_mbps,MB/s,ss2022,mihomo,3,3825,3817,3926,3817 3825 3926
+lat_bulk_mbps,MB/s,ss2022,citrus,3,3819,3788,3857,3788 3819 3857
+lat_bulk_mbps,MB/s,hy2,xray,3,607,557,622,557 607 622
+lat_bulk_mbps,MB/s,hy2,singbox,3,618,567,620,567 618 620
+lat_bulk_mbps,MB/s,hy2,mihomo,3,646,632,646,632 646 646
+lat_bulk_mbps,MB/s,hy2,citrus,3,686,607,749,607 686 749
+lat_bulk_mbps,MB/s,tuic,singbox,3,477,427,509,427 477 509
+lat_bulk_mbps,MB/s,tuic,mihomo,3,529,485,554,485 529 554
+lat_bulk_mbps,MB/s,tuic,citrus,3,514,471,527,471 514 527
+lat_bulk_mbps,MB/s,anytls,singbox,3,2531,2520,2535,2520 2531 2535
+lat_bulk_mbps,MB/s,anytls,mihomo,3,2268,2212,2268,2212 2268 2268
+lat_bulk_mbps,MB/s,anytls,citrus,3,2282,2235,2362,2235 2282 2362
+client_util_max,%,reality,xray,3,32,32,33,32 32 33
+client_util_max,%,reality,singbox,3,31,31,31,31 31 31
+client_util_max,%,reality,mihomo,3,31,30,31,30 31 31
+client_util_max,%,reality,citrus,3,32,32,33,32 32 33
+client_util_max,%,reality-x25519,singbox,3,27,27,27,27 27 27
+client_util_max,%,reality-x25519,mihomo,3,28,28,28,28 28 28
+client_util_max,%,reality-x25519,citrus,3,29,29,29,29 29 29
+client_util_max,%,reality-tlsin,xray,3,22,22,23,22 22 23
+client_util_max,%,reality-tlsin,singbox,3,23,23,23,23 23 23
+client_util_max,%,reality-tlsin,mihomo,3,50,45,54,45 50 54
+client_util_max,%,reality-tlsin,citrus,3,61,60,62,60 61 62
+client_util_max,%,xhttp,xray,3,50,49,50,49 50 50
+client_util_max,%,xhttp,mihomo,3,52,52,53,52 52 53
+client_util_max,%,xhttp,citrus,3,53,52,53,52 53 53
+client_util_max,%,trojan,xray,3,36,35,36,35 36 36
+client_util_max,%,trojan,singbox,3,41,40,41,40 41 41
+client_util_max,%,trojan,mihomo,3,43,43,43,43 43 43
+client_util_max,%,trojan,citrus,3,44,44,44,44 44 44
+client_util_max,%,ss2022,xray,3,33,33,33,33 33 33
+client_util_max,%,ss2022,singbox,3,45,45,46,45 45 46
+client_util_max,%,ss2022,mihomo,3,45,45,45,45 45 45
+client_util_max,%,ss2022,citrus,3,46,45,46,45 46 46
+client_util_max,%,hy2,xray,3,46,44,46,44 46 46
+client_util_max,%,hy2,singbox,3,47,46,48,46 47 48
+client_util_max,%,hy2,mihomo,3,47,46,48,46 47 48
+client_util_max,%,hy2,citrus,3,46,46,47,46 46 47
+client_util_max,%,tuic,singbox,3,40,40,40,40 40 40
+client_util_max,%,tuic,mihomo,3,38,38,39,38 38 39
+client_util_max,%,tuic,citrus,3,38,37,38,37 38 38
+client_util_max,%,anytls,singbox,3,45,44,45,44 45 45
+client_util_max,%,anytls,mihomo,3,42,38,44,38 42 44
+client_util_max,%,anytls,citrus,3,44,43,44,43 44 44

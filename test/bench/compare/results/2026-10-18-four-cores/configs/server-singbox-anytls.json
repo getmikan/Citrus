@@ -1,0 +1,33 @@
+{
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "listen_port": 443,
+      "tag": "in",
+      "tls": {
+        "certificate_path": "/cfg/cert.pem",
+        "enabled": true,
+        "key_path": "/cfg/key.pem"
+      },
+      "type": "anytls",
+      "users": [
+        {
+          "name": "u",
+          "password": "<redacted>"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn"
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct"
+  }
+}

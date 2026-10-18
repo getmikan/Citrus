@@ -1,0 +1,25 @@
+{
+  "find-process-mode": "off",
+  "ipv6": false,
+  "listeners": [
+    {
+      "alpn": [
+        "h3"
+      ],
+      "certificate": "<redacted: self-signed P-256 certificate for bench.test>",
+      "congestion-controller": "bbr",
+      "listen": "0.0.0.0",
+      "name": "in",
+      "port": 443,
+      "private-key": "<redacted>",
+      "type": "tuic",
+      "users": {
+        "<redacted>": "<redacted>"
+      }
+    }
+  ],
+  "log-level": "warning",
+  "rules": [
+    "MATCH,DIRECT"
+  ]
+}

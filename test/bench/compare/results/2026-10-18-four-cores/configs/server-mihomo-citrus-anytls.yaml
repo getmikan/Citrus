@@ -1,0 +1,21 @@
+{
+  "find-process-mode": "off",
+  "ipv6": false,
+  "listeners": [
+    {
+      "certificate": "<redacted: self-signed P-256 certificate for bench.test>",
+      "listen": "0.0.0.0",
+      "name": "in",
+      "port": 443,
+      "private-key": "<redacted>",
+      "type": "anytls",
+      "users": {
+        "u": "<redacted>"
+      }
+    }
+  ],
+  "log-level": "warning",
+  "rules": [
+    "MATCH,DIRECT"
+  ]
+}

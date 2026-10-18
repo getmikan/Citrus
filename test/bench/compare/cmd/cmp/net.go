@@ -21,7 +21,7 @@ const dialTimeout = 15 * time.Second
 
 // dialer opens tunnels to the sink through the client's SOCKS5 inbound.
 type dialer struct {
-	socks   string      // 127.0.0.1:port of the Xray client
+	socks   string      // 127.0.0.1:port of the client
 	tlsIn   *tls.Config // wrap the tunnel in TLS 1.3 to the sink (inner-TLS variant)
 	dstPort int
 }

@@ -1,0 +1,14 @@
+2026-10-17T18:40:52Z xray-reality-rep1 waits for: serene_faraday
+2026-10-17T18:42:14Z xray-reality-rep1 waited 80s
+2026-10-17T18:53:56Z singbox-reality-x25519-rep1 waits for: race-check
+2026-10-17T18:55:28Z singbox-reality-x25519-rep1 waited 90s
+2026-10-17T18:56:01Z mihomo-reality-x25519-rep1 waits for: race-check2
+2026-10-17T18:57:43Z mihomo-reality-x25519-rep1 waited 100s
+2026-10-17T19:13:12Z xray-trojan-rep1 waits for: smuxfix-race-after
+2026-10-17T19:15:25Z xray-trojan-rep1 waited 130s
+2026-10-17T19:27:00Z xray-ss2022-rep1 waits for: smuxfix-citrus-before
+2026-10-17T19:32:17Z xray-ss2022-rep1 waited 310s
+2026-10-17T19:35:14Z singbox-ss2022-rep1 waits for: smuxfix-citrus-test
+2026-10-17T19:36:46Z singbox-ss2022-rep1 waited 90s
+2026-10-17T19:39:31Z mihomo-ss2022-rep1 waits for: smuxfix-citrus-race
+2026-10-17T19:44:36Z mihomo-ss2022-rep1 waited 300s
