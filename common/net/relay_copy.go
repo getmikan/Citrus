@@ -117,6 +117,11 @@ func copyExtended(originSource io.Reader, destination network.ExtendedWriter, so
 	if readWaiter, isReadWaiter := bufio.CreateReadWaiter(source); isReadWaiter {
 		needCopy := readWaiter.InitializeReadWaiter(options)
 		if !needCopy || common.LowMemory {
+			if batchSource, isBatch := readWaiter.(buffersReadWaiter); isBatch {
+				if writer := batchWriter(destination); writer != nil {
+					return copyWaitBatched(originSource, destination, writer, batchSource, readCounters, writeCounters)
+				}
+			}
 			return copyWait(originSource, destination, readWaiter, options, fromSocket, readCounters, writeCounters)
 		}
 	}
@@ -166,6 +171,49 @@ func copyWait(originSource io.Reader, destination network.ExtendedWriter, source
 			options.MTU = largeReadSize - options.FrontHeadroom - options.RearHeadroom
 			source.InitializeReadWaiter(options)
 		}
+	}
+}
+
+// buffersReadWaiter is a read waiter that can hand over every buffer it
+// holds at once (an AnyTLS stream with frames queued). The method has the
+// name and signature of N.VectorisedReadWaiter in later sing versions.
+type buffersReadWaiter interface {
+	network.ReadWaiter
+	WaitReadBuffers() ([]*buf.Buffer, error)
+}
+
+// copyWaitBatched is copyWait for a source that queues what it receives:
+// every write takes all the buffers queued meanwhile, in one writev(2), as
+// copyBatched does with a read-ahead goroutine for other sources.
+func copyWaitBatched(originSource io.Reader, destination network.ExtendedWriter, writer network.VectorisedWriter, source buffersReadWaiter, readCounters []network.CountFunc, writeCounters []network.CountFunc) (n int64, err error) {
+	var notFirstTime bool
+	var yield relayYield
+	for {
+		var buffers []*buf.Buffer
+		buffers, err = source.WaitReadBuffers()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+			}
+			return
+		}
+		dataLen := buf.LenMulti(buffers)
+		if len(buffers) == 1 {
+			err = destination.WriteBuffer(buffers[0])
+		} else {
+			err = writer.WriteVectorised(buffers) // releases the buffers
+		}
+		clear(buffers)
+		if err != nil {
+			if !notFirstTime {
+				err = network.ReportHandshakeFailure(originSource, err)
+			}
+			return
+		}
+		n += int64(dataLen)
+		countAll(readCounters, writeCounters, dataLen)
+		notFirstTime = true
+		yield.add(dataLen)
 	}
 }
 
