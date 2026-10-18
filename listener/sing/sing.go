@@ -124,8 +124,23 @@ func (h *ListenerHandler) ParseSpecialFqdn(ctx context.Context, conn net.Conn, m
 }
 
 func (h *ListenerHandler) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
+	conn, cMetadata, err := h.connectionMetadata(ctx, conn, metadata)
+	if cMetadata == nil {
+		return err
+	}
+	h.Tunnel.HandleTCPConn(conn, cMetadata) // this goroutine must exit after conn unused
+	return nil
+}
+
+// connectionMetadata returns the conn and the metadata of NewConnection, or
+// a nil metadata (and the error) when the destination is a special FQDN,
+// which it handles itself. A function of its own, so that its frame is not on
+// the stack under the relay (see tunnel.dialTCPConn).
+//
+//go:noinline
+func (h *ListenerHandler) connectionMetadata(ctx context.Context, conn net.Conn, metadata M.Metadata) (net.Conn, *C.Metadata, error) {
 	if h.IsSpecialFqdn(metadata.Destination.Fqdn) {
-		return h.ParseSpecialFqdn(ctx, conn, metadata)
+		return conn, nil, h.ParseSpecialFqdn(ctx, conn, metadata)
 	}
 
 	if deadline.NeedAdditionalReadDeadline(conn) {
@@ -145,9 +160,7 @@ func (h *ListenerHandler) NewConnection(ctx context.Context, conn net.Conn, meta
 	inbound.ApplyAdditions(cMetadata, inbound.WithDstAddr(metadata.Destination), inbound.WithSrcAddr(metadata.Source), inbound.WithInAddr(conn.LocalAddr()))
 	inbound.ApplyAdditions(cMetadata, h.Additions...)
 	inbound.ApplyAdditions(cMetadata, getAdditions(ctx)...)
-
-	h.Tunnel.HandleTCPConn(conn, cMetadata) // this goroutine must exit after conn unused
-	return nil
+	return conn, cMetadata, nil
 }
 
 func (h *ListenerHandler) NewPacketConnection(ctx context.Context, conn network.PacketConn, metadata M.Metadata) error {
