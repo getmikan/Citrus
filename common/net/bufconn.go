@@ -80,7 +80,11 @@ func (c *BufferedConn) Discard(n int) (discarded int, err error) {
 }
 
 func (c *BufferedConn) Read(p []byte) (int, error) {
-	return c.reader().Read(p)
+	if c.r == nil {
+		// nothing is buffered without a reader: no need to make one
+		return c.ExtendedConn.Read(p)
+	}
+	return c.r.Read(p)
 }
 
 func (c *BufferedConn) ReadByte() (byte, error) {
@@ -121,10 +125,16 @@ func (c *BufferedConn) Upstream() any {
 	return c.ExtendedConn
 }
 
+// ReaderReplaceable lets the copy read the upstream conn directly once the
+// reader is drained, and drops the reader then. The copy asks this before it
+// looks for cached data (ReadCached), so without the drop a conn that was
+// peeked (sniffing, an outbound with a lazy handshake) kept its 4 KiB reader
+// for as long as it was relayed.
 func (c *BufferedConn) ReaderReplaceable() bool {
 	if c.r != nil && c.r.Buffered() > 0 {
 		return false
 	}
+	c.r = nil
 	return true
 }
 

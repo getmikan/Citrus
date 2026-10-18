@@ -179,6 +179,7 @@ func copyAdaptive(originSource io.Reader, destination network.ExtendedWriter, so
 	var notFirstTime bool
 	var yield relayYield
 	writer := batchWriter(destination)
+	waiter, _ := network.UnwrapReader(source).(readWaitable)
 	for {
 		if writer != nil && sizing.full {
 			// A transfer is running: read ahead and write in batches.
@@ -186,6 +187,15 @@ func copyAdaptive(originSource io.Reader, destination network.ExtendedWriter, so
 			n += batched
 			if !handedBack {
 				return n, batchErr
+			}
+		}
+		if waiter != nil && !sizing.full {
+			// wait for data without a buffer
+			if err = waiter.WaitRead(); err != nil {
+				if errors.Is(err, io.EOF) {
+					err = nil
+				}
+				return
 			}
 		}
 		buffer := sizing.newBuffer(options, small)
@@ -251,6 +261,14 @@ func copyOnce(destination io.Writer, source io.Reader, readCounters []network.Co
 	n = int64(dataLen)
 	sizing.update(dataLen, small)
 	return
+}
+
+// readWaitable is a source that can wait for data without a buffer
+// (getmikan/tls Conn.WaitRead): the copy waits there while the connection
+// looks idle, and takes its small buffer only once data has arrived, so an
+// idle TLS connection holds no relay buffer at all.
+type readWaitable interface {
+	WaitRead() error
 }
 
 // smallReadLen is the data size of the small buffer for these options, or 0

@@ -299,3 +299,56 @@ func TestCopyConnBufferSizesVision(t *testing.T) {
 	}
 	assert.Equal(t, want, src.caps)
 }
+
+// waitingReader is a scriptReader that can wait for data without a buffer
+// and records, for every read, whether WaitRead came right before it.
+type waitingReader struct {
+	scriptReader
+	waited      bool
+	waitedReads []bool
+	waitErr     error
+}
+
+func (r *waitingReader) WaitRead() error {
+	if r.waitErr != nil {
+		return r.waitErr
+	}
+	r.waited = true
+	return nil
+}
+
+func (r *waitingReader) Read(b []byte) (int, error) {
+	r.waitedReads = append(r.waitedReads, r.waited)
+	r.waited = false
+	return r.scriptReader.Read(b)
+}
+
+// TestCopyConnWaitRead: a source that can wait for data (a TLS conn) is
+// waited on before every read into the small buffer, so that an idle
+// connection holds no buffer, and read directly while a burst runs on full
+// buffers.
+func TestCopyConnWaitRead(t *testing.T) {
+	reads := []int{100}
+	for left := 64 << 10; left > 0; left -= 16 << 10 {
+		reads = append(reads, minInt(16<<10, left))
+	}
+	reads = append(reads, 300, 200, 50)
+	src := &waitingReader{scriptReader: scriptReader{reads: reads}}
+	n, err := copyConn(io.Discard, src)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100+64<<10+300+200+50), n)
+	require.Equal(t, len(src.caps), len(src.waitedReads))
+	for i, c := range src.caps {
+		assert.Equal(t, c == smallReadSize, src.waitedReads[i], "read %d (buffer %d)", i, c)
+	}
+
+	// the error of the wait ends the copy like the error of a read
+	src = &waitingReader{scriptReader: scriptReader{reads: []int{10}}, waitErr: io.EOF}
+	n, err = copyConn(io.Discard, src)
+	require.NoError(t, err)
+	assert.Zero(t, n)
+	failed := errors.New("reset")
+	src = &waitingReader{scriptReader: scriptReader{reads: []int{10}}, waitErr: failed}
+	_, err = copyConn(io.Discard, src)
+	assert.ErrorIs(t, err, failed)
+}

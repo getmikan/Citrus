@@ -5,60 +5,96 @@ import (
 	stdnet "net"
 	"testing"
 
-	"github.com/metacubex/mihomo/common/buf"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newPipeBufferedConn(t *testing.T, data string) *BufferedConn {
+// TestBufferedConnLazyBuffer: no read buffer until a peek, and reads without
+// one go straight to the conn.
+func TestBufferedConnLazyBuffer(t *testing.T) {
 	left, right := stdnet.Pipe()
-	t.Cleanup(func() { _ = left.Close(); _ = right.Close() })
+	defer left.Close()
+	defer right.Close()
+	conn := NewBufferedConn(left)
+	assert.Nil(t, conn.r)
+	assert.Equal(t, 0, conn.Buffered())
+
+	go right.Write([]byte("hello"))
+	p := make([]byte, 5)
+	_, err := io.ReadFull(conn, p)
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(p))
+	assert.Nil(t, conn.r, "a plain read allocates no buffer")
+
+	go right.Write([]byte("world"))
+	b, err := conn.Peek(5)
+	require.NoError(t, err)
+	assert.Equal(t, "world", string(b))
+	assert.NotNil(t, conn.r)
+	assert.True(t, conn.Peeked())
+}
+
+// TestBufferedConnDropsDrainedBuffer: the relay unwraps the conn once the
+// buffer is drained (ReaderReplaceable), and the buffer goes with it; peeked
+// data is never lost.
+func TestBufferedConnDropsDrainedBuffer(t *testing.T) {
+	left, right := stdnet.Pipe()
+	defer left.Close()
+	defer right.Close()
+	conn := NewBufferedConn(left)
+
+	go right.Write([]byte("abc"))
+	_, err := conn.Peek(3)
+	require.NoError(t, err)
+	assert.False(t, conn.ReaderReplaceable(), "buffered data must be read first")
+	assert.NotNil(t, conn.r)
+
+	p := make([]byte, 3)
+	_, err = io.ReadFull(conn, p)
+	require.NoError(t, err)
+	assert.Equal(t, "abc", string(p))
+	assert.True(t, conn.ReaderReplaceable())
+	assert.Nil(t, conn.r, "a drained buffer is dropped once the conn is unwrapped")
+
+	// still usable: reads go to the conn, a peek takes a new buffer
+	go right.Write([]byte("de"))
+	b, err := conn.Peek(2)
+	require.NoError(t, err)
+	assert.Equal(t, "de", string(b))
+	_, err = io.ReadFull(conn, p[:2])
+	require.NoError(t, err)
+	assert.Equal(t, "de", string(p[:2]))
+}
+
+// TestRelayDropsBufferedConnBuffer: a relayed BufferedConn that was peeked
+// lets go of its buffer while the relay waits on it.
+func TestRelayDropsBufferedConnBuffer(t *testing.T) {
+	client, server := stdnet.Pipe()
+	remote, remotePeer := stdnet.Pipe()
+	defer client.Close()
+	defer remotePeer.Close()
+	conn := NewBufferedConn(server)
+
+	go client.Write([]byte("first"))
+	_, err := conn.Peek(1)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
 	go func() {
-		_, _ = right.Write([]byte(data))
-		_ = right.Close()
+		Relay(conn, remote)
+		close(done)
 	}()
-	return NewBufferedConn(left)
-}
-
-// A connection that is only relayed never gets a bufio.Reader.
-func TestBufferedConnLazyReader(t *testing.T) {
-	c := newPipeBufferedConn(t, "hello")
-	assert.Equal(t, 0, c.Buffered())
-	assert.Nil(t, c.ReadCached())
-	assert.True(t, c.ReaderReplaceable())
-
-	b := buf.NewSize(16)
-	defer b.Release()
-	require.NoError(t, c.ReadBuffer(b))
-	assert.Equal(t, "hello", string(b.Bytes()))
-	assert.Nil(t, c.r, "no reader without Peek or Read")
-}
-
-func TestBufferedConnPeekThenRelay(t *testing.T) {
-	c := newPipeBufferedConn(t, "hello")
-	p, err := c.Peek(2)
+	p := make([]byte, 5)
+	_, err = io.ReadFull(remotePeer, p)
 	require.NoError(t, err)
-	assert.Equal(t, "he", string(p))
-	assert.True(t, c.Peeked())
-	assert.False(t, c.ReaderReplaceable())
+	assert.Equal(t, "first", string(p))
 
-	cached := c.ReadCached()
-	require.NotNil(t, cached)
-	data := string(cached.Bytes())
-	cached.Release()
-	rest, err := io.ReadAll(c) // after ReadCached dropped the reader
+	go client.Write([]byte("again"))
+	_, err = io.ReadFull(remotePeer, p)
 	require.NoError(t, err)
-	assert.Equal(t, "hello", data+string(rest))
-}
+	assert.Equal(t, "again", string(p))
 
-func TestBufferedConnRead(t *testing.T) {
-	c := newPipeBufferedConn(t, "hello")
-	b, err := c.ReadByte()
-	require.NoError(t, err)
-	assert.Equal(t, byte('h'), b)
-	require.NoError(t, c.UnreadByte())
-	data, err := io.ReadAll(c)
-	require.NoError(t, err)
-	assert.Equal(t, "hello", string(data))
+	client.Close()
+	<-done
+	assert.Nil(t, conn.r)
 }

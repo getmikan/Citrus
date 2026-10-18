@@ -593,10 +593,35 @@ func handleTCPConn(connCtx C.ConnContext) {
 		_ = conn.Close()
 	}(connCtx.Conn())
 
+	remoteConn, cancel := dialTCPConn(connCtx)
+	if remoteConn == nil {
+		return
+	}
+	defer cancel()
+	defer func(remoteConn C.Conn) {
+		_ = remoteConn.Close()
+	}(remoteConn)
+	handleSocket(connCtx.Conn(), remoteConn)
+}
+
+// dialTCPConn does everything handleTCPConn does before the relay: sniffing,
+// the rules, the user limits and the dial. It returns the tracked remote conn
+// and the cancel func of the connect context, or a nil conn when the
+// connection ends here.
+//
+// It is a function of its own so that its frame (about 1 KiB) is not on the
+// stack while the relay waits: a relay goroutine spends its life blocked in a
+// read at the bottom of the stack, and the runtime shrinks a stack at GC only
+// when it uses less than a quarter of it. Every byte of frames above that
+// read counts towards keeping an idle connection's goroutine at 16 KiB
+// instead of 8 KiB.
+//
+//go:noinline
+func dialTCPConn(connCtx C.ConnContext) (C.Conn, context.CancelFunc) {
 	metadata := connCtx.Metadata()
 	if !metadata.Valid() {
 		log.Warnln("[Metadata] not valid: %#v", metadata)
-		return
+		return nil, nil
 	}
 	fixMetadata(metadata) // fix some metadata not set via metadata.SetRemoteAddr or metadata.SetRemoteAddress
 
@@ -621,13 +646,13 @@ func handleTCPConn(connCtx C.ConnContext) {
 	if preHandleFailed {
 		log.Debugln("[Metadata PreHandle] failed to sniff a domain for connection %s --> %s, give up",
 			metadata.SourceDetail(), metadata.LogAddress())
-		return
+		return nil, nil
 	}
 
 	proxy, rule, err := resolveMetadata(metadata)
 	if err != nil {
 		log.Warnln("[Metadata] parse failed: %s", err.Error())
-		return
+		return nil, nil
 	}
 
 	// While the outbound dials, wait for the client's first bytes, so that a
@@ -650,7 +675,7 @@ func handleTCPConn(connCtx C.ConnContext) {
 	admission, err := statistic.DefaultManager.Admit(metadata)
 	if err != nil {
 		logRejected(metadata, err)
-		return
+		return nil, nil
 	}
 	tracked := false
 	defer func() {
@@ -674,7 +699,6 @@ func handleTCPConn(connCtx C.ConnContext) {
 	var peekLen int
 
 	ctx, cancel := tcpConnectContext(context.Background())
-	defer cancel()
 	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
 		remoteConn, err = proxy.DialContext(ctx, dialMetadata)
 		if err != nil {
@@ -710,23 +734,21 @@ func handleTCPConn(connCtx C.ConnContext) {
 		logMetadataErr(metadata, rule, proxy, err)
 	})
 	if err != nil {
-		return
+		cancel()
+		return nil, nil
 	}
 	logMetadata(metadata, rule, remoteConn)
 
 	remoteConn = statistic.NewTCPTrackerAdmitted(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, admission)
 	tracked = true
-	defer func(remoteConn C.Conn) {
-		_ = remoteConn.Close()
-	}(remoteConn)
 
 	if peeking {
 		_ = conn.SetReadDeadline(time.Now()) // stop unfinished peek
-		peekMutex.Lock()
-		defer peekMutex.Unlock()
+		peekMutex.Lock()                     // the peek is over
+		peekMutex.Unlock()
 		_ = conn.SetReadDeadline(time.Time{}) // reset
 	}
-	handleSocket(conn, remoteConn)
+	return remoteConn, cancel
 }
 
 // mayNeedHandshake reports whether the outbound proxy picks for metadata may

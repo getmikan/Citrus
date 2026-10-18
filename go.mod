@@ -153,6 +153,6 @@ replace github.com/metacubex/utls => github.com/getmikan/utls v1.8.9-0.202610172
 
 replace github.com/metacubex/http => github.com/getmikan/http v0.1.8-citrus.2
 
-replace github.com/metacubex/tls => github.com/getmikan/tls v0.1.9-0.20261017232115-26a142e53351
+replace github.com/metacubex/tls => github.com/getmikan/tls v0.1.9-0.20261018054601-0a54a49f00e8
 
 replace github.com/metacubex/smux => github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876

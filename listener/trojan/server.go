@@ -314,6 +314,25 @@ func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 func (l *Listener) serveConn(conn net.Conn, client net.Addr, tunnel C.Tunnel, additions ...inbound.Addition) {
 	defer conn.Close()
 
+	conn, additions, release, ok := l.authenticate(conn, client, additions)
+	if !ok {
+		return
+	}
+	defer release()
+	l.handleConn(false, conn, tunnel, additions...)
+}
+
+// authenticate reads the password key and the CRLF after it, under the
+// handshake deadline, and returns the conn to read the request from (behind
+// the Trojan-SS cipher, if any), the additions with the user, and the release
+// of the user binding.
+//
+// serveConn and handleConn stay on the stack of an idle session under the
+// relay; this and readRequest keep their frames off it (see
+// tunnel.dialTCPConn).
+//
+//go:noinline
+func (l *Listener) authenticate(conn net.Conn, client net.Addr, additions []inbound.Addition) (net.Conn, []inbound.Addition, func(), bool) {
 	// cleared by handleConn once the request header is read
 	setHandshakeDeadline(conn)
 	if l.pickCipher != nil {
@@ -323,33 +342,32 @@ func (l *Listener) serveConn(conn net.Conn, client net.Addr, tunnel C.Tunnel, ad
 	var key [trojan.KeyLength]byte
 	if _, err := io.ReadFull(conn, key[:]); err != nil {
 		//log.Warnln("read key error: %s", err.Error())
-		return
+		return nil, nil, nil, false
 	}
 
-	if entry, ok := l.users.Lookup(key); ok {
-		// the session dies with the user: removing or re-keying it closes conn
-		release, bound := l.users.Bind(entry, conn)
-		if !bound {
-			return
-		}
-		defer release()
-		additions = append(additions, inbound.WithInUser(entry.Name()))
-	} else {
+	entry, ok := l.users.Lookup(key)
+	if !ok {
 		//log.Warnln("no such key")
 		if client == nil {
 			client = conn.RemoteAddr()
 		}
 		authevent.EmitAddr("trojan", authevent.ReasonWrongCredentials, conn.LocalAddr(), client)
-		return
+		return nil, nil, nil, false
 	}
+	// the session dies with the user: removing or re-keying it closes conn
+	release, bound := l.users.Bind(entry, conn)
+	if !bound {
+		return nil, nil, nil, false
+	}
+	additions = append(additions, inbound.WithInUser(entry.Name()))
 
 	var crlf [2]byte
 	if _, err := io.ReadFull(conn, crlf[:]); err != nil {
 		//log.Warnln("read crlf error: %s", err.Error())
-		return
+		release()
+		return nil, nil, nil, false
 	}
-
-	l.handleConn(false, conn, tunnel, additions...)
+	return conn, additions, release, true
 }
 
 func (l *Listener) handleConn(inMux bool, conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
@@ -360,40 +378,59 @@ func (l *Listener) handleConn(inMux bool, conn net.Conn, tunnel C.Tunnel, additi
 		setHandshakeDeadline(conn)
 	}
 
+	command, target, ok := readRequest(inMux, conn)
+	if !ok {
+		return
+	}
+	if command == trojan.CommandTCP {
+		//tunnel.HandleTCPConn(inbound.NewSocket(target, conn, C.TROJAN, additions...))
+		l.handler.HandleSocket(target, conn, additions...)
+		return
+	}
+	l.handlePacketOrMux(inMux, command, conn, tunnel, additions...)
+}
+
+// readRequest reads the command and the target of a request, and the CRLF
+// after them outside a mux session, and lifts the handshake deadline. A
+// function of its own like authenticate.
+//
+//go:noinline
+func readRequest(inMux bool, conn net.Conn) (byte, socks5.Addr, bool) {
 	command, err := socks5.ReadByte(conn)
 	if err != nil {
 		//log.Warnln("read command error: %s", err.Error())
-		return
+		return 0, nil, false
 	}
 
 	switch command {
 	case trojan.CommandTCP, trojan.CommandUDP, trojan.CommandMux:
 	default:
 		//log.Warnln("unknown command: %d", command)
-		return
+		return 0, nil, false
 	}
 
 	target, err := socks5.ReadAddr0(conn)
 	if err != nil {
 		//log.Warnln("read target error: %s", err.Error())
-		return
+		return 0, nil, false
 	}
 
 	if !inMux {
 		var crlf [2]byte
 		if _, err := io.ReadFull(conn, crlf[:]); err != nil {
 			//log.Warnln("read crlf error: %s", err.Error())
-			return
+			return 0, nil, false
 		}
 	}
 	// the header is read: lift the handshake deadline set by serveConn, or
 	// above for a mux stream
 	clearHandshakeDeadline(conn)
+	return command, target, true
+}
 
+// handlePacketOrMux serves a UDP or a mux request.
+func (l *Listener) handlePacketOrMux(inMux bool, command byte, conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
 	switch command {
-	case trojan.CommandTCP:
-		//tunnel.HandleTCPConn(inbound.NewSocket(target, conn, C.TROJAN, additions...))
-		l.handler.HandleSocket(target, conn, additions...)
 	case trojan.CommandUDP:
 		pc := trojan.NewPacketConn(conn)
 		remoteAddr := conn.RemoteAddr()
