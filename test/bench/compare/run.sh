@@ -55,9 +55,14 @@ if [ -z "${SKIP_BUILD:-}" ]; then
 	echo "== build Citrus (release flags) and cmp"
 	ver=$(git -C "$(hostpath "$repo")" rev-parse --short HEAD 2>/dev/null || echo unknown)
 	if [ -n "$(git -C "$(hostpath "$repo")" status --porcelain -- . ':!test/bench/compare' 2>/dev/null)" ]; then ver="$ver-dirty"; fi
-	docker run --rm -e CITRUS_VERSION="$ver" \
-		-v "$IMAGE-gomod:/go/pkg/mod" -v "$IMAGE-gocache:/root/.cache/go-build" \
-		-v "$(hostpath "$repo"):/src" "$GO_IMAGE" sh /src/test/bench/compare/build.sh /src/test/bench/compare/.build/bin
+	if [ "${BUILD:-}" = host ]; then
+		# the host's Go (CI: the pinned toolchain of .github/scripts/setup-go.sh)
+		CITRUS_VERSION="$ver" SRC="$repo" sh "$here/build.sh" "$build/bin"
+	else
+		docker run --rm -e CITRUS_VERSION="$ver" \
+			-v "$IMAGE-gomod:/go/pkg/mod" -v "$IMAGE-gocache:/root/.cache/go-build" \
+			-v "$(hostpath "$repo"):/src" "$GO_IMAGE" sh /src/test/bench/compare/build.sh /src/test/bench/compare/.build/bin
+	fi
 	cp "$here/Dockerfile" "$build/Dockerfile"
 	docker build -q -t "$IMAGE" "$(hostpath "$build")" >/dev/null
 fi
@@ -221,7 +226,7 @@ for rep in $(seq 1 "$REPS"); do
 			docker exec "$client" /opt/bin/cmp measure -server "$s" -proto "$proto" -rep "$rep" \
 				-out "/results/runs/$tag.json" -logs /results/logs \
 				-server-cg "$server_cg" -client-cg "$client_cg" -sink-cg "$sink_cg" \
-				-dur "$DUR" -ramp "$RAMP" -idle "$IDLE" ${PHASES:+-phases "$PHASES"} ${FP:+-fp "$FP"} $pprof_args ||
+				-dur "$DUR" -ramp "$RAMP" -idle "$IDLE" ${SETTLE:+-settle "$SETTLE"} ${PHASES:+-phases "$PHASES"} ${FP:+-fp "$FP"} $pprof_args ||
 				echo "!! $tag failed" | tee -a "$OUT/failures.txt"
 			if [ -n "$watch_pid" ]; then
 				kill "$watch_pid" 2>/dev/null || true
