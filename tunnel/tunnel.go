@@ -624,8 +624,19 @@ func handleTCPConn(connCtx C.ConnContext) {
 		return
 	}
 
+	proxy, rule, err := resolveMetadata(metadata)
+	if err != nil {
+		log.Warnln("[Metadata] parse failed: %s", err.Error())
+		return
+	}
+
+	// While the outbound dials, wait for the client's first bytes, so that a
+	// connection with a lazy handshake can send them along with it. The
+	// outbounds that never have one skip it: a goroutine, a buffer and three
+	// deadline changes per connection.
 	peekMutex := sync.Mutex{}
-	if !conn.Peeked() {
+	peeking := !conn.Peeked() && mayNeedHandshake(proxy, metadata)
+	if peeking {
 		peekMutex.Lock()
 		go func() {
 			defer peekMutex.Unlock()
@@ -633,12 +644,6 @@ func handleTCPConn(connCtx C.ConnContext) {
 			_, _ = conn.Peek(1)
 			_ = conn.SetReadDeadline(time.Time{})
 		}()
-	}
-
-	proxy, rule, err := resolveMetadata(metadata)
-	if err != nil {
-		log.Warnln("[Metadata] parse failed: %s", err.Error())
-		return
 	}
 
 	// the user's limits are checked before the outbound is dialed
@@ -715,11 +720,28 @@ func handleTCPConn(connCtx C.ConnContext) {
 		_ = remoteConn.Close()
 	}(remoteConn)
 
-	_ = conn.SetReadDeadline(time.Now()) // stop unfinished peek
-	peekMutex.Lock()
-	defer peekMutex.Unlock()
-	_ = conn.SetReadDeadline(time.Time{}) // reset
+	if peeking {
+		_ = conn.SetReadDeadline(time.Now()) // stop unfinished peek
+		peekMutex.Lock()
+		defer peekMutex.Unlock()
+		_ = conn.SetReadDeadline(time.Time{}) // reset
+	}
 	handleSocket(conn, remoteConn)
+}
+
+// mayNeedHandshake reports whether the outbound proxy picks for metadata may
+// return a connection with a lazy handshake (N.NeedHandshake), which sends the
+// client's first bytes with it. DIRECT and the rejecting outbounds never do.
+// A group is followed to the proxy it picks now; should it pick another one
+// for the dial, the first bytes just go after the handshake.
+func mayNeedHandshake(proxy C.Proxy, metadata *C.Metadata) bool {
+	for adapter := proxy; adapter != nil; adapter = adapter.Unwrap(metadata, false) {
+		switch adapter.Type() {
+		case C.Direct, C.Compatible, C.Reject, C.RejectDrop:
+			return false
+		}
+	}
+	return true
 }
 
 // logRejected logs a connection refused by the limits of its user, at most

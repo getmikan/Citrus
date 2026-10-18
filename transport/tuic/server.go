@@ -41,6 +41,9 @@ const (
 	preAuthMaxDatagrams  = 64
 )
 
+// streamHeaderBufferSize is the read buffer of a TCP relay stream.
+const streamHeaderBufferSize = 512
+
 type ServerOption struct {
 	HandleTcpFn func(conn net.Conn, addr socks5.Addr, additions ...inbound.Addition) error
 	HandleUdpFn func(addr socks5.Addr, packet C.UDPPacket, additions ...inbound.Addition) error
@@ -214,7 +217,10 @@ func (s *serverHandler) handleStream() (err error) {
 				s.quicConn.RemoteAddr(),
 				nil,
 			)
-			conn := N.NewBufferedConn(stream)
+			// the reader only has to hold the version and the CONNECT
+			// command (an address of at most 2+255+2 bytes); what it reads
+			// past them is relayed from it and the reader is dropped
+			conn := N.NewBufferedConnSize(stream, streamHeaderBufferSize)
 
 			verBytes, err := conn.Peek(1)
 			if err != nil {
