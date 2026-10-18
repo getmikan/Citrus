@@ -251,12 +251,15 @@ bulk rate is 5× lower.
 has the best or tied-best result on most TCP metrics (REALITY, Trojan,
 SS2022, XHTTP): download on par with mihomo and sing-box and far ahead of
 Xray, upload ahead of mihomo and sing-box by 50%+ (behind Xray by 16–17% on
-Trojan/SS2022 bulk upload), new connections on par with mihomo, and the
+Trojan/SS2022 bulk upload), new connections on par with mihomo (13% ahead
+on REALITY), and the
 lowest memory per tunnel on REALITY, XHTTP and SS2022. sing-box is the
 reference on AnyTLS and TUIC (and its new-connection path is the cheapest
 on the QUIC protocols); Xray remains the most CPU-efficient on Trojan/SS2022
-bulk upload. On the QUIC protocols (Hysteria2, TUIC) the four are within
-the noise on throughput and CPU per GB; differences there are in new
+bulk upload. On the QUIC protocols (Hysteria2, TUIC) sing-box, mihomo and
+Citrus are within
+the noise on throughput and CPU per GB (Xray trails on Hysteria2 download
+and CPU); differences there are in new
 streams and memory.
 
 ## Caveats
