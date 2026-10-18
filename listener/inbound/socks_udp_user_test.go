@@ -72,17 +72,16 @@ func TestInboundSocksUDPUser(t *testing.T) {
 	tunnel.UpdateProxies(map[string]C.Proxy{"DIRECT": adapter.NewProxy(outbound.NewDirect())}, nil)
 	tunnel.OnRunning()
 	name := fmt.Sprintf("socks-udp-user-%d", time.Now().UnixNano())
-	// the UDP relay is on the port of the TCP listener: take a free TCP port
-	// and listen on it with both. A free UDP port can fall in a range Windows
-	// reserves for TCP, and then the TCP bind is refused.
+	// the UDP relay is on the port of the TCP listener: take a port that is
+	// free for both. On Windows a free port of one protocol can fall in a
+	// range the system reserves for the other, and then that bind is refused.
 	var in *inbound.Socks
 	var err error
-	for i := 0; i < 20; i++ {
-		var probe net.Listener
-		probe, err = net.Listen("tcp", "127.0.0.1:0")
-		require.NoError(t, err)
-		port := probe.Addr().(*net.TCPAddr).Port
-		_ = probe.Close()
+	for i := 0; i < 50; i++ {
+		port, ok := freeTCPAndUDPPort(t)
+		if !ok {
+			continue
+		}
 		in, err = inbound.NewSocks(&inbound.SocksOption{
 			BaseOption: inbound.BaseOption{NameStr: name, Listen: "127.0.0.1", Port: strconv.Itoa(port)},
 			Users:      inbound.AuthUsers{{Username: "alice", Password: "alice-pass"}},
@@ -126,4 +125,20 @@ func TestInboundSocksUDPUser(t *testing.T) {
 	require.Error(t, err)
 	stat, _ = um.Get(statistic.UserKey{Inbound: name, User: "alice"})
 	require.Equal(t, int64(1), stat.RejectReasons[statistic.RejectMaxConns], strconv.Quote(fmt.Sprint(stat.RejectReasons)))
+}
+
+// freeTCPAndUDPPort returns a loopback port that both a TCP listener and a
+// UDP socket could bind just now.
+func freeTCPAndUDPPort(t *testing.T) (int, bool) {
+	t.Helper()
+	tcp, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer tcp.Close()
+	port := tcp.Addr().(*net.TCPAddr).Port
+	udp, err := net.ListenPacket("udp", "127.0.0.1:"+strconv.Itoa(port))
+	if err != nil {
+		return 0, false
+	}
+	_ = udp.Close()
+	return port, true
 }
