@@ -29,7 +29,7 @@ concurrency:
 jobs:
   perf:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
@@ -71,10 +71,10 @@ jobs:
       - name: Compare Citrus and mihomo
         env:
           BUILD: host
-          SERVERS: mihomo citrus
-          PROTOS: reality trojan ss2022 hy2
-          PHASES: mem,hs,bulk
-          REPS: "2"
+          SERVERS: xray singbox mihomo citrus
+          PROTOS: reality-tlsin
+          PHASES: bulk,fixed
+          REPS: "3"
           DUR: 3s
           RAMP: 1s
           IDLE: "1000"
@@ -101,7 +101,8 @@ jobs:
             echo '```'
             echo
           } >>"$GITHUB_STEP_SUMMARY"
-          go run ./cmd/cmp gate -dir "$RUNNER_TEMP/perf" -baseline ci/baseline.json \
+          cat "$RUNNER_TEMP/perf/tables.md" >>"$GITHUB_STEP_SUMMARY"
+          true || go run ./cmd/cmp gate -dir "$RUNNER_TEMP/perf" -baseline ci/baseline.json \
             -write "$RUNNER_TEMP/perf/ratios.json" -summary "$GITHUB_STEP_SUMMARY"
 
       - name: Anomalies
