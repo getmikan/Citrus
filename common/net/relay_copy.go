@@ -136,6 +136,7 @@ const largeReadSize = 65535
 // buffers for the rest of the copy.
 func copyWait(originSource io.Reader, destination network.ExtendedWriter, source network.ReadWaiter, options network.ReadWaitOptions, fromSocket bool, readCounters []network.CountFunc, writeCounters []network.CountFunc) (n int64, err error) {
 	var notFirstTime bool
+	var yield relayYield
 	grow := fromSocket && options.MTU == 0 && !common.LowMemory
 	fullRead := buf.BufferSize - options.FrontHeadroom - options.RearHeadroom
 	for {
@@ -159,6 +160,7 @@ func copyWait(originSource io.Reader, destination network.ExtendedWriter, source
 		n += int64(dataLen)
 		countAll(readCounters, writeCounters, dataLen)
 		notFirstTime = true
+		yield.add(dataLen)
 		if grow && dataLen >= fullRead {
 			grow = false
 			options.MTU = largeReadSize - options.FrontHeadroom - options.RearHeadroom
@@ -175,6 +177,7 @@ func copyAdaptive(originSource io.Reader, destination network.ExtendedWriter, so
 		return bufio.CopyExtendedWithPool(originSource, destination, source, readCounters, writeCounters)
 	}
 	var notFirstTime bool
+	var yield relayYield
 	writer := batchWriter(destination)
 	for {
 		if writer != nil && sizing.full {
@@ -208,6 +211,7 @@ func copyAdaptive(originSource io.Reader, destination network.ExtendedWriter, so
 		countAll(readCounters, writeCounters, dataLen)
 		notFirstTime = true
 		sizing.update(dataLen, small)
+		yield.add(dataLen)
 	}
 }
 
