@@ -64,6 +64,22 @@ No incompatibility on the Citrus side was found.
 - Protocols Citrus has no inbound for: SSH, WireGuard, MASQUE, OpenVPN, Tailscale, EasyTier, ZeroTier, gost relay. In Citrus these are outbounds only, or servers of other projects.
 - ShadowQUIC: Citrus has the inbound, but it is not in the matrix yet.
 
+## The core's User-Agent
+
+Citrus sends its own HTTP requests — subscriptions, `proxy-providers`, `rule-providers`, geodata — with the User-Agent from `global-ua`. By default it is two tokens separated by a space:
+
+```text
+clash.meta/<version> citrus/<version>
+```
+
+For example, `clash.meta/v1.0.0-beta.3 citrus/v1.0.0-beta.3`. The `clash.meta/` token comes first, so panel rules (Remnawave, Marzban, 3x-ui and others) that recognise a mihomo client by the start of the string keep working. A panel tells Citrus from mihomo by the second token:
+
+```text
+\bcitrus/(\S+)
+```
+
+The first group is the core version. When `global-ua` is set in the config, it is sent as it is, without the `citrus/` token.
+
 ## Xray
 
 The suite runs against Xray v26.10.10. Keys come from Xray itself (`xray x25519`, `mldsa65`, `uuid`, `tls ech`), and the REALITY target is a local TLS 1.3 server with a chain over 4 KB, so the ML-DSA-65 signature fits in the certificate.

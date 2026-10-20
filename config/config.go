@@ -554,7 +554,7 @@ func DefaultRawConfig() *RawConfig {
 		UserStats:         true,
 		TCPConnectTimeout: 5000,
 		FindProcessMode:   process.FindProcessStrict,
-		GlobalUA:          "clash.meta/" + C.Version,
+		GlobalUA:          C.UserAgent(),
 		ETagSupport:       true,
 		DNS: RawDNS{
 			Enable:         false,

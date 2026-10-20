@@ -64,6 +64,22 @@ Citrus проверяют два набора интеграционных те�
 - Протоколы, для которых у Citrus нет входящего: SSH, WireGuard, MASQUE, OpenVPN, Tailscale, EasyTier, ZeroTier, gost relay. В Citrus это только исходящие или серверы сторонних проектов.
 - ShadowQUIC: входящий в Citrus есть, но в матрицу пока не включён.
 
+## User-Agent ядра
+
+Свои HTTP-запросы — загрузку подписок, `proxy-providers`, `rule-providers`, geodata — Citrus отправляет с User-Agent из `global-ua`. По умолчанию это два токена через пробел:
+
+```text
+clash.meta/<версия> citrus/<версия>
+```
+
+Например, `clash.meta/v1.0.0-beta.3 citrus/v1.0.0-beta.3`. Токен `clash.meta/` стоит первым, поэтому правила панелей (Remnawave, Marzban, 3x-ui и другие), которые узнают клиента mihomo по началу строки, работают как раньше. Отличить Citrus от mihomo панель может по второму токену:
+
+```text
+\bcitrus/(\S+)
+```
+
+Первая группа — версия ядра. Если `global-ua` задан в конфиге, он отправляется как есть, без токена `citrus/`.
+
 ## Xray
 
 Набор тестов против Xray v26.10.10. Ключи берутся у самого Xray (`xray x25519`, `mldsa65`, `uuid`, `tls ech`), цель REALITY — локальный TLS 1.3 сервер с цепочкой больше 4 КБ, чтобы в сертификат поместилась подпись ML-DSA-65.

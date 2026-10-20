@@ -67,6 +67,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#71](https://github.com/getmikan/Citrus/pull/71) TrustTunnel: per-proxy HTTP/2 session timers.
 - [#73](https://github.com/getmikan/Citrus/pull/73) `type: chain` groups for cascades, with a health check that names the failed hop.
 - [#136](https://github.com/getmikan/Citrus/pull/136) PROXY protocol v1 and v2 on the TCP inbounds (`proxy-protocol`, `proxy-protocol-trusted`): the client address from the header of a front end such as an SNI router on 443.
+- [#146](https://github.com/getmikan/Citrus/pull/146) Default User-Agent `clash.meta/<version> citrus/<version>`: panels still recognise mihomo by the start of the string, Citrus stands out by the `citrus/` token.
 
 ## Performance
 
