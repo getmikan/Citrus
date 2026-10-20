@@ -9,7 +9,7 @@ description: GET /events присылает то, что происходит в
 
 Поток устроен как `/logs` и `/traffic`:
 
-- **WebSocket**, если запрос просит upgrade: одно JSON-событие в текстовом сообщении. Браузер передаёт секрет как `?token=`.
+- **WebSocket**, если запрос просит upgrade: одно JSON-событие в текстовом сообщении. Браузер сначала получает [одноразовый билет](/Citrus/security/#websocket-контроллера) через `POST /auth/ws-ticket`, затем передаёт `?ticket=` при upgrade. В запрос билета включите те же фильтры событий; для каждого переподключения нужен новый билет.
 - **Server-Sent Events** с `Accept: text/event-stream`: строки `event: <тип>` и `data: <json>`.
 - **JSON по строкам** в остальных случаях: chunked-ответ `application/x-ndjson`, по событию в строке.
 

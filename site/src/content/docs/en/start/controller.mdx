@@ -3,7 +3,7 @@ title: Controller security
 description: When the controller API needs a secret, how it guards against web pages, and what a config reload changes in it.
 ---
 
-The controller API (`external-controller`, `external-controller-tls`, `external-controller-unix`, `external-controller-pipe`) can change the config, the rules, the inbound users and restart or update the core. The `secret` is its only credential: every path except the [health probes](/Citrus/en/start/metrics/), the `/ui` files and the DoH path needs `Authorization: Bearer <secret>` (a browser websocket may pass it as `?token=`).
+The controller API (`external-controller`, `external-controller-tls`, `external-controller-unix`, `external-controller-pipe`) can change the config, the rules, the inbound users and restart or update the core. The `secret` is its only credential: every path except the [health probes](/Citrus/en/start/metrics/), the `/ui` files and the DoH path needs `Authorization: Bearer <secret>` (browser WebSockets use a [one-time ticket](/Citrus/en/security/#controller-websockets); reusable `?token=` secrets require an explicit compatibility option).
 
 ## Secret on a network address
 

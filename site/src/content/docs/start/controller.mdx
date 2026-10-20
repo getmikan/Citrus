@@ -3,7 +3,7 @@ title: Безопасность контроллера
 description: Когда API контроллера нужен secret, как он защищён от веб-страниц и что в нём меняет перезагрузка конфига.
 ---
 
-API контроллера (`external-controller`, `external-controller-tls`, `external-controller-unix`, `external-controller-pipe`) может менять конфиг, правила, пользователей входящих, перезапускать и обновлять ядро. Его единственный ключ — `secret`: все пути, кроме [проверок здоровья](/Citrus/start/metrics/), файлов `/ui` и пути DoH, требуют `Authorization: Bearer <secret>` (вебсокет из браузера может передать его как `?token=`).
+API контроллера (`external-controller`, `external-controller-tls`, `external-controller-unix`, `external-controller-pipe`) может менять конфиг, правила, пользователей входящих, перезапускать и обновлять ядро. Его единственный ключ — `secret`: все пути, кроме [проверок здоровья](/Citrus/start/metrics/), файлов `/ui` и пути DoH, требуют `Authorization: Bearer <secret>` (WebSocket из браузера использует [одноразовый билет](/Citrus/security/#websocket-контроллера); основной секрет в `?token=` требует явной опции совместимости).
 
 ## Secret на сетевом адресе
 
