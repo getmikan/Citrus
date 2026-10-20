@@ -123,7 +123,7 @@ func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additi
 		MaxIncomingStreams:    ServerMaxIncomingStreams,
 		MaxIncomingUniStreams: ServerMaxIncomingUniStreams,
 		EnableDatagrams:       true,
-		Allow0RTT:             true,
+		Allow0RTT:             config.ZeroRTT,
 		DisablePathManager:    true, // for port hopping
 	}
 	quicConfig.InitialStreamReceiveWindow = tuic.DefaultStreamReceiveWindow / 10

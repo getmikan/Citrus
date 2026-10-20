@@ -52,6 +52,7 @@ type ServiceOptions struct {
 	QUICCongestionControl string
 	QUICCwnd              int
 	QUICBBRProfile        string
+	QUICZeroRTT           bool
 	// Fallback is an optional backend (host:port) that unauthenticated requests are
 	// served from, so active probing sees an ordinary web server instead of a proxy.
 	Fallback string
@@ -66,6 +67,7 @@ type Service struct {
 	quicCongestionControl string
 	quicCwnd              int
 	quicBBRProfile        string
+	quicZeroRTT           bool
 	httpServer            *http.Server
 	h3Server              *http3.Server
 	tcpListener           net.Listener
@@ -242,6 +244,7 @@ func NewService(options ServiceOptions) *Service {
 		quicCongestionControl: options.QUICCongestionControl,
 		quicCwnd:              options.QUICCwnd,
 		quicBBRProfile:        options.QUICBBRProfile,
+		quicZeroRTT:           options.QUICZeroRTT,
 	}
 	if options.Fallback != "" {
 		// A dedicated transport with timeouts for connecting and for the response

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	N "github.com/metacubex/mihomo/common/net"
+	"github.com/metacubex/mihomo/common/pool"
 	"github.com/metacubex/mihomo/component/publicaddr"
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/log"
@@ -134,7 +135,9 @@ func (s *ServerConfig) serverV1(ctx context.Context, conn net.Conn) (net.Conn, s
 }
 
 func (s *ServerConfig) serverV2(ctx context.Context, conn net.Conn) (net.Conn, string, error) {
-	clientHello, err := readFrame(conn)
+	helloBuffer := pool.Get(maxTLSFrame)
+	defer pool.Put(helloBuffer)
+	clientHello, err := readFrameBuffer(conn, helloBuffer)
 	if err != nil {
 		return nil, "", fmt.Errorf("shadow-tls: read client handshake: %w", err)
 	}
@@ -163,6 +166,7 @@ func (s *ServerConfig) serverV2(ctx context.Context, conn net.Conn) (net.Conn, s
 		return N.NewCachedConn(newConn(conn), request), "", nil
 	}
 	if errors.Is(err, os.ErrPermission) {
+		N.HandshakeComplete(conn)
 		log.Warnln("[ShadowTLS] fallback connection")
 		hashConn.Fallback()
 		clientCopyDone := make(chan error, 1)
@@ -191,7 +195,9 @@ func (s *ServerConfig) serverV2(ctx context.Context, conn net.Conn) (net.Conn, s
 }
 
 func (s *ServerConfig) serverV3(ctx context.Context, conn net.Conn) (net.Conn, string, error) {
-	clientHello, err := readFrame(conn)
+	helloBuffer := pool.Get(maxTLSFrame)
+	defer pool.Put(helloBuffer)
+	clientHello, err := readFrameBuffer(conn, helloBuffer)
 	if err != nil {
 		return nil, "", fmt.Errorf("shadow-tls: read client handshake: %w", err)
 	}
@@ -215,7 +221,9 @@ func (s *ServerConfig) serverV3(ctx context.Context, conn net.Conn) (net.Conn, s
 	if _, err = handshakeConn.Write(clientHello); err != nil {
 		return nil, "", fmt.Errorf("shadow-tls: write client handshake: %w", err)
 	}
-	serverHello, err := readFrame(handshakeConn)
+	serverBuffer := pool.Get(maxTLSFrame)
+	defer pool.Put(serverBuffer)
+	serverHello, err := readFrameBuffer(handshakeConn, serverBuffer)
 	if err != nil {
 		return nil, "", fmt.Errorf("shadow-tls: read server handshake: %w", err)
 	}
@@ -224,6 +232,7 @@ func (s *ServerConfig) serverV3(ctx context.Context, conn net.Conn) (net.Conn, s
 	}
 	serverRandom := extractServerRandom(serverHello)
 	if serverRandom == nil {
+		N.HandshakeComplete(conn)
 		log.Warnln("[ShadowTLS] server random extract failed, will copy bidirectional")
 		if err = N.RelayContext(ctx, conn, handshakeConn); err != nil {
 			return nil, "", err
@@ -231,6 +240,7 @@ func (s *ServerConfig) serverV3(ctx context.Context, conn net.Conn) (net.Conn, s
 		return nil, "", ErrFallbackCompleted
 	}
 	if s.strictMode && !isServerHelloSupportTLS13(serverHello) {
+		N.HandshakeComplete(conn)
 		log.Warnln("[ShadowTLS] TLS 1.3 is not supported, will copy bidirectional")
 		if err = N.RelayContext(ctx, conn, handshakeConn); err != nil {
 			return nil, "", err
@@ -257,6 +267,7 @@ func (s *ServerConfig) serverV3(ctx context.Context, conn net.Conn) (net.Conn, s
 }
 
 func (s *ServerConfig) relayFallback(ctx context.Context, conn net.Conn, prefix []byte, handshakeConfig HandshakeConfig) error {
+	N.HandshakeComplete(conn)
 	handshakeConn, err := handshakeConfig.dial(ctx)
 	if err != nil {
 		return fmt.Errorf("shadow-tls: dial fallback server: %w", err)

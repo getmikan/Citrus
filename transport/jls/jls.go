@@ -211,6 +211,7 @@ func UserFromConn(conn net.Conn) (string, bool) {
 }
 
 func relayFallback(ctx context.Context, inbound net.Conn, prefix []byte, config *ServerConfig) error {
+	N.HandshakeComplete(inbound)
 	upstream, err := config.DialContext(ctx, "tcp", config.Dest)
 	if err != nil {
 		return err

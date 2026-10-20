@@ -54,19 +54,19 @@ func (c *Client) quicRoundTripper(tlsConfig *v2ray.TLSConfig, congestionControlN
 // streams (the Go HTTP/2 server default), so 1024 is generous.
 const serverMaxIncomingStreams = 1024
 
-func serverQUICConfig() *quic.Config {
+func serverQUICConfig(zeroRTT bool) *quic.Config {
 	return &quic.Config{
 		Versions:           []quic.Version{quic.Version1},
 		MaxIdleTimeout:     DefaultQuicMaxIdleTimeout,
 		KeepAlivePeriod:    quicKeepAlivePeriod,
 		MaxIncomingStreams: serverMaxIncomingStreams,
-		Allow0RTT:          true,
+		Allow0RTT:          zeroRTT,
 	}
 }
 
 func (s *Service) configHTTP3Server(tlsConfig *tls.Config, udpConn net.PacketConn) error {
 	tlsConfig = http3.ConfigureTLSConfig(tlsConfig)
-	quicListener, err := quic.ListenEarly(udpConn, tlsConfig, serverQUICConfig())
+	quicListener, err := quic.ListenEarly(udpConn, tlsConfig, serverQUICConfig(s.quicZeroRTT))
 	if err != nil {
 		return err
 	}
