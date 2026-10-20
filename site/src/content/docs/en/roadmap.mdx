@@ -3,7 +3,7 @@ title: Roadmap
 description: What is done in Citrus and its forks, what is in progress, what comes next and what needs a decision.
 ---
 
-The roadmap covers every getmikan repository: the [Citrus](https://github.com/getmikan/Citrus) core and the [utls](https://github.com/getmikan/utls), [tls](https://github.com/getmikan/tls), [http](https://github.com/getmikan/http) and [smux](https://github.com/getmikan/smux) forks. Moving the [Mikan](https://github.com/Miroshka000/mikan) panel to Citrus depends on the core, so it is here too. This is a plan, not a schedule.
+The roadmap covers every getmikan repository: the [Citrus](https://github.com/getmikan/Citrus) core and the [utls](https://github.com/getmikan/utls), [tls](https://github.com/getmikan/tls), [http](https://github.com/getmikan/http), [smux](https://github.com/getmikan/smux) and [restls-client-go](https://github.com/getmikan/restls-client-go) forks. Moving the [Mikan](https://github.com/Miroshka000/mikan) panel to Citrus depends on the core, so it is here too. This is a plan, not a schedule.
 
 ## Done
 
@@ -16,17 +16,19 @@ The details, with a link to every PR, are in the [changelog](/Citrus/en/changelo
 - **Cascades.** `type: chain` groups with a check of every hop.
 - **Networking and DNS.** Listeners on a unix socket, DNSCrypt v2, a BitTorrent sniffer and the `PROTOCOL` rule, `trusted-proxy-header` from trusted proxies.
 - **Cleanup.** VMess, SSR, Hysteria v1, TUIC v4, Shadowsocks stream ciphers, v2ray-plugin and mKCP removed.
-- **Hardening.** A security review, a code review and a static audit, all closed with fixes; TLS 1.2 minimum; self-update checked against `checksums.txt`; CI pinned by digest. See [Security](/Citrus/en/security/).
+- **Hardening.** A security review, a code review and a static audit, all closed with fixes, including the remaining findings on server handshakes, fallback, 0-RTT replay and the utls and ResTLS forks ([#140](https://github.com/getmikan/Citrus/pull/140)–[#142](https://github.com/getmikan/Citrus/pull/142), [#148](https://github.com/getmikan/Citrus/pull/148)); TLS 1.2 minimum; self-update checked against `checksums.txt`; CI pinned by digest. See [Security](/Citrus/en/security/).
 - **Performance.** Upload: write batching, up to +50% on REALITY, Trojan and SS2022 ([#119](https://github.com/getmikan/Citrus/pull/119)). Download: 64 KiB reads and TLS records sent to the socket together, with 32 streams REALITY 2802 → 4235 MB/s, Trojan 2737 → 3936, SS2022 3895 → 4392 ([#124](https://github.com/getmikan/Citrus/pull/124)). Latency under load: an echo next to eight downloads 55–63 → 20 ms ([#131](https://github.com/getmikan/Citrus/pull/131)). Idle tunnel memory: Trojan −36%, AnyTLS −18%, REALITY −12% ([#129](https://github.com/getmikan/Citrus/pull/129)). QUIC: the gap to sing-box on new streams 10–12% → 4–6% ([#125](https://github.com/getmikan/Citrus/pull/125)); fewer allocations per new connection ([#118](https://github.com/getmikan/Citrus/pull/118)). Earlier: XHTTP over h2 uses half the CPU per gigabyte, an idle connection takes 30 KB less memory.
+- **AnyTLS.** A rework ([#130](https://github.com/getmikan/Citrus/pull/130)): with 32 streams download is twice as fast, upload +23%, ahead of sing-box; the client race is gone.
+- **For servers and panels.** PROXY protocol v1 and v2 on the TCP inbounds for front ends such as an SNI router ([#136](https://github.com/getmikan/Citrus/pull/136)); non-root systemd and Docker profiles ([#144](https://github.com/getmikan/Citrus/pull/144)); one-time tickets for controller WebSockets instead of the secret in the URL ([#143](https://github.com/getmikan/Citrus/pull/143)); the User-Agent `clash.meta/<version> citrus/<version>` ([#146](https://github.com/getmikan/Citrus/pull/146)) and a `core` field in `GET /version` ([#147](https://github.com/getmikan/Citrus/pull/147)), so panels and apps tell Citrus from mihomo.
 - **Comparison and measurements.** A comparison of four servers, Xray, sing-box, mihomo and Citrus, on eight protocols ([#126](https://github.com/getmikan/Citrus/pull/126)); a nightly performance check in CI against mihomo ([#127](https://github.com/getmikan/Citrus/pull/127)).
 - **Client compatibility.** Automated tests: mihomo v1.19.31 and v1.19.32 clients against a Citrus server on every protocol, see [Compatibility](/Citrus/en/compatibility/).
 - **Go 1.26.** The minimum Go version is 1.26, so `golang.org/x/net`, `x/crypto` and `x/text` are on current releases with their security fixes. The separate builds on old Go versions (`-go120` to `-go125`) are gone; see [Migrating from mihomo](/Citrus/en/migration/#platforms-and-builds).
-- **Forks.** utls `v1.8.8-citrus.1`–`.3`, tls `v0.1.8-citrus.1`, http `v0.1.8-citrus.1`–`.2`; utls and tls have `dev` commits after these tags (download, memory). The new smux fork stops a caller's buffer from being sent after an error; it has no tag yet.
+- **Forks.** utls `v1.8.8-citrus.1`–`.3`, tls `v0.1.8-citrus.1`, http `v0.1.8-citrus.1`–`.2`; utls and tls have `dev` commits after these tags (download, memory). The new smux fork stops a caller's buffer from being sent after an error, and the restls-client-go fork fixes its record-counter races; neither has a tag yet.
 - **Documentation.** The site in two languages: getting started, configuration, controller, users, limits, metrics, events, chains, migrating from mihomo.
 
 ## In progress
 
-- **AnyTLS rework** ([#130](https://github.com/getmikan/Citrus/pull/130)), for the next beta. With 32 streams it is already faster than sing-box; single-stream upload and memory still need work.
+- **MikanApp on Citrus.** The app is built with the Citrus core; its About screen names the core after the core itself — Citrus or Mihomo.
 - **Moving the Mikan panel to Citrus.** The panel embeds the core as a library, and the move depends on the first release:
   - replace utls, tls, http and smux in the panel's `go.mod` with the getmikan forks, as Citrus does;
   - take events from `/events` instead of polling `/traffic/users`, `/limits/users` and the other endpoints;

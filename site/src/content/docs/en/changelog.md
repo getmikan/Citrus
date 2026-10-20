@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (138 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (144 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, `v1.0.0-beta.2`, is built from `dev` as described on this page.
 
@@ -32,6 +32,9 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#126](https://github.com/getmikan/Citrus/pull/126) Four-server comparison: Xray, sing-box, mihomo and Citrus, eight protocols.
 - [#127](https://github.com/getmikan/Citrus/pull/127) Bench: deterministic REALITY upload with TLS inside the tunnel; a nightly performance check against mihomo in CI.
 - [#144](https://github.com/getmikan/Citrus/pull/144) Optional non-root server profiles: dedicated systemd account with read-only config and bounded capabilities, and a Docker image using UID 65532. CI runs the real systemd unit and a zero-capability Docker relay test.
+- [#132](https://github.com/getmikan/Citrus/pull/132) Changelog brought up to the second beta, v1.0.0-beta.2.
+- [#134](https://github.com/getmikan/Citrus/pull/134) News post on the second beta, the roadmap after it.
+- [#135](https://github.com/getmikan/Citrus/pull/135) Test and site dependencies: the Docker client in tests moved to `moby/moby`, `postcss-selector-parser` bumped — the Dependabot alerts are closed.
 
 ## Removed legacy
 
@@ -81,6 +84,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#125](https://github.com/getmikan/Citrus/pull/125) Hysteria2 and TUIC: less work per stream, the read buffer only when needed, no first-bytes wait goroutine for DIRECT.
 - [#129](https://github.com/getmikan/Citrus/pull/129) Idle tunnel memory: Trojan −36%, AnyTLS −18%, REALITY −12% (getmikan/tls: read buffer sized by what is moving, `WaitRead`).
 - [#131](https://github.com/getmikan/Citrus/pull/131) Latency under load: the relay loop yields after 256 KiB and 1 ms; an echo next to eight downloads 55–63 → 20 ms.
+- [#130](https://github.com/getmikan/Citrus/pull/130) AnyTLS: received frames queued on their stream, outgoing frames built in place; with 32 streams download is twice as fast, upload +23%, CPU per GB nearly halved; the client race is gone.
 
 ## Hardening
 
@@ -174,6 +178,8 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#122](https://github.com/getmikan/Citrus/pull/122) SOCKS UDP user test takes a free TCP port (Windows).
 - [#123](https://github.com/getmikan/Citrus/pull/123) smux replaced by the getmikan/smux fork: the caller's buffer is no longer read after `Write` returns (its bytes could go out on another connection).
 - [#125](https://github.com/getmikan/Citrus/pull/125) TUIC: a `CONNECT` to a 255-byte domain no longer crashes the server before authentication.
+- [#137](https://github.com/getmikan/Citrus/pull/137) PROXY protocol: a v1 line shorter than the signature is rejected at once, without reading client data.
+- [#138](https://github.com/getmikan/Citrus/pull/138) The SOCKS UDP user test takes a port free for both TCP and UDP (Windows).
 
 ## Forks
 
