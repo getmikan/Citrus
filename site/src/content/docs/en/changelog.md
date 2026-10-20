@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (137 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (138 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, `v1.0.0-beta.2`, is built from `dev` as described on this page.
 
@@ -68,6 +68,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#73](https://github.com/getmikan/Citrus/pull/73) `type: chain` groups for cascades, with a health check that names the failed hop.
 - [#136](https://github.com/getmikan/Citrus/pull/136) PROXY protocol v1 and v2 on the TCP inbounds (`proxy-protocol`, `proxy-protocol-trusted`): the client address from the header of a front end such as an SNI router on 443.
 - [#146](https://github.com/getmikan/Citrus/pull/146) Default User-Agent `clash.meta/<version> citrus/<version>`: panels still recognise mihomo by the start of the string, Citrus stands out by the `citrus/` token.
+- [#147](https://github.com/getmikan/Citrus/pull/147) Added `core: "citrus"` to controller `GET /version`, preserving the existing `meta` and `version` fields for panels.
 
 ## Performance
 

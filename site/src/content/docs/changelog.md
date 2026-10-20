@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (137 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (138 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, `v1.0.0-beta.2`, — из `dev` в том состоянии, что описано на этой странице.
 
@@ -68,6 +68,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#73](https://github.com/getmikan/Citrus/pull/73) Группы `type: chain` для каскадов с проверкой, которая называет сломавшийся хоп.
 - [#136](https://github.com/getmikan/Citrus/pull/136) PROXY protocol v1 и v2 на TCP-входящих (`proxy-protocol`, `proxy-protocol-trusted`): адрес клиента из заголовка фронтенда, например SNI-роутера на 443.
 - [#146](https://github.com/getmikan/Citrus/pull/146) User-Agent по умолчанию `clash.meta/<версия> citrus/<версия>`: панели по-прежнему узнают mihomo по началу строки, Citrus отличается по токену `citrus/`.
+- [#147](https://github.com/getmikan/Citrus/pull/147) Контроллер `GET /version` возвращает `core: "citrus"`, сохраняя прежние поля `meta` и `version` для панелей.
 
 ## Производительность
 
