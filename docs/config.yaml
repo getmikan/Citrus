@@ -144,12 +144,15 @@ external-controller-routing-mark: 0
 # user: "*" 为该入站所有未单独配置用户的默认限制。0 或不写表示不限制。
 # 速度单位为字节/秒：10M = 10 MB/s；小写 b 表示比特：80Mbps = 10 MB/s。
 # 大小单位：K/M/G/T 为 1000 的幂，Ki/Mi/Gi/Ti 为 1024 的幂。
+# speed-group：同名分组的用户（可跨入站）共享同一组速度令牌桶，组内成员应设置相同的 speed-up/speed-down。
 # 运行时可通过 /limits/users 修改；重新加载配置会替换 API 设置的限制，配额用量保留。
 # Per-user limits of inbound users: speed, concurrent connections, online
 # addresses, traffic quota, expiry. user: "*" is the default of every user of
 # the inbound without a limit of its own. 0 or absent is no limit.
 # speed-up/speed-down are bytes per second: 10M = 10 MB/s; a lowercase b means
 # bits: 80Mbps = 10 MB/s. Sizes: K/M/G/T are powers of 1000, Ki/Mi/Gi/Ti of 1024.
+# speed-group: the users naming the same group, on any inbounds, share one
+# speed (one pair of buckets); give its members the same speed-up/speed-down.
 # quota counts upload plus download; expire-at is unix seconds or RFC 3339.
 # Runtime API: GET/PUT/DELETE /limits/users, POST /limits/users/reset-quota.
 # A reload replaces the limits set through the API; the quota usage is kept.

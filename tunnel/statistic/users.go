@@ -263,7 +263,9 @@ type UserManager struct {
 	lmu      sync.Mutex
 	lspecs   map[UserKey]limitEntry
 	lstates  map[UserKey]*limitState
-	closer   func(key UserKey, still func() bool)
+	// sgroups are the speed groups with at least one member (UserLimit.SpeedGroup)
+	sgroups map[string]*speedGroup
+	closer  func(key UserKey, still func() bool)
 }
 
 // NewUserManager returns an empty manager with the default timeouts.
