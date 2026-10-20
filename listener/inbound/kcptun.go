@@ -32,6 +32,8 @@ type KcpTun struct {
 	FrameSize    int    `inbound:"framesize,omitempty"`
 	StreamBuf    int    `inbound:"streambuf,omitempty"`
 	KeepAlive    int    `inbound:"keepalive,omitempty"`
+	MaxSessions  int    `inbound:"max-sessions,omitempty"`
+	MaxStreams   int    `inbound:"max-streams,omitempty"`
 }
 
 func (c KcpTun) Build() LC.KcpTun {
@@ -63,6 +65,8 @@ func (c KcpTun) Build() LC.KcpTun {
 			FrameSize:    c.FrameSize,
 			StreamBuf:    c.StreamBuf,
 			KeepAlive:    c.KeepAlive,
+			MaxSessions:  c.MaxSessions,
+			MaxStreams:   c.MaxStreams,
 		},
 	}
 }

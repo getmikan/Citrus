@@ -63,6 +63,10 @@ Details are on the [Controller security](/Citrus/en/start/controller/) page.
 - **REALITY: `max-time-difference` is in milliseconds**, like Xray's `maxTimeDiff` (it used to be microseconds).
 - **The same address on different inbounds or as different users** gets separate UDP sessions, each with its own rules and limits.
 
+- **TUIC and TrustTunnel (HTTP/3):** server `zero-rtt` is disabled by default. `zero-rtt: true` explicitly enables replayable QUIC early data. ShadowQUIC already uses the same opt-in default.
+- **KCPTun:** omitting `key` preserves the known shared legacy key for compatibility and now emits a warning. Set a unique random key; `max-sessions` and `max-streams` bound server sessions and streams per session (256/256 by default).
+- **Sudoku fallback:** at most 256 relays per listener and 64 per source (an IPv4 address or IPv6 /64), with a 60-second idle limit shared by both directions; activity extends the connection. The Sudoku handshake format and existing keys remain compatible.
+
 ## Outbounds
 
 - **REALITY sends X25519MLKEM768 by default.** For old servers set `reality-opts.support-x25519mlkem768: false`.

@@ -20,6 +20,7 @@ type TuicServer struct {
 	MaxIdleTime           int               `yaml:"max-idle-time" json:"max-idle-time,omitempty"`
 	AuthenticationTimeout int               `yaml:"authentication-timeout" json:"authentication-timeout,omitempty"`
 	ALPN                  []string          `yaml:"alpn" json:"alpn,omitempty"`
+	ZeroRTT               bool              `yaml:"zero-rtt" json:"zero-rtt,omitempty"`
 	MaxUdpRelayPacketSize int               `yaml:"max-udp-relay-packet-size" json:"max-udp-relay-packet-size,omitempty"`
 	MaxDatagramFrameSize  int               `yaml:"max-datagram-frame-size" json:"max-datagram-frame-size,omitempty"`
 	CWND                  int               `yaml:"cwnd" json:"cwnd,omitempty"`

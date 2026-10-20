@@ -13,7 +13,9 @@ const (
 	// SALT is use for pbkdf2 key expansion
 	SALT = "kcp-go"
 	// maximum supported smux version
-	maxSmuxVer = 2
+	maxSmuxVer         = 2
+	defaultMaxSessions = 256
+	defaultMaxStreams  = 256
 	// scavenger check period
 	scavengePeriod = 5
 )
@@ -44,11 +46,20 @@ type Config struct {
 	FrameSize    int    `json:"framesize"`
 	StreamBuf    int    `json:"streambuf"`
 	KeepAlive    int    `json:"keepalive"`
+	MaxSessions  int    `json:"max-sessions"`
+	MaxStreams   int    `json:"max-streams"`
 }
 
 func (config *Config) FillDefaults() {
 	if config.Key == "" {
+		log.Warnln("[KCPTun] missing key uses a publicly known default; configure a unique key")
 		config.Key = "it's a secrect"
+	}
+	if config.MaxSessions <= 0 {
+		config.MaxSessions = defaultMaxSessions
+	}
+	if config.MaxStreams <= 0 {
+		config.MaxStreams = defaultMaxStreams
 	}
 	if config.Crypt == "" {
 		config.Crypt = "aes"

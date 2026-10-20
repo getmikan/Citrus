@@ -288,7 +288,7 @@ func TestFallbackUpgradeOutlivesIdleTimeout(t *testing.T) {
 
 // startFallbackServer runs the real TrustTunnel service (HTTP/1.1 and HTTP/2 over
 // TLS, HTTP/3 over QUIC) with the given fallback backend and returns its address.
-func startFallbackServer(t *testing.T, backend *httptest.Server, idleTimeout time.Duration) (*Service, string) {
+func startFallbackServer(t *testing.T, backend *httptest.Server, idleTimeout time.Duration, zeroRTT ...bool) (*Service, string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -319,9 +319,10 @@ func startFallbackServer(t *testing.T, backend *httptest.Server, idleTimeout tim
 
 	tcpListener, udpConn := listenTCPAndUDP(t)
 	s := NewService(ServiceOptions{
-		Ctx:      context.Background(),
-		Logger:   logger.NOP(),
-		Fallback: strings.TrimPrefix(backend.URL, "http://"),
+		Ctx:         context.Background(),
+		Logger:      logger.NOP(),
+		Fallback:    strings.TrimPrefix(backend.URL, "http://"),
+		QUICZeroRTT: len(zeroRTT) > 0 && zeroRTT[0],
 	})
 	s.fallbackIdleTimeout = idleTimeout
 	// Like listener/trusttunnel: a certificate and no NextProtos.

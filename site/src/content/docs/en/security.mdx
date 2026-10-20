@@ -24,7 +24,7 @@ Fixes land on `dev`, then in `main` and in releases. There are no maintenance br
 
 ## What has been done
 
-Citrus has been through a security review, an internal code review of the core and of the utls fork, and a static audit. Every finding was fixed in its own pull request, each with a test that fails on the old code. The PRs are listed in the [changelog](/Citrus/en/changelog/#hardening).
+Fixes from core/fork reviews and static audits are listed in the [changelog](/Citrus/en/changelog/#hardening), with their PRs and validation. New reports are checked against the current code: an earlier changelog entry alone does not establish that a new finding is closed. Compatibility limitations are recorded below.
 
 ### Controller
 
@@ -43,7 +43,7 @@ Citrus has been through a security review, an internal code review of the core a
 
 ### Pre-authentication resources
 
-- Every inbound has a handshake deadline: a client that has not sent its credentials within 15 seconds is dropped.
+- The shared TCP wrapper for REALITY, ShadowTLS, JLS and ResTLS permits up to 256 pending handshakes per listener and closes them after 15 seconds. Classification as a client or fallback lifts this deadline; fallback limits are separate from the handshake.
 - State a client can create before its credentials are checked (XHTTP sessions, 0-RTT tickets, QUIC streams, multiplexed streams, fragment reassembly) is bounded in count, size and time.
 - Lengths declared by the peer are checked before memory is allocated.
 
@@ -66,6 +66,11 @@ Citrus has been through a security review, an internal code review of the core a
 - CI tokens get the least privilege: read-only for the build, only the needed scopes for publishing releases and images.
 - CodeQL, govulncheck, dependency review, `go vet` and a `go mod tidy` check run on every PR.
 - The Xray and mihomo binaries used by the interop tests are checked against a pinned SHA-256.
+
+## Compatibility limitations
+
+- **Sudoku:** the current handshake treats knowledge of the configured `key` as the access secret and does not prove possession of a separate private key. Keep this value secret even when a tool calls it a public key. Adding such proof requires a protocol change; compatibility is preserved, and this finding is not claimed fixed.
+- **KCPTun:** a default-key warning and resource bounds do not replace a unique secret. The shared legacy key remains available for compatibility; without an explicit `key`, this transport does not have a server-specific secret.
 
 ## Next
 
