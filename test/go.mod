@@ -170,4 +170,4 @@ replace github.com/metacubex/tls => github.com/getmikan/tls v0.1.8-citrus.1
 
 replace github.com/metacubex/smux => github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876
 
-replace github.com/metacubex/restls-client-go => github.com/getmikan/restls-client-go v0.1.10-0.20261020174520-8a87bfbeac8c
+replace github.com/metacubex/restls-client-go => github.com/getmikan/restls-client-go v0.1.10-0.20261020200739-f74a25fc969b
