@@ -64,7 +64,7 @@ export default defineConfig({
 				{
 					label: 'Начало',
 					translations: { en: 'Getting started' },
-					items: [{ slug: 'start/getting-started' }, { slug: 'start/configuration' }, { slug: 'start/controller' }, { slug: 'start/chains' }, { slug: 'start/user-stats' }, { slug: 'start/inbound-users' }, { slug: 'start/user-limits' }, { slug: 'start/metrics' }, { slug: 'start/events' }],
+					items: [{ slug: 'start/getting-started' }, { slug: 'start/server-profile' }, { slug: 'start/configuration' }, { slug: 'start/controller' }, { slug: 'start/chains' }, { slug: 'start/user-stats' }, { slug: 'start/inbound-users' }, { slug: 'start/user-limits' }, { slug: 'start/metrics' }, { slug: 'start/events' }],
 				},
 				{
 					label: 'Переход',

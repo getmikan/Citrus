@@ -1,0 +1,63 @@
+---
+title: Сервер без root
+description: Отдельные systemd и Docker профили для серверных входящих Citrus.
+---
+
+Этот профиль предназначен для обычных TCP/UDP входящих VPN-сервиса. TUN, прозрачный прокси, настройка маршрутов хоста и raw ICMP здесь недоступны. Существующие `citrus.service`, `citrus@.service` и основной Dockerfile сохраняют свои настройки для таких режимов.
+
+## systemd
+
+Пакеты включают `citrus-server.service`, описание пользователя в `/usr/lib/sysusers.d/citrus-server.conf` и шаблон `/usr/share/citrus/server-config.yaml`. Профиль включается отдельно; установка пакета его не запускает. После установки пакета:
+
+```bash
+sudo systemd-sysusers /usr/lib/sysusers.d/citrus-server.conf
+sudo install -d -o root -g citrus-server -m 0750 /etc/citrus-server
+sudo install -o root -g citrus-server -m 0640 /usr/share/citrus/server-config.yaml /etc/citrus-server/config.yaml
+sudoedit /etc/citrus-server/config.yaml
+# Добавьте авторизованные входящие и сертификаты до открытия портов.
+sudo systemctl daemon-reload
+sudo systemctl enable --now citrus-server
+journalctl -u citrus-server -f
+```
+
+При установке из исходников сначала установите бинарник в `/usr/bin/citrus`, юнит из `.github/release/citrus-server.service` в `/usr/lib/systemd/system/`, sysusers-файл в `/usr/lib/sysusers.d/citrus-server.conf`, а шаблон `docker/server-config.yaml` в `/usr/share/citrus/server-config.yaml`.
+
+Ядро работает от `citrus-server`, имеет только `CAP_NET_BIND_SERVICE` для портов ниже 1024 и не может повышать привилегии. Для портов от 1024 можно убрать и эту capability через `systemctl edit citrus-server`:
+
+```ini
+[Service]
+CapabilityBoundingSet=
+AmbientCapabilities=
+```
+
+Конфиг, сертификаты и приватные ключи храните в `/etc/citrus-server/`: владелец `root:citrus-server`, каталоги `0750`, файлы `0640`. Все промежуточные каталоги тоже должны быть доступны группе. Относительные пути считаются от `/var/lib/citrus-server`; для ключей используйте абсолютные пути. `SAFE_PATHS=/etc/citrus-server` разрешает ядру читать этот каталог, а sandbox systemd оставляет его только для чтения.
+
+Кэш, geodata, providers, UI и прочие обновляемые файлы размещайте в `/var/lib/citrus-server/` (параметр `-d`). systemd создаёт его с владельцем `citrus-server` и режимом `0700`; каталог `/run/citrus-server/` подходит для runtime-сокетов. Изменение конфига через API, который записывает файл конфигурации, не поддерживается: редактируйте файл от администратора и выполняйте `sudo systemctl reload citrus-server`. API управления пользователями в памяти не требует записи конфига. Не запускайте два профиля на одних портах и не делите между ними каталог данных.
+
+## Docker
+
+Отдельный `Dockerfile.server` использует те же артефакты `bin/`, что и основной Dockerfile: `bin/version.txt` и сжатый Linux-бинарник с соответствующим именем (см. `docker/file-name.sh`). Он не публикуется автоматически под отдельным тегом. Сборка для текущей платформы:
+
+```bash
+docker build -f Dockerfile.server -t citrus-server:local .
+```
+
+Образ работает с UID/GID `65532:65532`, не содержит iptables и не скачивает geodata при сборке. Встроенный шаблон не открывает слушающие порты; добавьте свои авторизованные входящие. Перед запуском подготовьте каталог `./server-config`, доступный этому UID, с конфигом `config.yaml` и ключами. Для секретов достаточно каталогов `0750` и файлов `0640` с группой 65532; на системах с SELinux отдельно настройте метки доступа.
+
+```bash
+docker volume create citrus-server-data
+docker run -d --name citrus-server --restart unless-stopped \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --mount type=bind,src="$(pwd)/server-config",dst=/etc/citrus,readonly \
+  --mount type=volume,src=citrus-server-data,dst=/var/lib/citrus \
+  -p 443:10443/tcp -p 443:10443/udp citrus-server:local
+```
+
+В этом примере входящий слушает порт 10443 внутри контейнера, а Docker публикует 443 на хосте; ни одной capability процессу не требуется. Публикуйте только нужные вашему протоколу TCP/UDP порты. TLS-ключи задавайте абсолютными путями в `/etc/citrus`, изменяемые файлы — в `/var/lib/citrus`. Новый named volume получает владельца 65532 из образа. Для существующего volume или bind mount каталога данных заранее выставьте владельца 65532 и режим `0700`; образ не меняет владельцев при старте. Обновления geodata, если они нужны конфигу, скачиваются в каталог данных при работе ядра.
+
+## Проверки
+
+CI запускает настоящий бинарник в обоих профилях. Для systemd проверяются UID, effective capabilities, запрет повышения привилегий, доступность каталога данных и отсутствие TUN. Docker проверяется с файловой системой только для чтения, нулевыми capabilities, записью в отдельный volume и реальным HTTP-прокси: запрос с паролем проходит, без него получает 407. Локально Docker-проверку можно повторить: `bash .github/scripts/test-server-profile.sh /path/to/linux-amd64-citrus`.
+
+Параметры sandbox описаны в [systemd.exec](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html), формат пользователя — в [sysusers.d](https://www.freedesktop.org/software/systemd/man/latest/sysusers.d.html).
