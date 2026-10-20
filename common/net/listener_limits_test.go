@@ -156,6 +156,41 @@ func TestAcceptedHandshakeKeepsConnectionContext(t *testing.T) {
 	}
 }
 
+func TestAcceptedHandshakePreservesTCPHalfClose(t *testing.T) {
+	contexts := make(chan context.Context, 1)
+	l := guardedTestListener(t, 1, time.Second, func(ctx context.Context, c net.Conn) (net.Conn, error) { contexts <- ctx; return c, nil })
+	client := dialGuarded(t, l)
+	server, err := l.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	ctx := <-contexts
+	if _, err := client.Write([]byte("request")); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	request, err := io.ReadAll(server)
+	if err != nil || string(request) != "request" {
+		t.Fatalf("request changed: %q, %v", request, err)
+	}
+	if _, err := server.Write([]byte("response")); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.(interface{ CloseWrite() error }).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	response, err := io.ReadAll(client)
+	if err != nil || string(response) != "response" {
+		t.Fatalf("half-close lost response: %q, %v", response, err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("half-close cancelled the live connection context")
+	}
+}
+
 func TestListenerCloseCancelsPendingHandlersAndAccept(t *testing.T) {
 	var handlers sync.WaitGroup
 	entered := make(chan struct{})

@@ -42,7 +42,19 @@ type handshakeConn struct {
 
 func (c *handshakeConn) Upstream() any { return c.Conn }
 func (c *handshakeConn) Close() error  { c.cancel(); return c.Conn.Close() }
-func (c *handshakeConn) release()      { c.releaseOnce.Do(func() { <-c.listener.slots }) }
+func (c *handshakeConn) CloseWrite() error {
+	if conn, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return conn.CloseWrite()
+	}
+	return c.Close()
+}
+func (c *handshakeConn) CloseRead() error {
+	if conn, ok := c.Conn.(interface{ CloseRead() error }); ok {
+		return conn.CloseRead()
+	}
+	return c.Close()
+}
+func (c *handshakeConn) release() { c.releaseOnce.Do(func() { <-c.listener.slots }) }
 func (c *handshakeConn) HandshakeComplete() {
 	if c.state.CompareAndSwap(0, 1) {
 		c.timer.Stop()

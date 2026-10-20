@@ -238,13 +238,15 @@ func newFakeDNSCryptServer(t *testing.T) *fakeDNSCryptServer {
 		keys:         map[[8]byte]*fakeServerKey{},
 	}
 	for i := 0; ; i++ {
-		s.tcp, err = net.Listen("tcp", "127.0.0.1:0")
+		// Pick UDP first: Windows may assign a free TCP port from a range
+		// reserved for UDP, causing every nearby retry to fail with WSAEACCES.
+		s.udp, err = net.ListenPacket("udp", "127.0.0.1:0")
 		require.NoError(t, err)
-		s.addr = s.tcp.Addr().String()
-		if s.udp, err = net.ListenPacket("udp", s.addr); err == nil {
+		s.addr = s.udp.LocalAddr().String()
+		if s.tcp, err = net.Listen("tcp", s.addr); err == nil {
 			break
 		}
-		s.tcp.Close()
+		s.udp.Close()
 		require.Less(t, i, 100, "no free port pair: %v", err)
 	}
 	t.Cleanup(func() { s.udp.Close(); s.tcp.Close() })
