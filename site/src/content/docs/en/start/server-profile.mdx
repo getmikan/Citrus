@@ -34,6 +34,8 @@ Store the config, certificates and private keys in `/etc/citrus-server/`: owner 
 
 Put caches, geodata, providers, UI and other writable files under `/var/lib/citrus-server/` (the `-d` argument). systemd creates it owned by `citrus-server` with mode `0700`; `/run/citrus-server/` is available for runtime sockets. API operations that write the config file are unavailable: edit it as administrator and run `sudo systemctl reload citrus-server`. In-memory user management does not need config writes. Do not run both profiles on the same ports or share their data directories.
 
+Update the binary through the package manager and update containers by replacing the image. The profile permissions prevent the core self-updater from replacing its executable.
+
 ## Docker
 
 The separate `Dockerfile.server` takes the same `bin/` artifacts as the main Dockerfile: `bin/version.txt` and the matching compressed Linux binary (see `docker/file-name.sh`). It is not automatically published under a separate tag. Build for the current platform:

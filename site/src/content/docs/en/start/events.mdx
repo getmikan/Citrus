@@ -9,7 +9,7 @@ description: GET /events pushes what happens in the core (logins, user limits, u
 
 The stream works like `/logs` and `/traffic`:
 
-- **WebSocket** when the request asks for an upgrade: one JSON event per text message. A browser passes the secret as `?token=`.
+- **WebSocket** when the request asks for an upgrade: one JSON event per text message. A browser first obtains a [one-time ticket](/Citrus/en/security/#controller-websockets) with `POST /auth/ws-ticket`, then sends `?ticket=` on the upgrade request. Include the same event filters in the ticket request; obtain a new ticket on every reconnect.
 - **Server-Sent Events** with `Accept: text/event-stream`: `event: <type>` and `data: <json>` lines.
 - **Newline-delimited JSON** otherwise: a chunked `application/x-ndjson` response, one event per line.
 
