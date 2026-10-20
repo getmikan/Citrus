@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (134 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (135 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, `v1.0.0-beta.2`, is built from `dev` as described on this page.
 
@@ -131,6 +131,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#141](https://github.com/getmikan/Citrus/pull/141) Updated uTLS and ResTLS forks in all three modules: REALITY deadlines until classification, exact fallback limiter threshold, no AuthKey/short ID in logs, cached X25519 keys/buffers, JLS verification callbacks and atomic ResTLS counters.
 - [#142](https://github.com/getmikan/Citrus/pull/142) Bounded pending REALITY/ShadowTLS/JLS/ResTLS handshakes, ShadowTLS records, Sudoku fallback and KCPTun sessions/streams; server QUIC 0-RTT for TUIC/TrustTunnel is opt-in. Added regression and protocol-isolated inbound race tests; documented compatibility limitations without claiming Sudoku key-auth fixed.
 - [#143](https://github.com/getmikan/Citrus/pull/143) Controller WebSockets use scoped single-use tickets (30 seconds, bounded storage); reusable URL secrets require an explicit compatibility option. Added migration instructions and hub race coverage.
+- [#145](https://github.com/getmikan/Citrus/pull/145) Updated controller/events guides for one-time WebSocket tickets and documented package/image updates for the non-root server profile.
 
 ## Ported from mihomo and the community
 
