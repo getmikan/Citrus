@@ -34,3 +34,30 @@ func TestControllerReloaderAppliesOverrides(t *testing.T) {
 		t.Errorf("with the allow-insecure override: %v", err)
 	}
 }
+
+func TestLegacyWebSocketTokenConfigIsExplicit(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		value := "false"
+		if enabled {
+			value = "true"
+		}
+		cfg, err := config.Parse([]byte("secret: test-secret\nexternal-controller-allow-legacy-websocket-token: " + value + "\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Controller.AllowLegacyWebSocketToken != enabled || routeConfig(cfg).AllowLegacyWebSocketToken != enabled {
+			t.Fatal("legacy policy was lost while building controller config")
+		}
+	}
+	cfg, err := config.Parse([]byte("secret: test-secret\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Controller.AllowLegacyWebSocketToken {
+		t.Fatal("legacy URL secret was enabled by default")
+	}
+	WithExternalControllerAllowLegacyWebSocketToken(true)(cfg)
+	if !routeConfig(cfg).AllowLegacyWebSocketToken {
+		t.Fatal("legacy override ignored")
+	}
+}

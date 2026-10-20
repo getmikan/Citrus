@@ -103,6 +103,12 @@ secret: "123456" # `Authorization:Bearer ${secret}`
 # 内核拒绝在非回环地址上无 secret 启动 external-controller / external-controller-tls。
 # external-controller-allow-insecure: false # true: accept a non-loopback controller without a secret (not recommended); env CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true or -ext-ctl-allow-insecure
 
+# WebSocket: POST /auth/ws-ticket with Authorization: Bearer <secret> and
+# JSON {"path":"/events?types=auth"}, then connect to that exact path with
+# &ticket=<ticket>. Tickets expire after 30 seconds and can be redeemed once.
+# Main-secret URLs (?token=<secret>) are rejected by default. For old dashboards only:
+# external-controller-allow-legacy-websocket-token: false # true restores the URI-secret risk and emits a warning
+
 # RESTful API CORS标头配置
 external-controller-cors:
   allow-origins:
