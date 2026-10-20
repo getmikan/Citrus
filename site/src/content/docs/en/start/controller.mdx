@@ -32,6 +32,16 @@ Programs (scripts, panels, `curl`) send no `Origin` and are not affected. A host
 
 `PUT /configs`, `SIGHUP` (`systemctl reload citrus`) and a restart apply the controller settings of the new config: `secret`, the addresses, `tls`, `external-controller-cors`, `external-ui`. When one of them changes, the controller listeners restart (the `PUT /configs` response is sent first) and the open websocket streams (`/logs`, `/traffic`, `/memory`, `/connections`, `/events`) are closed, so nothing authorized by a retired secret stays open. Command line overrides (`-secret`, `-ext-ctl` and the others) apply on every reload. A reload that does not change the controller leaves its connections alone.
 
+## Core version
+
+`GET /version` answers as mihomo does, with one more field:
+
+```json
+{"meta": true, "version": "v1.0.0-beta.3", "core": "citrus"}
+```
+
+mihomo clients skip the extra field. An app that works with both cores can name the core by `core`, and take it for mihomo when the field is missing.
+
 ## Limits
 
 Every controller listener cuts off a client that has not sent its request headers (or finished the TLS handshake) in 10 seconds, closes idle keep-alive connections after 2 minutes and accepts at most 256 KiB of headers. The streams are not limited in time.
