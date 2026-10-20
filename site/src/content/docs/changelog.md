@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (130 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (131 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, `v1.0.0-beta.2`, — из `dev` в том состоянии, что описано на этой странице.
 
@@ -127,6 +127,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#111](https://github.com/getmikan/Citrus/pull/111) AnyTLS: версия собеседника из настроек сессии разбирается с проверкой границ, значение `-1` больше не включает режим v2 (найдено CodeQL).
 - [#113](https://github.com/getmikan/Citrus/pull/113) AnyTLS: ограничены схема паддинга и разбор чисел; обновлены `compress` и `dhcp`.
 - [#140](https://github.com/getmikan/Citrus/pull/140) Ограничены replay-cache VLESS и общий бюджет загрузок Sudoku HTTP-mask; запись Sudoku порциями по 64 КиБ; неверный ML-DSA seed не попадает в ошибки.
+- [#141](https://github.com/getmikan/Citrus/pull/141) Обновлены форки uTLS и ResTLS во всех трёх модулях: дедлайны REALITY до классификации, точный порог fallback limiter, отсутствие AuthKey/short ID в логах, кэш X25519/буферов, callbacks проверки JLS и атомарные счётчики ResTLS.
 
 ## Перенесено из mihomo и сообщества
 
@@ -169,9 +170,11 @@ description: Все влитые в Citrus pull request’ы по темам, с
 
 ## Форки
 
-Citrus подменяет четыре библиотеки mihomo своими форками через `replace` в `go.mod`. Путь модулей не меняется, у каждого форка есть ветки `main` (релизы) и `dev` с CI.
+Citrus подменяет пять библиотек mihomo своими форками через `replace` в `go.mod`. Пути модулей не меняются; изменения проходят PR и CI в `dev`, релизы выпускаются отдельно.
 
 ### [getmikan/utls](https://github.com/getmikan/utls)
+
+- `v1.8.9-0.20261020173537-32502cba39f4`: исправления REALITY/JLS из [PR 3 форка](https://github.com/getmikan/utls/pull/3), подключены в [#141](https://github.com/getmikan/Citrus/pull/141); это коммит `dev`, не релизный тег.
 
 - `v1.8.8-citrus.1`: серверная сторона пост-квантового REALITY (подпись ML-DSA-65, требование X25519MLKEM768), отпечатки Firefox 148 и Safari 26.3 ([#10](https://github.com/getmikan/Citrus/pull/10)).
 - `v1.8.8-citrus.2`: исправления ошибок после ревью кода: возобновление сессий, ECH, минимальная версия сервера, сжатые сертификаты, HKDF ([#55](https://github.com/getmikan/Citrus/pull/55)).
@@ -191,3 +194,7 @@ Citrus подменяет четыре библиотеки mihomo своими 
 ### [getmikan/smux](https://github.com/getmikan/smux)
 
 - Коммит `dev`: `Write` не возвращается, пока цикл отправки может читать буфер вызывающего; брошенный кадр не отправляется ([#123](https://github.com/getmikan/Citrus/pull/123)).
+
+### [getmikan/restls-client-go](https://github.com/getmikan/restls-client-go)
+
+- `v0.1.10-0.20261020174520-8a87bfbeac8c`: атомарные счётчики двусторонней передачи и уведомление о переходе в fallback из [PR 1 форка](https://github.com/getmikan/restls-client-go/pull/1), подключены в [#141](https://github.com/getmikan/Citrus/pull/141). CI форка проверяет протокол ResTLS; старые сбои общего набора TLS-тестов не считаются исправленными.
