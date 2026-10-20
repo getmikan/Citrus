@@ -1,0 +1,297 @@
+// Adapted from XTLS/Xray-core transport/internet/xdrive at 92ccc939aaf4.
+// Copyright Xray-core contributors. Licensed under MPL-2.0.
+// SPDX-License-Identifier: MPL-2.0
+
+package xdrive
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	segSuffix = ".seg"
+	endSuffix = ".end"
+	errSuffix = ".err"
+)
+
+func objectName(prefix string, seq int64, suffix string) string {
+	return fmt.Sprintf("%s/%09d%s", prefix, seq, suffix)
+}
+
+func parseEntry(name string) (int64, bool) {
+	dot := strings.LastIndexByte(name, '.')
+	if dot < 0 {
+		return 0, false
+	}
+	switch name[dot:] {
+	case segSuffix, endSuffix, errSuffix:
+	default:
+		return 0, false
+	}
+	seq, err := strconv.ParseInt(name[:dot], 10, 64)
+	if err != nil || seq < 0 {
+		return 0, false
+	}
+	return seq, true
+}
+
+type walReader struct {
+	ctx     context.Context
+	storage Storage
+	prefix  string
+	params
+	seq int64
+
+	ch        chan []byte
+	discards  chan string
+	wake      chan struct{}
+	holeSince time.Time
+
+	errMu sync.Mutex
+	err   error
+}
+
+func newWALReader(ctx context.Context, storage Storage, prefix string, p params) *walReader {
+	r := &walReader{
+		ctx:      ctx,
+		storage:  storage,
+		prefix:   prefix,
+		params:   p,
+		ch:       make(chan []byte, p.concurrency),
+		discards: make(chan string, 4*p.concurrency),
+		wake:     make(chan struct{}, 1),
+	}
+	go r.run()
+	go r.discardLoop()
+	return r
+}
+
+func (r *walReader) Wake() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (r *walReader) run() {
+	defer close(r.ch)
+
+	delay := r.minPollInterval
+	active := time.Now()
+	for {
+		polled := time.Now()
+		advanced, eof, err := r.poll()
+		if err != nil {
+			r.setErr(err)
+			return
+		}
+		if eof {
+			return
+		}
+
+		switch {
+		case advanced:
+			active = time.Now()
+			delay = r.minPollInterval
+		case time.Since(active) < r.eagerWindow:
+			delay = r.minPollInterval
+		default:
+			delay *= 2
+			if delay > r.maxPollInterval {
+				delay = r.maxPollInterval
+			}
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-r.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		case <-r.wake:
+			timer.Stop()
+			active = time.Now()
+			delay = r.minPollInterval
+			if rest := r.minPollInterval - time.Since(polled); rest > 0 {
+				select {
+				case <-r.ctx.Done():
+					return
+				case <-time.After(rest):
+				}
+			}
+		}
+	}
+}
+
+func (r *walReader) poll() (advanced, eof bool, err error) {
+	listed, err := r.storage.List(r.ctx, r.prefix)
+	if err != nil {
+		return false, false, err
+	}
+	if len(listed) == 0 {
+		return false, false, nil
+	}
+
+	pending := make(map[int64]Entry, len(listed))
+	ahead := false
+	for _, entry := range listed {
+		seq, ok := parseEntry(entry.Name)
+		if !ok {
+			continue
+		}
+		pending[seq] = entry
+		if seq > r.seq {
+			ahead = true
+		}
+	}
+
+	if _, ok := pending[r.seq]; !ok && ahead {
+		if r.holeSince.IsZero() {
+			r.holeSince = time.Now()
+		} else if time.Since(r.holeSince) >= r.holeTimeout {
+			return false, false, newError("segment ", r.seq,
+				" never arrived while later ones did, the peer lost it")
+		}
+	} else {
+		r.holeSince = time.Time{}
+	}
+
+	for {
+		if entry, ok := pending[r.seq]; ok && strings.HasSuffix(entry.Name, errSuffix) {
+			r.discard(r.prefix + "/" + entry.Name)
+			return advanced, false, newError("the peer could not store segment ", r.seq)
+		}
+
+		batch, done := r.nextBatch(pending)
+		if done {
+			return advanced, true, nil
+		}
+		if len(batch) == 0 {
+			return advanced, false, nil
+		}
+
+		chunks, err := r.fetch(batch)
+		if err != nil {
+			if err == errNotFound {
+				return advanced, false, nil
+			}
+			return advanced, false, err
+		}
+
+		for i, chunk := range chunks {
+			select {
+			case r.ch <- chunk:
+			case <-r.ctx.Done():
+				return advanced, true, nil
+			}
+			r.seq++
+			advanced = true
+			r.discard(r.prefix + "/" + batch[i].Name)
+		}
+	}
+}
+
+func (r *walReader) nextBatch(pending map[int64]Entry) (batch []Entry, done bool) {
+	for i := 0; i < r.concurrency; i++ {
+		entry, ok := pending[r.seq+int64(i)]
+		if !ok {
+			break
+		}
+		if !strings.HasSuffix(entry.Name, segSuffix) {
+			if i == 0 && strings.HasSuffix(entry.Name, endSuffix) {
+				r.discard(r.prefix + "/" + entry.Name)
+				return nil, true
+			}
+			break
+		}
+		batch = append(batch, entry)
+	}
+	return batch, false
+}
+
+func (r *walReader) fetch(batch []Entry) ([][]byte, error) {
+	chunks := make([][]byte, len(batch))
+	failures := make([]error, len(batch))
+
+	var wg sync.WaitGroup
+	for i, entry := range batch {
+		if entry.Inline != nil {
+			if len(entry.Inline) > maxSegmentBytes {
+				return nil, newError("segment too large")
+			}
+			chunks[i] = entry.Inline
+			continue
+		}
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			chunks[i], failures[i] = r.storage.Get(r.ctx, r.prefix+"/"+name)
+			if len(chunks[i]) > maxSegmentBytes {
+				failures[i] = newError("segment too large")
+			}
+		}(i, entry.Name)
+	}
+	wg.Wait()
+
+	for i := range batch {
+		if failures[i] != nil {
+			return nil, failures[i]
+		}
+	}
+	return chunks, nil
+}
+
+func (r *walReader) discard(name string) {
+	select {
+	case r.discards <- name:
+	default:
+	}
+}
+
+func (r *walReader) discardLoop() {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
+	sem := make(chan struct{}, r.concurrency)
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case name := <-r.discards:
+			select {
+			case sem <- struct{}{}:
+			case <-r.ctx.Done():
+				return
+			}
+			wg.Add(1)
+			go func(name string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				r.storage.Delete(r.ctx, name)
+			}(name)
+		}
+	}
+}
+
+func (r *walReader) setErr(err error) {
+	r.errMu.Lock()
+	defer r.errMu.Unlock()
+	if r.err == nil {
+		r.err = err
+	}
+}
+
+func (r *walReader) Err() error {
+	r.errMu.Lock()
+	defer r.errMu.Unlock()
+	if r.err != nil {
+		return r.err
+	}
+	return io.EOF
+}

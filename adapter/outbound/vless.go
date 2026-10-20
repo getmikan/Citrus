@@ -25,6 +25,8 @@ import (
 	"github.com/metacubex/mihomo/transport/v2ray"
 	"github.com/metacubex/mihomo/transport/vless"
 	"github.com/metacubex/mihomo/transport/vless/encryption"
+	"github.com/metacubex/mihomo/transport/vless/muxcool"
+	"github.com/metacubex/mihomo/transport/xdrive"
 	"github.com/metacubex/mihomo/transport/xhttp"
 
 	"github.com/metacubex/http"
@@ -46,7 +48,9 @@ type Vless struct {
 	// for gun mux
 	gunClient *gun.Client
 	// for xhttp
-	xhttpClient *xhttp.Client
+	xhttpClient  *xhttp.Client
+	xdriveClient *xdrive.Client
+	xdriveMux    *muxcool.Client
 
 	echConfig       *ech.Config
 	shadowTLSConfig *shadowtls.Config
@@ -56,6 +60,7 @@ type Vless struct {
 }
 
 type VlessOption struct {
+	XDriveOpts *xdrive.Config `proxy:"xdrive-opts,omitempty"`
 	BasicOption
 	Name              string            `proxy:"name"`
 	Server            string            `proxy:"server"`
@@ -279,7 +284,7 @@ func (v *Vless) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 		c, err = v2ray.StreamH2Conn(ctx, c, h2Opts)
 	case "grpc":
 		break // already handle in dialContext
-	case "xhttp":
+	case "xhttp", "xdrive":
 		break // already handle in dialContext
 	default:
 		// default tcp network
@@ -369,6 +374,8 @@ func (v *Vless) dialContext(ctx context.Context) (c net.Conn, err error) {
 		return v.gunClient.Dial()
 	case "xhttp":
 		return v.xhttpClient.Dial(ctx)
+	case "xdrive":
+		return v.xdriveClient.Dial(ctx)
 	default:
 	}
 	return v.dialer.DialContext(ctx, "tcp", v.addr)
@@ -376,6 +383,13 @@ func (v *Vless) dialContext(ctx context.Context) (c net.Conn, err error) {
 
 // DialContext implements C.ProxyAdapter
 func (v *Vless) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
+	if v.xdriveMux != nil {
+		conn, err := v.xdriveMux.DialContext(ctx, net.JoinHostPort(metadata.String(), strconv.Itoa(int(metadata.DstPort))))
+		if err != nil {
+			return nil, fmt.Errorf("xdrive connect error: %w", err)
+		}
+		return NewConn(conn, v), nil
+	}
 	c, err := v.dialContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
@@ -444,6 +458,12 @@ func (v *Vless) ProxyInfo() C.ProxyInfo {
 // Close implements C.ProxyAdapter
 func (v *Vless) Close() error {
 	var errs []error
+	if v.xdriveMux != nil {
+		errs = append(errs, v.xdriveMux.Close())
+	}
+	if v.xdriveClient != nil {
+		errs = append(errs, v.xdriveClient.Close())
+	}
 	if v.gunClient != nil {
 		if err := v.gunClient.Close(); err != nil {
 			errs = append(errs, err)
@@ -486,6 +506,23 @@ func parseVlessAddr(metadata *C.Metadata, xudp bool) *vless.DstAddr {
 }
 
 func NewVless(option VlessOption) (*Vless, error) {
+	if option.Network == "xdrive" {
+		if option.XDriveOpts == nil {
+			return nil, errors.New("xdrive requires xdrive-opts")
+		}
+		if err := option.XDriveOpts.Validate(); err != nil {
+			return nil, err
+		}
+		if option.Flow != "" {
+			return nil, errors.New("xdrive does not support VLESS flow")
+		}
+		if option.Encryption == "" || option.Encryption == "none" {
+			return nil, errors.New("xdrive requires VLESS encryption")
+		}
+		if option.PacketAddr || (option.PacketEncoding != "" && option.PacketEncoding != "xudp") {
+			return nil, errors.New("xdrive UDP requires xudp packet encoding")
+		}
+	}
 	var addons *vless.Addons
 	if len(option.Flow) >= 16 {
 		option.Flow = option.Flow[:16]
@@ -584,6 +621,15 @@ func NewVless(option VlessOption) (*Vless, error) {
 	}
 
 	switch option.Network {
+	case "xdrive":
+		if securityMode != "" {
+			return nil, errors.New("xdrive does not support outer TLS security modes")
+		}
+		v.xdriveClient, err = xdrive.NewClient(*option.XDriveOpts, v.newXDriveHTTPClient())
+		if err != nil {
+			return nil, err
+		}
+		v.xdriveMux = muxcool.NewClient(v.newXDriveMuxConn)
 	case "h2":
 		if len(option.HTTP2Opts.Host) == 0 {
 			option.HTTP2Opts.Host = append(option.HTTP2Opts.Host, "www.example.com")

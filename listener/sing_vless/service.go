@@ -165,7 +165,10 @@ func (s *Service) NewConnection(ctx context.Context, conn net.Conn, metadata M.M
 		}
 		return s.handler.NewPacketConnection(ctx, &serverPacketConn{ExtendedConn: bufio.NewExtendedConn(conn), destination: destination}, metadata)
 	case vless.CommandMux:
-		return vmess.HandleMuxConnection(ctx, conn, metadata, s.handler)
+		// sing-vmess uses both a buffered writer and direct WriteBuffer calls.
+		// Serialize them before the lazy VLESS response and encryption layer:
+		// concurrent streams must not interleave encryption records or headers.
+		return vmess.HandleMuxConnection(ctx, &muxWriteConn{Conn: conn}, metadata, s.handler)
 	default:
 		return E.New("unknown command: ", command)
 	}
