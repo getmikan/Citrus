@@ -24,6 +24,7 @@ import (
 	"github.com/metacubex/mihomo/transport/gun"
 	"github.com/metacubex/mihomo/transport/v2ray"
 	"github.com/metacubex/mihomo/transport/vless/encryption"
+	"github.com/metacubex/mihomo/transport/xdrive"
 	"github.com/metacubex/mihomo/transport/xhttp"
 
 	"github.com/metacubex/http"
@@ -84,6 +85,38 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 				_ = decryption.Close()
 			}
 		}()
+	}
+
+	if config.XDriveConfig != nil {
+		if sl.decryption == nil {
+			return nil, errors.New("xdrive requires VLESS decryption")
+		}
+		for _, user := range config.Users {
+			if user.Flow != "" {
+				return nil, errors.New("xdrive does not support VLESS flow")
+			}
+		}
+		if strings.Contains(config.Listen, ",") {
+			return nil, errors.New("xdrive requires exactly one listener address")
+		}
+		if config.WsPath != "" || config.GrpcServiceName != "" || config.XHTTPConfig != (LC.XHTTPConfig{}) || config.Certificate != "" || config.PrivateKey != "" || config.RealityConfig.PrivateKey != "" || config.ShadowTLS.Password != "" || config.ResTLS.Password != "" || config.JLSConfig.Enable {
+			return nil, errors.New("xdrive cannot be combined with TCP transport or server TLS settings")
+		}
+		storageListener, err := xdrive.Listen(*config.XDriveConfig, nil)
+		if err != nil {
+			return nil, err
+		}
+		sl.listeners = append(sl.listeners, storageListener)
+		go func() {
+			for {
+				conn, err := storageListener.Accept()
+				if err != nil {
+					return
+				}
+				go sl.HandleConn(conn, tunnel)
+			}
+		}()
+		return sl, nil
 	}
 
 	httpServer := http.Server{
@@ -324,6 +357,13 @@ func (l *Listener) Users() []C.InboundUser { return l.service.Users() }
 
 // ReplaceUsers swaps the users without closing the listener.
 func (l *Listener) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, error) {
+	if l.config.XDriveConfig != nil {
+		for _, user := range users {
+			if user.Flow != "" {
+				return inbounduser.Change{}, errors.New("xdrive does not support VLESS flow")
+			}
+		}
+	}
 	return l.service.ReplaceUsers(users)
 }
 

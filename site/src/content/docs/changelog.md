@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (128 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (129 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, `v1.0.0-beta.2`, — из `dev` в том состоянии, что описано на этой странице.
 
@@ -47,6 +47,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#20](https://github.com/getmikan/Citrus/pull/20) Сервер XHTTP принимает packet-up любым методом и с любым размещением данных, как Xray; `server-max-header-bytes`.
 - [#21](https://github.com/getmikan/Citrus/pull/21) HTTP/2-входящие шлют такой же первый кадр SETTINGS, как Caddy (getmikan/http).
 - [#34](https://github.com/getmikan/Citrus/pull/34) XHTTP: XMUX по умолчанию как в Xray при пустом `reuse-settings`, исправления менеджера переиспользования.
+- [#139](https://github.com/getmikan/Citrus/pull/139) XDrive для клиентов и серверов VLESS: локальное хранилище, Google Drive и шаблоны API, VLESS Encryption, Mux.Cool и XUDP; тесты совместимости с Xray и проверки гонок в CI.
 
 ## Возможности для VPN-сервиса
 

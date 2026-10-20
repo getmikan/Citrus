@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (128 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (129 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, `v1.0.0-beta.2`, is built from `dev` as described on this page.
 
@@ -47,6 +47,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#20](https://github.com/getmikan/Citrus/pull/20) XHTTP server accepts packet-up with any method and data placement like Xray; `server-max-header-bytes`.
 - [#21](https://github.com/getmikan/Citrus/pull/21) HTTP/2 inbounds send the same first SETTINGS frame as Caddy (getmikan/http).
 - [#34](https://github.com/getmikan/Citrus/pull/34) XHTTP: Xray's default XMUX when `reuse-settings` is empty, reuse manager fixes.
+- [#139](https://github.com/getmikan/Citrus/pull/139) XDrive for VLESS clients and servers: local, Google Drive and template API storage, VLESS Encryption, Mux.Cool and XUDP; Xray interoperability and race checks in CI.
 
 ## VPN service features
 

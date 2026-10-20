@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"github.com/metacubex/mihomo/transport/xdrive"
 
 	"github.com/metacubex/mihomo/listener/reality"
 	"github.com/metacubex/mihomo/listener/sing"
@@ -14,6 +15,7 @@ type VlessUser struct {
 }
 
 type VlessServer struct {
+	XDriveConfig       *xdrive.Config `inbound:"xdrive-config,omitempty" yaml:"xdrive-config,omitempty" json:"xdrive-config,omitempty"`
 	Enable             bool
 	Listen             string
 	Users              []VlessUser

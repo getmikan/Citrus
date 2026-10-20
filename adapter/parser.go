@@ -231,6 +231,10 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
 			return nil, err
 		}
 		if muxOption.Enabled {
+			if mapping["type"] == "vless" && mapping["network"] == "xdrive" {
+				_ = proxy.Close()
+				return nil, fmt.Errorf("xdrive uses Mux.Cool internally and cannot be wrapped in smux")
+			}
 			proxy, err = outbound.NewSingMux(*muxOption, proxy)
 			if err != nil {
 				return nil, err

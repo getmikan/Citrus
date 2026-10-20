@@ -1,6 +1,7 @@
 package inbound
 
 import (
+	"github.com/metacubex/mihomo/transport/xdrive"
 	"strings"
 
 	C "github.com/metacubex/mihomo/constant"
@@ -10,6 +11,7 @@ import (
 )
 
 type VlessOption struct {
+	XDriveConfig *xdrive.Config `inbound:"xdrive-config,omitempty" yaml:"xdrive-config,omitempty" json:"xdrive-config,omitempty"`
 	BaseOption
 	Users              []VlessUser   `inbound:"users"`
 	Decryption         string        `inbound:"decryption,omitempty"`
@@ -118,6 +120,7 @@ func NewVless(options *VlessOption) (*Vless, error) {
 		config: options,
 		vs: LC.VlessServer{
 			Enable:             true,
+			XDriveConfig:       options.XDriveConfig,
 			Listen:             base.RawAddress(),
 			Users:              users,
 			Decryption:         options.Decryption,

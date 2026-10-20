@@ -1005,6 +1005,53 @@ proxies: # socks5
           - keep-alive
     # ip-version: ipv4 # 设置使用 IP 类型偏好，可选：ipv4，ipv6，dual，默认值：dual
 
+  # XDRIVE carries VLESS through a shared storage folder, compatible with Xray.
+  # The UUID, encryption/decryption keys, backend and folder must match the peer.
+  # Mux.Cool for TCP and XUDP for UDP are internal; do not enable smux or flow.
+  # API URLs select the actual network endpoints; server/port are node metadata.
+  # HTTPS APIs use certificate verification and the client TLS options below.
+  - name: "vless-xdrive"
+    type: vless
+    server: storage-node
+    port: 443
+    uuid: 27848739-7e62-4138-9fd3-098a63964b6b
+    network: xdrive
+    udp: true
+    encryption: "mlkem768x25519plus.native.0rtt.REPLACE_WITH_SERVER_PUBLIC_KEY"
+    client-fingerprint: chrome
+    # alpn: [h2, http/1.1]
+    # skip-cert-verify: false
+    # dialer-proxy: another-proxy # applies to all storage API requests
+    xdrive-opts:
+      service: google-drive # google-drive, template, local
+      remote-folder: GOOGLE_DRIVE_FOLDER_ID
+      secrets: [CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN]
+      # fronting: "api-connection.example:443" # optional connection address override; preserves API Host/SNI
+      # segment-bytes: 524288 # default 512 KiB; maximum 16 MiB
+      # flush-interval-ms: 20
+      # poll-interval-ms: 50
+      # max-poll-interval-ms: 500
+      # eager-window-ms: 2000
+      # hole-timeout-ms: 30000
+      # session-ttl-seconds: 300
+      # concurrency: 8 # parallel segment requests; maximum 64
+      # local uses a shared filesystem path as remote-folder and needs no secrets.
+      # template uses the same template object and placeholders as Xray:
+      # template:
+      #   flatten: true
+      #   auth:
+      #     type: basic
+      #     username: "{secret0}"
+      #     password: "{secret1}"
+      #   put: { method: PUT, url: "https://storage.example/{folder}/{name}" }
+      #   get: { method: GET, url: "https://storage.example/{folder}/{name}" }
+      #   delete: { method: DELETE, url: "https://storage.example/{folder}/{name}" }
+      #   list:
+      #     method: PROPFIND
+      #     url: "https://storage.example/{folder}/"
+      #     namesRegex: '<d:href>/folder/([^<]+)</d:href>'
+      #   retry: { status: [429, 500, 502, 503, 504] }
+
   - name: "vless-xhttp"
     type: vless
     server: server
@@ -2400,6 +2447,23 @@ listeners:
     # proxy: proxy # 如果不为空则直接将该入站流量交由指定 proxy 处理 (当 proxy 不为空时，这里的 proxy 名称必须合法，否则会出错)
     network: [tcp, udp]
     target: target.com
+
+  # XDRIVE inbound: polls storage rather than opening a listening TCP socket.
+  # Do not combine xdrive-config with ws/grpc/xhttp, certificates or REALITY.
+  # Generate the paired encryption/decryption strings with `xray vlessenc`.
+  # - name: vless-xdrive-in
+  #   type: vless
+  #   listen: 127.0.0.1
+  #   port: 443 # one logical listener identifier; no socket is bound here
+  #   decryption: "mlkem768x25519plus.native.600s.REPLACE_WITH_SERVER_PRIVATE_KEY"
+  #   users:
+  #     - username: user
+  #       uuid: 27848739-7e62-4138-9fd3-098a63964b6b
+  #   xdrive-config:
+  #     service: google-drive
+  #     remote-folder: GOOGLE_DRIVE_FOLDER_ID
+  #     secrets: [CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN]
+  # All storage options from xdrive-opts are also accepted in xdrive-config.
 
   - name: vless-in-1
     type: vless
