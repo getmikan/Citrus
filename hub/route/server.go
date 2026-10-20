@@ -599,5 +599,7 @@ func getLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func version(w http.ResponseWriter, r *http.Request) {
-	render.JSON(w, r, render.M{"meta": C.Meta, "version": C.Version})
+	// "core" tells a client built for both cores which one it talks to;
+	// clients of mihomo ignore the field.
+	render.JSON(w, r, render.M{"meta": C.Meta, "version": C.Version, "core": C.MihomoName})
 }
