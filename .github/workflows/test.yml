@@ -47,10 +47,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cleanup() { sudo systemctl stop citrus-server || true; }
+          cleanup() {
+            if [ "$?" != 0 ]; then sudo journalctl -u citrus-server -n 50 --no-pager || true; fi
+            sudo systemctl stop citrus-server || true
+          }
           trap cleanup EXIT
           sudo install -m 0755 "$RUNNER_TEMP/citrus-profile" /usr/bin/citrus
-          sudo systemd-sysusers .github/release/citrus-server.sysusers
+          sudo systemd-sysusers "$GITHUB_WORKSPACE/.github/release/citrus-server.sysusers"
           sudo install -d -o root -g citrus-server -m 0750 /etc/citrus-server
           sudo install -o root -g citrus-server -m 0640 docker/server-config.yaml /etc/citrus-server/config.yaml
           sudo install -m 0644 .github/release/citrus-server.service /run/systemd/system/citrus-server.service
