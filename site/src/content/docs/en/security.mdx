@@ -67,6 +67,14 @@ Fixes from core/fork reviews and static audits are listed in the [changelog](/Ci
 - CodeQL, govulncheck, dependency review, `go vet` and a `go mod tidy` check run on every PR.
 - The Xray and mihomo binaries used by the interop tests are checked against a pinned SHA-256.
 
+## Controller WebSockets
+
+A browser dashboard first sends `POST /auth/ws-ticket` with `Authorization: Bearer <secret>`, `Content-Type: application/json` and `{"path":"/events?types=auth"}`. Success returns HTTP 201 and `{"ticket":"...","expires_in":30}` with `Cache-Control: no-store`. It then opens `/events?types=auth&ticket=...` over WebSocket. Every reconnect needs a new ticket.
+
+A ticket lasts 30 seconds, is atomically redeemed for one authentication attempt, and permits only a GET upgrade to its specified stream with the same query parameters. If issuance included an Origin header, it must match on connection. Supported streams are `/events`, `/logs`, `/traffic`, `/traffic/users`, `/memory` and `/connections`. Tickets cannot call the REST API or mint more tickets. Each controller handler permits up to 1024 outstanding tickets; issuance over the cap returns HTTP 429, and expired entries release capacity. Recreating the controller, including secret rotation, invalidates outstanding tickets.
+
+Native clients can continue sending a bearer header during the WebSocket upgrade. Older browser dashboards can explicitly enable `external-controller-allow-legacy-websocket-token: true`, disabled by default. This accepts the old `?token=<secret>` on WebSocket streams and emits a warning: the URL again contains the main reusable secret, so this is a compatibility mode, not a fix for that exposure. Normal mode places only a short-lived one-time ticket in the URL.
+
 ## Compatibility limitations
 
 - **Sudoku:** the current handshake treats knowledge of the configured `key` as the access secret and does not prove possession of a separate private key. Keep this value secret even when a tool calls it a public key. Adding such proof requires a protocol change; compatibility is preserved, and this finding is not claimed fixed.

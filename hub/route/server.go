@@ -81,7 +81,8 @@ type Config struct {
 	// AllowInsecure lets the tcp and tls listeners run on a non-loopback
 	// address without a secret and turns off the browser guard of a
 	// controller without a secret (external-controller-allow-insecure).
-	AllowInsecure bool
+	AllowInsecure             bool
+	AllowLegacyWebSocketToken bool
 }
 
 // appliedConfig is what ReCreateServer last applied.
@@ -122,6 +123,9 @@ func ReCreateServer(cfg *Config) {
 		log.Infoln("External controller settings changed, restarting the controller listeners")
 	}
 	applied = &state
+	if cfg.Secret != "" && cfg.AllowLegacyWebSocketToken {
+		log.Warnln("External controller accepts its main secret in WebSocket URLs for legacy compatibility; migrate to POST /auth/ws-ticket")
+	}
 
 	closeStreams()
 	start(cfg)
@@ -136,14 +140,16 @@ func SetUIPath(path string) {
 	uiPath = C.Path.Resolve(path)
 }
 
-func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
+func router(isDebug bool, secret string, dohServer string, cors Cors, legacyWebSocketToken ...bool) *chi.Mux {
 	r := chi.NewRouter()
 	cors.Apply(r)
 	r.Get("/healthz", healthAuth(secret, probe(metrics.Live)))
 	r.Get("/readyz", healthAuth(secret, probe(metrics.Ready)))
 	r.Group(func(r chi.Router) {
 		if secret != "" {
-			r.Use(authentication(secret))
+			auth := newControllerAuth(secret, len(legacyWebSocketToken) > 0 && legacyWebSocketToken[0])
+			r.Use(auth.middleware)
+			r.Post("/auth/ws-ticket", auth.issueTicket)
 		}
 		if isDebug {
 			r.Mount("/debug", func() http.Handler {
@@ -203,7 +209,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 // newHandler builds the controller handler of the local transports (unix
 // socket and namedpipe). Every listener enforces the configured secret.
 func newHandler(cfg *Config) http.Handler {
-	return router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors)
+	return router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors, cfg.AllowLegacyWebSocketToken)
 }
 
 // newNetworkHandler builds the handler of the tcp and tls listeners: the
@@ -382,37 +388,6 @@ func safeEqual(a, b string) bool {
 	aBuf := utils.ImmutableBytesFromString(a)
 	bBuf := utils.ImmutableBytesFromString(b)
 	return subtle.ConstantTimeCompare(aBuf, bBuf) == 1
-}
-
-func authentication(secret string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		fn := func(w http.ResponseWriter, r *http.Request) {
-			// Browser websocket not support custom header
-			if r.Header.Get("Upgrade") == "websocket" && r.URL.Query().Get("token") != "" {
-				token := r.URL.Query().Get("token")
-				if !safeEqual(token, secret) {
-					render.Status(r, http.StatusUnauthorized)
-					render.JSON(w, r, ErrUnauthorized)
-					return
-				}
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			header := r.Header.Get("Authorization")
-			bearer, token, found := strings.Cut(header, " ")
-
-			hasInvalidHeader := bearer != "Bearer"
-			hasInvalidSecret := !found || !safeEqual(token, secret)
-			if hasInvalidHeader || hasInvalidSecret {
-				render.Status(r, http.StatusUnauthorized)
-				render.JSON(w, r, ErrUnauthorized)
-				return
-			}
-			next.ServeHTTP(w, r)
-		}
-		return http.HandlerFunc(fn)
-	}
 }
 
 func hello(w http.ResponseWriter, r *http.Request) {

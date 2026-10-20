@@ -67,6 +67,8 @@ Details are on the [Controller security](/Citrus/en/start/controller/) page.
 - **KCPTun:** omitting `key` preserves the known shared legacy key for compatibility and now emits a warning. Set a unique random key; `max-sessions` and `max-streams` bound server sessions and streams per session (256/256 by default).
 - **Sudoku fallback:** at most 256 relays per listener and 64 per source (an IPv4 address or IPv6 /64), with a 60-second idle limit shared by both directions; activity extends the connection. The Sudoku handshake format and existing keys remain compatible.
 
+- **Controller WebSockets:** the main `secret` in `?token=` is rejected by default. A dashboard must obtain a one-time ticket from `POST /auth/ws-ticket` with a bearer header, then send `?ticket=` on connection. For an older dashboard, temporarily set `external-controller-allow-legacy-websocket-token: true`; this restores the main-secret-in-URL exposure. [API details](/Citrus/en/security/#controller-websockets).
+
 ## Outbounds
 
 - **REALITY sends X25519MLKEM768 by default.** For old servers set `reality-opts.support-x25519mlkem768: false`.
