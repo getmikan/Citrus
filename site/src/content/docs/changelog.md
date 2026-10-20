@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (138 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (144 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, `v1.0.0-beta.2`, — из `dev` в том состоянии, что описано на этой странице.
 
@@ -32,6 +32,9 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#126](https://github.com/getmikan/Citrus/pull/126) Сравнение четырёх серверов: Xray, sing-box, mihomo и Citrus, восемь протоколов.
 - [#127](https://github.com/getmikan/Citrus/pull/127) Стенд: стабильный замер загрузки REALITY с TLS внутри туннеля; ночная проверка производительности в CI против mihomo.
 - [#144](https://github.com/getmikan/Citrus/pull/144) Отдельные серверные профили без root: пользователь systemd с конфигом только для чтения и ограниченными capabilities, Docker-образ с UID 65532. CI запускает реальный unit и проверяет проксирование в Docker без capabilities.
+- [#132](https://github.com/getmikan/Citrus/pull/132) Журнал изменений дополнен до второй беты v1.0.0-beta.2.
+- [#134](https://github.com/getmikan/Citrus/pull/134) Новость о второй бете, дорожная карта после неё.
+- [#135](https://github.com/getmikan/Citrus/pull/135) Зависимости тестов и сайта: клиент Docker в тестах переведён на `moby/moby`, обновлён `postcss-selector-parser` — закрыты предупреждения Dependabot.
 
 ## Удалённое наследие
 
@@ -81,6 +84,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#125](https://github.com/getmikan/Citrus/pull/125) Hysteria2 и TUIC: меньше работы на поток, буфер чтения создаётся только при необходимости, без горутины ожидания первых байтов для DIRECT.
 - [#129](https://github.com/getmikan/Citrus/pull/129) Память простаивающего туннеля: Trojan −36%, AnyTLS −18%, REALITY −12% (getmikan/tls: буфер чтения по размеру данных, `WaitRead`).
 - [#131](https://github.com/getmikan/Citrus/pull/131) Пинг под нагрузкой: цикл пересылки уступает процессор после 256 КиБ и 1 мс; эхо рядом с восемью закачками 55–63 → 20 мс.
+- [#130](https://github.com/getmikan/Citrus/pull/130) AnyTLS: принятые кадры в очереди потока, кадры для отправки собираются на месте; в 32 потока скачивание вдвое быстрее, загрузка +23%, CPU на гигабайт почти вдвое меньше; гонка в клиенте устранена.
 
 ## Укрепление ядра
 
@@ -174,6 +178,8 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#122](https://github.com/getmikan/Citrus/pull/122) Тест UDP SOCKS с пользователем берёт свободный TCP-порт (Windows).
 - [#123](https://github.com/getmikan/Citrus/pull/123) smux заменён форком getmikan/smux: после возврата `Write` буфер вызывающего больше не читается (его данные могли уйти в чужое соединение).
 - [#125](https://github.com/getmikan/Citrus/pull/125) TUIC: `CONNECT` с доменом длиной 255 байт больше не роняет сервер до авторизации.
+- [#137](https://github.com/getmikan/Citrus/pull/137) PROXY protocol: строка v1 короче сигнатуры отклоняется сразу, без чтения данных клиента.
+- [#138](https://github.com/getmikan/Citrus/pull/138) Тест UDP SOCKS с пользователем берёт порт, свободный и для TCP, и для UDP (Windows).
 
 ## Форки
 
