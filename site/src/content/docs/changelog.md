@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (132 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (133 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, `v1.0.0-beta.2`, — из `dev` в том состоянии, что описано на этой странице.
 
@@ -129,6 +129,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#140](https://github.com/getmikan/Citrus/pull/140) Ограничены replay-cache VLESS и общий бюджет загрузок Sudoku HTTP-mask; запись Sudoku порциями по 64 КиБ; неверный ML-DSA seed не попадает в ошибки.
 - [#141](https://github.com/getmikan/Citrus/pull/141) Обновлены форки uTLS и ResTLS во всех трёх модулях: дедлайны REALITY до классификации, точный порог fallback limiter, отсутствие AuthKey/short ID в логах, кэш X25519/буферов, callbacks проверки JLS и атомарные счётчики ResTLS.
 - [#142](https://github.com/getmikan/Citrus/pull/142) Ограничены незавершённые handshake REALITY/ShadowTLS/JLS/ResTLS, записи ShadowTLS, Sudoku fallback и сессии/потоки KCPTun; серверный QUIC 0-RTT для TUIC/TrustTunnel включается явно. Добавлены регрессионные и раздельные inbound race-тесты; ограничения совместимости описаны без заявления о закрытии Sudoku key-auth.
+- [#143](https://github.com/getmikan/Citrus/pull/143) WebSocket контроллера использует одноразовые билеты с привязкой к запросу (30 секунд, ограниченное хранилище); основной secret в URL разрешается только явной опцией совместимости. Добавлены инструкции для панелей и hub в race-проверку.
 
 ## Перенесено из mihomo и сообщества
 
