@@ -299,7 +299,14 @@ func (i *ServerInstance) Handshake(conn net.Conn, fallback *[]byte) (*CommonConn
 				rand.Read(noises)
 				_, err = DecodeHeader(noises)
 			}
-			conn.Write(noises) // make client do new handshake
+			if _, writeErr := conn.Write(noises); writeErr == nil {
+				// A close with unread client data can discard the response with
+				// TCP RST (notably on Windows). Let the client consume the
+				// expired-ticket response and close; bound a peer that stays.
+				_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+				_, _ = io.Copy(io.Discard, conn)
+				_ = conn.SetReadDeadline(time.Time{})
+			}
 			return nil, errors.New("expired ticket")
 		}
 		c.UnitedKey = append(s.PfsKey, nfsKey...) // the same nfsKey links the upload & download (prevents server -> client's another request)

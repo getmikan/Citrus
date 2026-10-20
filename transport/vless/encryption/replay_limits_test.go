@@ -2,6 +2,7 @@ package encryption
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -173,7 +174,7 @@ func TestReplayLimitForcesFreshHandshake(t *testing.T) {
 		// Initial 1-RTT, two accepted resumptions, expired-ticket response,
 		// and a fresh successful 1-RTT using the same client configuration.
 		if n == 3 {
-			if err == nil || err.Error() != "new handshake needed" {
+			if !errors.Is(err, ErrNewHandshakeNeeded) {
 				t.Fatalf("expected expired ticket, got %v", err)
 			}
 		} else if err != nil {
