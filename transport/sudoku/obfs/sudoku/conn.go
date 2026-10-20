@@ -11,6 +11,23 @@ import (
 
 const IOBufferSize = 32 * 1024
 
+// Bound expansion before any multiplication or allocation, including on 386.
+const maxWriteChunk = 64 * 1024
+
+func writeEncoded(w io.Writer, p []byte) error {
+	for len(p) > 0 {
+		n, err := w.Write(p)
+		p = p[n:]
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+	}
+	return nil
+}
+
 const minDecodeReadSize = 64
 
 var perm4 = [24][4]byte{
@@ -147,11 +164,16 @@ func (sc *Conn) Write(p []byte) (n int, err error) {
 	sc.writeMu.Lock()
 	defer sc.writeMu.Unlock()
 
-	sc.writeBuf = encodeSudokuPayload(sc.writeBuf[:0], sc.table, sc.rng, sc.paddingThreshold, p)
-	if _, err := sc.Conn.Write(sc.writeBuf); err != nil {
-		return len(p), err
+	for len(p) > 0 {
+		size := min(len(p), maxWriteChunk)
+		sc.writeBuf = encodeSudokuPayload(sc.writeBuf[:0], sc.table, sc.rng, sc.paddingThreshold, p[:size])
+		if err := writeEncoded(sc.Conn, sc.writeBuf); err != nil {
+			return n, err
+		}
+		n += size
+		p = p[size:]
 	}
-	return len(p), nil
+	return n, nil
 }
 
 func (sc *Conn) Read(p []byte) (n int, err error) {

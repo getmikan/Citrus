@@ -52,9 +52,10 @@ type TunnelServer struct {
 	sessionTTL      time.Duration
 	earlyHandshake  *TunnelServerEarlyHandshake
 
-	mu       sync.Mutex
-	sessions map[string]*tunnelSession
-	pending  int // sessions whose inner handshake has not answered yet, guarded by mu
+	mu          sync.Mutex
+	sessions    map[string]*tunnelSession
+	pending     int // sessions whose inner handshake has not answered yet, guarded by mu
+	uploadBytes int // reservations for running upload handlers, guarded by mu
 }
 
 const tunnelHeaderReadTimeout = 15 * time.Second
@@ -84,7 +85,15 @@ var (
 var (
 	uploadBodyReadTimeout       = 60 * time.Second
 	maxConcurrentSessionUploads = 8
+	maxBufferedUploadBytes      = 64 << 20
 )
+
+const maxUploadBytes = 1 << 20
+
+// Reserve before reading: one raw body, a decoded poll body and its temporary
+// decoding buffer. Closing a session does not release the reservation until
+// its upload handlers actually exit.
+const uploadBufferReservation = 3 * (maxUploadBytes + 1)
 
 type tunnelSession struct {
 	conn           net.Conn
@@ -965,19 +974,27 @@ func (s *TunnelServer) finishSessionClose(sess *tunnelSession) {
 func (s *TunnelServer) beginSessionUpload(token string, sess *tunnelSession, rawConn net.Conn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.sessions[token] != sess || sess.uploadsClosed || len(sess.uploads) >= maxConcurrentSessionUploads {
+	if s.sessions[token] != sess || sess.uploadsClosed || len(sess.uploads) >= maxConcurrentSessionUploads ||
+		s.uploadBytes > maxBufferedUploadBytes-uploadBufferReservation {
+		return false
+	}
+	if _, exists := sess.uploads[rawConn]; exists {
 		return false
 	}
 	if sess.uploads == nil {
 		sess.uploads = make(map[net.Conn]struct{})
 	}
 	sess.uploads[rawConn] = struct{}{}
+	s.uploadBytes += uploadBufferReservation
 	return true
 }
 
 func (s *TunnelServer) endSessionUpload(sess *tunnelSession, rawConn net.Conn) {
 	s.mu.Lock()
-	delete(sess.uploads, rawConn)
+	if _, ok := sess.uploads[rawConn]; ok {
+		delete(sess.uploads, rawConn)
+		s.uploadBytes -= uploadBufferReservation
+	}
 	s.mu.Unlock()
 }
 
@@ -990,7 +1007,6 @@ func (s *TunnelServer) closeSessionUploads(sess *tunnelSession) {
 	for c := range sess.uploads {
 		conns = append(conns, c)
 	}
-	sess.uploads = nil
 	s.mu.Unlock()
 	for _, c := range conns {
 		_ = c.Close()
@@ -1001,9 +1017,13 @@ func (s *TunnelServer) closeSessionUploads(sess *tunnelSession) {
 // uploadBodyReadTimeout.
 func readUploadBody(rawConn net.Conn, body io.Reader, limit int64) ([]byte, error) {
 	_ = rawConn.SetReadDeadline(time.Now().Add(uploadBodyReadTimeout))
-	payload, err := io.ReadAll(io.LimitReader(body, limit))
-	_ = rawConn.SetReadDeadline(time.Time{})
-	return payload, err
+	defer rawConn.SetReadDeadline(time.Time{})
+	payload := make([]byte, int(limit))
+	n, err := io.ReadFull(body, payload)
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		err = nil
+	}
+	return payload[:n], err
 }
 
 func writeUploadBusy(rawConn net.Conn) (HandleResult, net.Conn, error) {
@@ -1144,15 +1164,23 @@ func (s *TunnelServer) pollPush(rawConn net.Conn, token string, sequence uint64,
 	}
 	defer s.endSessionUpload(sess, rawConn)
 
-	payload, err := readUploadBody(rawConn, body, 1<<20) // 1MiB per request cap
+	payload, err := readUploadBody(rawConn, body, maxUploadBytes+1)
 	if err != nil {
 		_ = writeSimpleHTTPResponse(rawConn, http.StatusBadRequest, "bad request")
 		_ = rawConn.Close()
 		return HandleDone, nil, nil
 	}
+	if len(payload) > maxUploadBytes {
+		_ = writeSimpleHTTPResponse(rawConn, http.StatusRequestEntityTooLarge, "too large")
+		_ = rawConn.Close()
+		return HandleDone, nil, nil
+	}
 
 	var decodedPayload bytes.Buffer
-	for _, line := range bytes.Split(payload, []byte{'\n'}) {
+	decodedPayload.Grow(base64.StdEncoding.DecodedLen(len(payload)))
+	for rest := payload; len(rest) != 0; {
+		line, next, _ := bytes.Cut(rest, []byte{'\n'})
+		rest = next
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
@@ -1195,7 +1223,6 @@ func (s *TunnelServer) streamPush(rawConn net.Conn, token string, sequence uint6
 	}
 	defer s.endSessionUpload(sess, rawConn)
 
-	const maxUploadBytes = 1 << 20
 	payload, err := readUploadBody(rawConn, body, maxUploadBytes+1)
 	if err != nil {
 		_ = writeSimpleHTTPResponse(rawConn, http.StatusBadRequest, "bad request")

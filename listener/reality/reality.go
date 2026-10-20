@@ -76,7 +76,7 @@ func (c Config) Build(tunnel C.Tunnel) (*Builder, error) {
 		}
 		seed, err := base64.RawURLEncoding.DecodeString(c.Mldsa65Seed)
 		if err != nil || len(seed) != utls.RealityMldsa65SeedSize {
-			return nil, fmt.Errorf("invalid mldsa65-seed: %s", c.Mldsa65Seed)
+			return nil, errors.New("invalid mldsa65-seed: expected 32 bytes in unpadded base64url")
 		}
 		if _, err = utls.RealityMldsa65Verify(seed); err != nil {
 			return nil, fmt.Errorf("invalid mldsa65-seed: %w", err)

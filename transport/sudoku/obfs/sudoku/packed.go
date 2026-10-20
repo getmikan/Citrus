@@ -169,6 +169,21 @@ func (pc *PackedConn) Write(p []byte) (int, error) {
 	pc.writeMu.Lock()
 	defer pc.writeMu.Unlock()
 
+	total := 0
+	for len(p) > 0 {
+		size := min(len(p), maxWriteChunk)
+		n, err := pc.writeChunk(p[:size])
+		total += n
+		if err != nil {
+			return total, err
+		}
+		p = p[size:]
+	}
+	return total, nil
+}
+
+// The caller holds writeMu and limits p to maxWriteChunk.
+func (pc *PackedConn) writeChunk(p []byte) (int, error) {
 	needed := len(p)*3/2 + 32
 	if pc.paddingThreshold == 0 {
 		needed = ((len(p)+2)/3)*4 + 32
@@ -265,8 +280,8 @@ func (pc *PackedConn) Write(p []byte) (int, error) {
 
 	if len(out) > 0 {
 		pc.writeBuf = out[:0]
-		if _, err := pc.Conn.Write(out); err != nil {
-			return len(p), err
+		if err := writeEncoded(pc.Conn, out); err != nil {
+			return 0, err
 		}
 		return len(p), nil
 	}
@@ -296,8 +311,7 @@ func (pc *PackedConn) Flush() error {
 
 	if len(out) > 0 {
 		pc.writeBuf = out[:0]
-		_, err := pc.Conn.Write(out)
-		return err
+		return writeEncoded(pc.Conn, out)
 	}
 	return nil
 }
