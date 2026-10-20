@@ -32,6 +32,51 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  server-profile:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 0
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        run: bash .github/scripts/setup-go.sh 1.26
+      - name: Build server binary
+        run: go build -trimpath -o "$RUNNER_TEMP/citrus-profile" .
+      - name: Verify and run the systemd server profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            if [ "$?" != 0 ]; then sudo journalctl -u citrus-server -n 50 --no-pager || true; fi
+            sudo systemctl stop citrus-server || true
+          }
+          trap cleanup EXIT
+          sudo install -m 0755 "$RUNNER_TEMP/citrus-profile" /usr/bin/citrus
+          sudo systemd-sysusers "$GITHUB_WORKSPACE/.github/release/citrus-server.sysusers"
+          sudo install -d -o root -g citrus-server -m 0750 /etc/citrus-server
+          sudo install -o root -g citrus-server -m 0640 docker/server-config.yaml /etc/citrus-server/config.yaml
+          sudo install -m 0644 .github/release/citrus-server.service /run/systemd/system/citrus-server.service
+          sudo systemd-analyze verify /run/systemd/system/citrus-server.service
+          sudo systemctl daemon-reload
+          sudo systemctl start citrus-server
+          sleep 1
+          systemctl is-active --quiet citrus-server
+          pid=$(systemctl show -p MainPID --value citrus-server)
+          uid=$(id -u citrus-server)
+          test "$uid" != 0
+          sudo awk -v uid="$uid" '$1 == "Uid:" { if ($2 != uid || $3 != uid || $4 != uid || $5 != uid) exit 1; ok=1 } END { if (!ok) exit 1 }' "/proc/$pid/status"
+          sudo grep -Eq '^CapEff:[[:space:]]+0000000000000400$' "/proc/$pid/status"
+          sudo grep -Eq '^NoNewPrivs:[[:space:]]+1$' "/proc/$pid/status"
+          # Enter its mount namespace and use its UID to check the actual sandbox.
+          sudo nsenter -t "$pid" -m -- runuser -u citrus-server -- sh -ec '
+            touch /var/lib/citrus-server/ci-state
+            test ! -w /etc/citrus-server/config.yaml
+            test ! -w /usr/bin/citrus
+            test ! -e /dev/net/tun
+          '
+      - name: Exercise the Docker server profile
+        run: bash .github/scripts/test-server-profile.sh "$RUNNER_TEMP/citrus-profile"
   test:
     strategy:
       matrix:

@@ -97,6 +97,8 @@ journalctl -u citrus -f
 
 Для нескольких экземпляров есть `citrus@.service`: `citrus@work` читает `/etc/citrus/work/`.
 
+Для серверных входящих есть отдельный [профиль без root](/Citrus/start/server-profile/) со своим пользователем и конфигом только для чтения.
+
 ## Дашборд
 
 Включите API контроллера в конфиге (`external-controller: 127.0.0.1:9090` и `secret`) и подключите совместимый дашборд, например [MetaCubeXD](https://github.com/MetaCubeX/metacubexd). Контроллер без secret отклоняет запросы браузера с других сайтов и не запускается на сетевом адресе, см. [Безопасность контроллера](/Citrus/start/controller/).

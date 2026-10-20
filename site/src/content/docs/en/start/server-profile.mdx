@@ -1,0 +1,63 @@
+---
+title: Server without root
+description: Separate systemd and Docker profiles for Citrus server inbounds.
+---
+
+This profile runs ordinary TCP/UDP server inbounds. TUN, transparent proxying, host route management and raw ICMP are unavailable. Existing `citrus.service`, `citrus@.service` and the main Dockerfile retain their settings for those roles.
+
+## systemd
+
+Packages include `citrus-server.service`, `/usr/lib/sysusers.d/citrus-server.conf` and the template `/usr/share/citrus/server-config.yaml`. Enable this profile separately; installing a package does not start it. After installing the package:
+
+```bash
+sudo systemd-sysusers /usr/lib/sysusers.d/citrus-server.conf
+sudo install -d -o root -g citrus-server -m 0750 /etc/citrus-server
+sudo install -o root -g citrus-server -m 0640 /usr/share/citrus/server-config.yaml /etc/citrus-server/config.yaml
+sudoedit /etc/citrus-server/config.yaml
+# Add authenticated inbounds and certificates before exposing ports.
+sudo systemctl daemon-reload
+sudo systemctl enable --now citrus-server
+journalctl -u citrus-server -f
+```
+
+For a source installation, first install the binary to `/usr/bin/citrus`, the unit from `.github/release/citrus-server.service` to `/usr/lib/systemd/system/`, the sysusers file to `/usr/lib/sysusers.d/citrus-server.conf`, and `docker/server-config.yaml` to `/usr/share/citrus/server-config.yaml`.
+
+The core runs as `citrus-server`, with only `CAP_NET_BIND_SERVICE` for ports below 1024 and no privilege escalation. For ports at or above 1024, remove that capability too with `systemctl edit citrus-server`:
+
+```ini
+[Service]
+CapabilityBoundingSet=
+AmbientCapabilities=
+```
+
+Store the config, certificates and private keys in `/etc/citrus-server/`: owner `root:citrus-server`, directories `0750`, files `0640`. Parent directories must also be traversable by that group. Relative paths resolve under `/var/lib/citrus-server`; use absolute paths for keys. `SAFE_PATHS=/etc/citrus-server` lets the core read this directory, while the systemd sandbox keeps it read-only.
+
+Put caches, geodata, providers, UI and other writable files under `/var/lib/citrus-server/` (the `-d` argument). systemd creates it owned by `citrus-server` with mode `0700`; `/run/citrus-server/` is available for runtime sockets. API operations that write the config file are unavailable: edit it as administrator and run `sudo systemctl reload citrus-server`. In-memory user management does not need config writes. Do not run both profiles on the same ports or share their data directories.
+
+## Docker
+
+The separate `Dockerfile.server` takes the same `bin/` artifacts as the main Dockerfile: `bin/version.txt` and the matching compressed Linux binary (see `docker/file-name.sh`). It is not automatically published under a separate tag. Build for the current platform:
+
+```bash
+docker build -f Dockerfile.server -t citrus-server:local .
+```
+
+The image uses UID/GID `65532:65532`, has no iptables and does not download geodata during the build. Its template opens no listening ports; add your authenticated inbounds. Prepare a `./server-config` directory readable by this UID, containing `config.yaml` and keys. For secrets, directories `0750` and files `0640` with group 65532 suffice; on SELinux systems configure the access labels separately.
+
+```bash
+docker volume create citrus-server-data
+docker run -d --name citrus-server --restart unless-stopped \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --mount type=bind,src="$(pwd)/server-config",dst=/etc/citrus,readonly \
+  --mount type=volume,src=citrus-server-data,dst=/var/lib/citrus \
+  -p 443:10443/tcp -p 443:10443/udp citrus-server:local
+```
+
+Here the inbound listens on 10443 inside the container and Docker publishes host port 443; the process needs zero capabilities. Publish only the TCP/UDP ports your protocol uses. Use absolute TLS-key paths under `/etc/citrus` and writable paths under `/var/lib/citrus`. A new named volume inherits UID 65532 from the image. Set an existing volume or a bind-mounted data directory to owner 65532 and mode `0700` beforehand; the image does not chown files at startup. Geodata updates, when required by the config, are downloaded into the data directory at runtime.
+
+## Validation
+
+CI runs the real binary in both profiles. The systemd check verifies UID, effective capabilities, no privilege escalation, writable state and no TUN. Docker is tested with a read-only root filesystem, zero capabilities, a writable volume and a real HTTP proxy request: authenticated traffic succeeds and anonymous traffic gets 407. Repeat the Docker check locally with `bash .github/scripts/test-server-profile.sh /path/to/linux-amd64-citrus`.
+
+See [systemd.exec](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html) for sandbox settings and [sysusers.d](https://www.freedesktop.org/software/systemd/man/latest/sysusers.d.html) for the account format.
