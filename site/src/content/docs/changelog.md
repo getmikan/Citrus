@@ -67,6 +67,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#71](https://github.com/getmikan/Citrus/pull/71) TrustTunnel: таймеры HTTP/2-сессии на каждом прокси.
 - [#73](https://github.com/getmikan/Citrus/pull/73) Группы `type: chain` для каскадов с проверкой, которая называет сломавшийся хоп.
 - [#136](https://github.com/getmikan/Citrus/pull/136) PROXY protocol v1 и v2 на TCP-входящих (`proxy-protocol`, `proxy-protocol-trusted`): адрес клиента из заголовка фронтенда, например SNI-роутера на 443.
+- [#146](https://github.com/getmikan/Citrus/pull/146) User-Agent по умолчанию `clash.meta/<версия> citrus/<версия>`: панели по-прежнему узнают mihomo по началу строки, Citrus отличается по токену `citrus/`.
 
 ## Производительность
 
