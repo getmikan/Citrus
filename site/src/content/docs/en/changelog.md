@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (130 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (131 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, `v1.0.0-beta.2`, is built from `dev` as described on this page.
 
@@ -127,6 +127,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#111](https://github.com/getmikan/Citrus/pull/111) AnyTLS: the peer version from session settings is parsed with a bounds check, so `-1` no longer turns on v2 behaviour (found by CodeQL).
 - [#113](https://github.com/getmikan/Citrus/pull/113) AnyTLS: bounded padding scheme and number parsing; `compress` and `dhcp` bumped.
 - [#140](https://github.com/getmikan/Citrus/pull/140) Bounded VLESS replay history and aggregate Sudoku HTTP-mask upload buffers; 64 KiB Sudoku write chunks; invalid ML-DSA seeds are omitted from errors.
+- [#141](https://github.com/getmikan/Citrus/pull/141) Updated uTLS and ResTLS forks in all three modules: REALITY deadlines until classification, exact fallback limiter threshold, no AuthKey/short ID in logs, cached X25519 keys/buffers, JLS verification callbacks and atomic ResTLS counters.
 
 ## Ported from mihomo and the community
 
@@ -169,9 +170,11 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 
 ## Forks
 
-Citrus replaces four mihomo libraries with its own forks through `replace` in `go.mod`. The module paths stay the same, and each fork has `main` (releases) and `dev` branches with CI.
+Citrus replaces five mihomo libraries with its own forks through `replace` in `go.mod`. Module paths stay the same; changes go through PRs and CI on `dev`, and releases are published separately.
 
 ### [getmikan/utls](https://github.com/getmikan/utls)
+
+- `v1.8.9-0.20261020173537-32502cba39f4`: REALITY/JLS fixes from [fork PR 3](https://github.com/getmikan/utls/pull/3), pinned in [#141](https://github.com/getmikan/Citrus/pull/141); a `dev` commit, not a release tag.
 
 - `v1.8.8-citrus.1`: the server side of post-quantum REALITY (ML-DSA-65 signature, X25519MLKEM768 requirement), Firefox 148 and Safari 26.3 fingerprints ([#10](https://github.com/getmikan/Citrus/pull/10)).
 - `v1.8.8-citrus.2`: bug fixes from a code review: session resumption, ECH, server minimum version, compressed certificates, HKDF ([#55](https://github.com/getmikan/Citrus/pull/55)).
@@ -191,3 +194,7 @@ Citrus replaces four mihomo libraries with its own forks through `replace` in `g
 ### [getmikan/smux](https://github.com/getmikan/smux)
 
 - A `dev` commit: `Write` does not return while the send loop may still read the caller's buffer; an abandoned frame is not sent ([#123](https://github.com/getmikan/Citrus/pull/123)).
+
+### [getmikan/restls-client-go](https://github.com/getmikan/restls-client-go)
+
+- `v0.1.10-0.20261020174520-8a87bfbeac8c`: atomic full-duplex counters and fallback classification notification from [fork PR 1](https://github.com/getmikan/restls-client-go/pull/1), pinned in [#141](https://github.com/getmikan/Citrus/pull/141). Fork CI covers the ResTLS protocol; existing failures in the generic TLS suite are not claimed fixed.
