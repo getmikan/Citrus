@@ -325,3 +325,37 @@ func TestInternalTrackersAreNotAttributed(t *testing.T) {
 	_, ok := statistic.DefaultManager.Users().Get(statistic.UserKey{Inbound: inbound, User: "alice"})
 	assert.False(t, ok)
 }
+
+// The function set with SetOnLeave sees every tracked connection once as it
+// ends, with its metadata and totals.
+func TestOnLeave(t *testing.T) {
+	inbound := uniqueInbound("leave")
+	var mu sync.Mutex
+	var seen []statistic.Tracker
+	statistic.DefaultManager.SetOnLeave(func(c statistic.Tracker) {
+		if c.Info().Metadata.InName != inbound {
+			return
+		}
+		mu.Lock()
+		seen = append(seen, c)
+		mu.Unlock()
+	})
+	t.Cleanup(func() { statistic.DefaultManager.SetOnLeave(nil) })
+
+	conn, remote := tcpPair(t, userMetadata(inbound, "alice", "10.0.0.1"), 0)
+	go func() { _, _ = remote.Write(make([]byte, 300)) }()
+	_, err := io.ReadFull(conn, make([]byte, 300))
+	require.NoError(t, err)
+	go func() { _, _ = io.ReadFull(remote, make([]byte, 100)) }()
+	_, err = conn.Write(make([]byte, 100))
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+	_ = conn.Close() // a second Close reports nothing more
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, seen, 1)
+	assert.Equal(t, "alice", seen[0].Info().Metadata.InUser)
+	assert.Equal(t, int64(100), seen[0].Info().UploadTotal.Load())
+	assert.Equal(t, int64(300), seen[0].Info().DownloadTotal.Load())
+}

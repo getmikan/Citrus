@@ -30,6 +30,9 @@ import (
 // A user without limits pays nothing more than before: its counter has a nil
 // limit pointer.
 
+// maxSpeedGroupLen bounds the name of a speed group.
+const maxSpeedGroupLen = 256
+
 // AnyUser as UserLimit.User makes the limit the default of the inbound.
 const AnyUser = "*"
 
@@ -54,6 +57,11 @@ type UserLimit struct {
 	// SpeedUp and SpeedDown are in bytes per second.
 	SpeedUp   int64 `json:"speedUp"`
 	SpeedDown int64 `json:"speedDown"`
+	// SpeedGroup makes the users that name the same group, on any inbounds,
+	// share one pair of speed buckets: the speed is then the group's, and
+	// its members should carry the same SpeedUp and SpeedDown (when they do
+	// not, the one applied last holds). The other limits stay the user's own.
+	SpeedGroup string `json:"speedGroup,omitempty"`
 	// MaxConns is the number of open connections and UDP sessions.
 	MaxConns int64 `json:"maxConns"`
 	// MaxIPs is the number of online source addresses (see UserStat.IPs).
@@ -76,12 +84,10 @@ func (l UserLimit) Validate() error {
 		return errors.New(`user is required ("*" for the default of the inbound)`)
 	case l.SpeedUp < 0, l.SpeedDown < 0, l.MaxConns < 0, l.MaxIPs < 0, l.Quota < 0, l.ExpireAt < 0:
 		return errors.New("limits must not be negative")
+	case len(l.SpeedGroup) > maxSpeedGroupLen:
+		return fmt.Errorf("speed-group is longer than %d bytes", maxSpeedGroupLen)
 	}
 	return nil
-}
-
-func (l UserLimit) speedEqual(o UserLimit) bool {
-	return l.SpeedUp == o.SpeedUp && l.SpeedDown == o.SpeedDown
 }
 
 // UserLimitStatus is a limit with its state, as reported by the API.
@@ -121,8 +127,8 @@ func (e *LimitError) Error() string {
 // bucket would be full again. take never refuses; it returns how long the
 // caller has to wait so that the bytes taken keep to the rate.
 type tokenBucket struct {
-	rate  int64 // bytes per second
-	burst int64 // tolerance in nanoseconds
+	rate  atomic.Int64 // bytes per second
+	burst int64        // tolerance in nanoseconds
 	tat   atomic.Int64
 }
 
@@ -136,7 +142,30 @@ func newTokenBucket(rate int64) *tokenBucket {
 	if rate <= 0 {
 		return nil
 	}
-	return &tokenBucket{rate: rate, burst: int64(limitBurst)}
+	b := &tokenBucket{burst: int64(limitBurst)}
+	b.rate.Store(rate)
+	return b
+}
+
+// setRate changes the rate in place: what was taken at the old rate is still
+// owed, what comes next is priced at the new one.
+func (b *tokenBucket) setRate(rate int64) { b.rate.Store(rate) }
+
+// retune returns b set to rate, or a new bucket when b is nil; nil for no rate.
+func retune(b *tokenBucket, rate int64) *tokenBucket {
+	switch {
+	case rate <= 0:
+		return nil
+	case b == nil:
+		return newTokenBucket(rate)
+	}
+	b.setRate(rate)
+	return b
+}
+
+// speedGroup is the pair of buckets the members of a speed group share.
+type speedGroup struct {
+	up, down atomic.Pointer[tokenBucket]
 }
 
 func (b *tokenBucket) take(n int64) time.Duration { return b.takeAt(n, monoNow) }
@@ -145,7 +174,11 @@ func (b *tokenBucket) takeAt(n int64, clock func() int64) time.Duration {
 	if n <= 0 {
 		return 0
 	}
-	cost := int64(float64(n) * float64(time.Second) / float64(b.rate))
+	rate := b.rate.Load()
+	if rate <= 0 {
+		return 0
+	}
+	cost := int64(float64(n) * float64(time.Second) / float64(rate))
 	for {
 		now := clock()
 		old := b.tat.Load()
@@ -180,9 +213,11 @@ type limitState struct {
 	key UserKey
 	um  *UserManager
 
-	spec    atomic.Pointer[UserLimit]
-	up      atomic.Pointer[tokenBucket]
-	down    atomic.Pointer[tokenBucket]
+	spec atomic.Pointer[UserLimit]
+	up   atomic.Pointer[tokenBucket]
+	down atomic.Pointer[tokenBucket]
+	// sg is the speed group whose buckets it takes from instead of up and down
+	sg      atomic.Pointer[speedGroup]
 	quota   atomic.Int64
 	used    atomic.Int64
 	tripped atomic.Bool
@@ -201,16 +236,32 @@ func maxInt64(a, b int64) int64 {
 	return b
 }
 
+// upBucket and downBucket are the buckets the user takes from: its group's or
+// its own; nil for no speed limit.
+func (l *limitState) upBucket() *tokenBucket {
+	if g := l.sg.Load(); g != nil {
+		return g.up.Load()
+	}
+	return l.up.Load()
+}
+
+func (l *limitState) downBucket() *tokenBucket {
+	if g := l.sg.Load(); g != nil {
+		return g.down.Load()
+	}
+	return l.down.Load()
+}
+
 func (l *limitState) addUp(n int64, closed *atomic.Bool) {
 	l.charge(n)
-	if b := l.up.Load(); b != nil {
+	if b := l.upBucket(); b != nil {
 		waitClosed(b.take(n), closed)
 	}
 }
 
 func (l *limitState) addDown(n int64, closed *atomic.Bool) {
 	l.charge(n)
-	if b := l.down.Load(); b != nil {
+	if b := l.downBucket(); b != nil {
 		waitClosed(b.take(n), closed)
 	}
 }
@@ -237,9 +288,9 @@ func (l *limitState) hasQuota() bool { return l.quota.Load() > 0 }
 
 func (l *limitState) hasSpeed(up bool) bool {
 	if up {
-		return l.up.Load() != nil
+		return l.upBucket() != nil
 	}
-	return l.down.Load() != nil
+	return l.downBucket() != nil
 }
 
 // apply sets the effective limit; lmu must be held.
@@ -248,10 +299,7 @@ func (l *limitState) apply(spec UserLimit, inherited bool, now time.Time) {
 	old := l.spec.Load()
 	l.inherited = inherited
 	l.spec.Store(&spec)
-	if old == nil || !old.speedEqual(spec) {
-		l.up.Store(newTokenBucket(spec.SpeedUp))
-		l.down.Store(newTokenBucket(spec.SpeedDown))
-	}
+	l.applySpeed(spec)
 	l.quota.Store(spec.Quota)
 	exceeded := spec.Quota > 0 && l.used.Load() >= spec.Quota
 	if l.tripped.Swap(exceeded) != exceeded && exceeded {
@@ -286,6 +334,51 @@ func (l *limitState) apply(spec UserLimit, inherited bool, now time.Time) {
 					l.um.closeUser(key, stillExpired)
 				})
 			}
+		}
+	}
+}
+
+// applySpeed points the state at its speed buckets: the group's when it is in
+// one, else its own. A bucket is retuned in place when the speed changes, so
+// the bytes it let through are still counted against the new speed. lmu must
+// be held.
+func (l *limitState) applySpeed(spec UserLimit) {
+	if spec.SpeedGroup == "" {
+		l.sg.Store(nil)
+		l.up.Store(retune(l.up.Load(), spec.SpeedUp))
+		l.down.Store(retune(l.down.Load(), spec.SpeedDown))
+		return
+	}
+	g := l.um.sgroups[spec.SpeedGroup]
+	if g == nil {
+		g = &speedGroup{}
+		if l.um.sgroups == nil {
+			l.um.sgroups = make(map[string]*speedGroup)
+		}
+		l.um.sgroups[spec.SpeedGroup] = g
+	}
+	g.up.Store(retune(g.up.Load(), spec.SpeedUp))
+	g.down.Store(retune(g.down.Load(), spec.SpeedDown))
+	l.sg.Store(g)
+	l.up.Store(nil)
+	l.down.Store(nil)
+}
+
+// dropIdleSpeedGroupsLocked forgets the speed groups no state is in any more.
+// lmu must be held.
+func (um *UserManager) dropIdleSpeedGroupsLocked() {
+	if len(um.sgroups) == 0 {
+		return
+	}
+	used := make(map[string]bool, len(um.sgroups))
+	for _, l := range um.lstates {
+		if name := l.spec.Load().SpeedGroup; name != "" {
+			used[name] = true
+		}
+	}
+	for name := range um.sgroups {
+		if !used[name] {
+			delete(um.sgroups, name)
 		}
 	}
 }
@@ -408,6 +501,7 @@ func (um *UserManager) rebuildLocked() {
 			um.stateLocked(key, now)
 		}
 	}
+	um.dropIdleSpeedGroupsLocked()
 	um.limitsOn.Store(len(um.lspecs) > 0)
 	um.counters.Range(func(key UserKey, c *UserCounter) bool {
 		if l := um.lstates[key]; l != nil {
@@ -453,6 +547,33 @@ func (um *UserManager) DeleteLimit(key UserKey) bool {
 	delete(um.lspecs, key)
 	um.rebuildLocked()
 	return true
+}
+
+// SetLimits sets the limits in set and removes those of the keys in remove,
+// from the API, with one pass over the users' states for all of them where
+// SetLimit and DeleteLimit make one each: an embedding application that
+// changes many users at once (speeds it works out every second) pays for one.
+// Nothing changes when a limit is invalid. The quota usage of the users is
+// kept.
+func (um *UserManager) SetLimits(set []UserLimit, remove []UserKey) error {
+	for _, l := range set {
+		if err := l.Validate(); err != nil {
+			return fmt.Errorf("limit %s/%s: %w", l.Inbound, l.User, err)
+		}
+	}
+	um.lmu.Lock()
+	defer um.lmu.Unlock()
+	if um.lspecs == nil {
+		um.lspecs = make(map[UserKey]limitEntry, len(set))
+	}
+	for _, key := range remove {
+		delete(um.lspecs, key)
+	}
+	for _, l := range set {
+		um.lspecs[l.Key()] = limitEntry{spec: l, source: LimitSourceAPI}
+	}
+	um.rebuildLocked()
+	return nil
 }
 
 // SetConfigLimits replaces all the limits with those of the configuration.
@@ -561,6 +682,7 @@ func (um *UserManager) pruneLimitState(key UserKey) {
 	if l := um.lstates[key]; l != nil && l.inherited && l.quota.Load() == 0 && l.spec.Load().ExpireAt == 0 {
 		if _, alive := um.counters.Load(key); !alive {
 			delete(um.lstates, key)
+			um.dropIdleSpeedGroupsLocked()
 		}
 	}
 }

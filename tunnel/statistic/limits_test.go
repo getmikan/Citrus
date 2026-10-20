@@ -3,6 +3,7 @@ package statistic
 import (
 	"errors"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -80,6 +81,10 @@ func TestParseUserLimit(t *testing.T) {
 		Quota: 100_000_000_000, ExpireAt: 1767225600,
 	}, l)
 
+	l, err = ParseUserLimit(map[string]any{"inbound": "in", "user": "a", "speed-group": "user-7", "speed-up": "1M"})
+	require.NoError(t, err)
+	assert.Equal(t, "user-7", l.SpeedGroup)
+
 	// camelCase keys and an RFC 3339 time
 	l, err = ParseUserLimit(map[string]any{"inbound": "in", "user": "*", "maxConns": "2", "expireAt": "2026-01-01T00:00:00Z"})
 	require.NoError(t, err)
@@ -94,6 +99,7 @@ func TestParseUserLimit(t *testing.T) {
 		{"inbound": "in", "user": "a", "max-conns": "many"},
 		{"inbound": "in", "user": "a", "speed": "1M"},
 		{"inbound": "in", "user": "a", "expire-at": "tomorrow-ish"},
+		{"inbound": "in", "user": "a", "speed-group": strings.Repeat("g", 257)},
 	} {
 		_, err := ParseUserLimit(m)
 		assert.Error(t, err, "%v", m)
@@ -286,7 +292,7 @@ func TestLimitDefaultsAndReload(t *testing.T) {
 
 	// an API limit; a reload with the same config drops it and keeps the state
 	la := ca.limit.Load()
-	bucket := la.down.Load()
+	bucket := la.downBucket()
 	la.charge(42)
 	require.NoError(t, um.SetLimit(UserLimit{Inbound: "in", User: "carol", MaxConns: 9}))
 	_, ok = um.GetLimit(UserKey{Inbound: "in", User: "carol"})
@@ -298,7 +304,7 @@ func TestLimitDefaultsAndReload(t *testing.T) {
 	st, _ = um.GetLimit(UserKey{Inbound: "in", User: "carol"})
 	assert.True(t, st.Inherited, "carol falls back to the default after the reload")
 	assert.Same(t, la, ca.limit.Load())
-	assert.Same(t, bucket, la.down.Load(), "an unchanged speed keeps its bucket")
+	assert.Same(t, bucket, la.downBucket(), "an unchanged speed keeps its bucket")
 	st, _ = um.GetLimit(keyA)
 	assert.Equal(t, int64(42), st.Used)
 
@@ -521,4 +527,89 @@ func TestLimitLateClose(t *testing.T) {
 		waitStarted(t, started)
 		assert.True(t, release())
 	})
+}
+
+func TestTokenBucketRetune(t *testing.T) {
+	b := newTokenBucket(1_000_000)
+	now := int64(10 * time.Second)
+	clock := func() int64 { return now }
+	// 1 100 000 bytes at 1 MB/s with 100 ms of burst: 1 s of debt
+	assert.Equal(t, time.Second, b.takeAt(1_100_000, clock))
+	// a new rate keeps the debt and prices what comes next at the new rate
+	b.setRate(2_000_000)
+	assert.Equal(t, time.Second+50*time.Millisecond, b.takeAt(100_000, clock))
+}
+
+func TestLimitSpeedGroup(t *testing.T) {
+	um, _ := newTestUserManager()
+	other := UserKey{Inbound: "other-in", User: "bob"}
+	require.NoError(t, um.SetLimit(UserLimit{Inbound: keyA.Inbound, User: keyA.User, SpeedUp: 1_000_000, SpeedDown: 2_000_000, SpeedGroup: "g"}))
+	require.NoError(t, um.SetLimit(UserLimit{Inbound: other.Inbound, User: other.User, SpeedUp: 1_000_000, SpeedDown: 2_000_000, SpeedGroup: "g", Quota: 1 << 30}))
+	a, err := um.Admit(keyA, ip1)
+	require.NoError(t, err)
+	b, err := um.Admit(other, ip1)
+	require.NoError(t, err)
+	la, lb := a.limit.Load(), b.limit.Load()
+	// users of one group, on any inbounds, take from the same buckets
+	require.NotNil(t, la.upBucket())
+	assert.Same(t, la.upBucket(), lb.upBucket())
+	assert.Same(t, la.downBucket(), lb.downBucket())
+	// the quota stays the user's own
+	assert.False(t, la.hasQuota())
+	assert.True(t, lb.hasQuota())
+
+	// a new speed retunes the buckets in place: the debt of the group is kept
+	up := la.upBucket()
+	for _, k := range []UserKey{keyA, other} {
+		require.NoError(t, um.SetLimit(UserLimit{Inbound: k.Inbound, User: k.User, SpeedUp: 3_000_000, SpeedDown: 2_000_000, SpeedGroup: "g"}))
+	}
+	assert.Same(t, up, la.upBucket())
+	assert.Equal(t, int64(3_000_000), up.rate.Load())
+
+	// out of the group, a user has buckets of its own
+	require.NoError(t, um.SetLimit(UserLimit{Inbound: other.Inbound, User: other.User, SpeedUp: 3_000_000}))
+	assert.NotSame(t, la.upBucket(), lb.upBucket())
+	assert.Nil(t, lb.downBucket())
+
+	// a group no user is in any more is dropped
+	assert.True(t, um.DeleteLimit(keyA))
+	um.lmu.Lock()
+	assert.Empty(t, um.sgroups)
+	um.lmu.Unlock()
+}
+
+func TestLimitOwnSpeedRetunedInPlace(t *testing.T) {
+	um, _ := newTestUserManager()
+	require.NoError(t, um.SetLimit(UserLimit{Inbound: keyA.Inbound, User: keyA.User, SpeedUp: 1_000_000}))
+	a, err := um.Admit(keyA, ip1)
+	require.NoError(t, err)
+	up := a.limit.Load().upBucket()
+	require.NoError(t, um.SetLimit(UserLimit{Inbound: keyA.Inbound, User: keyA.User, SpeedUp: 5_000_000}))
+	assert.Same(t, up, a.limit.Load().upBucket())
+	assert.Equal(t, int64(5_000_000), up.rate.Load())
+	require.NoError(t, um.SetLimit(UserLimit{Inbound: keyA.Inbound, User: keyA.User, Quota: 1 << 20}))
+	assert.Nil(t, a.limit.Load().upBucket())
+}
+
+func TestSetLimits(t *testing.T) {
+	um, _ := newTestUserManager()
+	require.NoError(t, um.SetLimit(UserLimit{Inbound: keyA.Inbound, User: keyA.User, MaxConns: 1}))
+	require.NoError(t, um.SetLimits([]UserLimit{
+		{Inbound: keyB.Inbound, User: keyB.User, Quota: 1000},
+		{Inbound: "in2", User: "carol", SpeedUp: 1000},
+	}, []UserKey{keyA}))
+	_, own := um.GetLimit(keyA)
+	assert.False(t, own)
+	s, ok := um.GetLimit(keyB)
+	require.True(t, ok)
+	assert.Equal(t, int64(1000), s.Quota)
+	assert.Equal(t, LimitSourceAPI, s.Source)
+
+	// one bad limit and nothing changes
+	err := um.SetLimits([]UserLimit{{Inbound: "in2", User: "dave", Quota: 5}, {Inbound: "in2", User: "erin", Quota: -1}}, []UserKey{keyB})
+	assert.Error(t, err)
+	_, ok = um.GetLimit(keyB)
+	assert.True(t, ok)
+	_, ok = um.GetLimit(UserKey{Inbound: "in2", User: "dave"})
+	assert.False(t, ok)
 }
