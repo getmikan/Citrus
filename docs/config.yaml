@@ -43,6 +43,13 @@ geox-url:
   geoip: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
   geosite: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
   mmdb: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"
+# Every remote database is fail-closed unless its exact archive is pinned.
+geox-sha256:
+  geoip: ""   # 64 hex characters
+  geosite: ""
+  mmdb: ""
+  asn: ""
+geodata-allow-unsigned: false # dangerous compatibility opt-in for legacy mutable GEO sources
 
 geo-auto-update: false # 是否自动更新 geodata
 geo-update-interval: 24 # 更新间隔，单位：小时

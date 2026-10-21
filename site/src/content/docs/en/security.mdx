@@ -58,7 +58,8 @@ Fixes from core/fork reviews and static audits are listed in the [changelog](/Ci
 
 - TLS 1.2 minimum on every TLS inbound and on the controller.
 - The forks [getmikan/tls](https://github.com/getmikan/tls) and [getmikan/utls](https://github.com/getmikan/utls) carry the crypto/tls security fixes from Go 1.26 (ECH outer extension validation, CVE-2026-97031, and a KeyUpdate bound).
-- Self-update checks the package against the release's `checksums.txt` and picks the file name itself instead of trusting names inside the archive.
+- Self-update requires an Ed25519-signed, expiring manifest bound to the channel, build sequence, platform, file name, size and SHA-256. Two embedded release keys support overlap rotation; revoked IDs are rejected and per-channel sequence state prevents rollback.
+- Remote GEO databases require a type-specific operator SHA-256 pin by default. `geodata-allow-unsigned` is an explicit dangerous compatibility mode.
 
 ### Build and CI
 

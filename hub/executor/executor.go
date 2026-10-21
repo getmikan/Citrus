@@ -189,6 +189,7 @@ func GetGeneral() *config.General {
 		authenticator = auth.Users()
 	}
 
+	geoVerification := geodata.CurrentVerificationPolicy()
 	general := &config.General{
 		Inbound: config.Inbound{
 			Port:              ports.Port,
@@ -220,21 +221,28 @@ func GetGeneral() *config.General {
 			ASN:     geodata.ASNUrl(),
 			GeoSite: geodata.GeoSiteUrl(),
 		},
-		GeoAutoUpdate:     updater.GeoAutoUpdate(),
-		GeoUpdateInterval: updater.GeoUpdateInterval(),
-		GeodataMode:       geodata.GeodataMode(),
-		GeodataLoader:     geodata.LoaderName(),
-		GeositeMatcher:    geodata.SiteMatcherName(),
-		TCPConcurrent:     dialer.GetTcpConcurrent(),
-		TCPConnectTimeout: tunnel.TCPConnectTimeout().Milliseconds(),
-		FindProcessMode:   tunnel.FindProcessMode(),
-		Sniffing:          tunnel.IsSniffing(),
-		GlobalUA:          mihomoHttp.UA(),
-		ETagSupport:       resource.ETag(),
-		KeepAliveInterval: int(keepalive.KeepAliveInterval() / time.Second),
-		KeepAliveIdle:     int(keepalive.KeepAliveIdle() / time.Second),
-		DisableKeepAlive:  keepalive.DisableKeepAlive(),
-		UserStats:         statistic.UserStatsEnabled(),
+		GeoXSHA256: config.GeoXSHA256{
+			GeoIp:   geoVerification.GeoIP,
+			Mmdb:    geoVerification.MMDB,
+			ASN:     geoVerification.ASN,
+			GeoSite: geoVerification.GeoSite,
+		},
+		GeodataAllowUnsigned: geoVerification.AllowUnsigned,
+		GeoAutoUpdate:        updater.GeoAutoUpdate(),
+		GeoUpdateInterval:    updater.GeoUpdateInterval(),
+		GeodataMode:          geodata.GeodataMode(),
+		GeodataLoader:        geodata.LoaderName(),
+		GeositeMatcher:       geodata.SiteMatcherName(),
+		TCPConcurrent:        dialer.GetTcpConcurrent(),
+		TCPConnectTimeout:    tunnel.TCPConnectTimeout().Milliseconds(),
+		FindProcessMode:      tunnel.FindProcessMode(),
+		Sniffing:             tunnel.IsSniffing(),
+		GlobalUA:             mihomoHttp.UA(),
+		ETagSupport:          resource.ETag(),
+		KeepAliveInterval:    int(keepalive.KeepAliveInterval() / time.Second),
+		KeepAliveIdle:        int(keepalive.KeepAliveIdle() / time.Second),
+		DisableKeepAlive:     keepalive.DisableKeepAlive(),
+		UserStats:            statistic.UserStatsEnabled(),
 	}
 	general.LogFormat, general.LogTimestampFormat = log.Format()
 
@@ -515,6 +523,11 @@ func updateGeneral(general *config.General, logging bool) {
 	geodata.SetGeoSiteUrl(general.GeoXUrl.GeoSite)
 	geodata.SetMmdbUrl(general.GeoXUrl.Mmdb)
 	geodata.SetASNUrl(general.GeoXUrl.ASN)
+	geodata.SetVerificationPolicy(geodata.VerificationPolicy{
+		GeoIP: general.GeoXSHA256.GeoIp, MMDB: general.GeoXSHA256.Mmdb,
+		ASN: general.GeoXSHA256.ASN, GeoSite: general.GeoXSHA256.GeoSite,
+		AllowUnsigned: general.GeodataAllowUnsigned,
+	})
 	mihomoHttp.SetUA(general.GlobalUA)
 	resource.SetETag(general.ETagSupport)
 }

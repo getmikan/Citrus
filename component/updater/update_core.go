@@ -84,6 +84,22 @@ type CoreUpdater struct {
 var DefaultCoreUpdater = CoreUpdater{}
 
 func coreChannelURLs(channel, version string) (baseURL, versionURL string, err error) {
+	channel, err = effectiveUpdateChannel(channel, version)
+	if err != nil {
+		return "", "", err
+	}
+	switch channel {
+	case MainChannel, AlphaChannel:
+		baseURL = baseMainURL
+	case DevChannel:
+		baseURL = baseDevURL
+	case ReleaseChannel:
+		baseURL = baseReleaseURL
+	}
+	return baseURL, baseURL + updateManifestFileName, nil
+}
+
+func effectiveUpdateChannel(channel, version string) (string, error) {
 	channel = strings.ToLower(channel)
 	if channel == "" || channel == "auto" {
 		switch {
@@ -96,16 +112,16 @@ func coreChannelURLs(channel, version string) (baseURL, versionURL string, err e
 		}
 	}
 	switch channel {
-	case MainChannel, AlphaChannel:
-		baseURL = baseMainURL
+	case AlphaChannel:
+		return MainChannel, nil
+	case MainChannel:
 	case DevChannel:
-		baseURL = baseDevURL
+		return "", errors.New("update error: dev self-update is unavailable because the dev branch does not publish signed release artifacts")
 	case ReleaseChannel:
-		baseURL = baseReleaseURL
 	default:
-		return "", "", fmt.Errorf("update error: unsupported channel %q", channel)
+		return "", fmt.Errorf("update error: unsupported channel %q", channel)
 	}
-	return baseURL, baseURL + "version.txt", nil
+	return channel, nil
 }
 
 func (u *CoreUpdater) CoreBaseName() string {
@@ -148,15 +164,27 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 		return fmt.Errorf("check currentExePath %q: %w", currentExePath, err)
 	}
 
-	baseURL, versionURL, err := coreChannelURLs(channel, C.Version)
+	effectiveChannel, err := effectiveUpdateChannel(channel, C.Version)
 	if err != nil {
 		return err
 	}
-
-	latestVersion, err := u.getLatestVersion(versionURL)
+	baseURL, manifestURL, err := coreChannelURLs(effectiveChannel, C.Version)
 	if err != nil {
-		return fmt.Errorf("get latest version: %w", err)
+		return err
 	}
+	manifestBytes, err := u.fetchMetadata(manifestURL, maxUpdateManifestSize)
+	if err != nil {
+		return fmt.Errorf("get update manifest: %w", err)
+	}
+	signatureBytes, err := u.fetchMetadata(baseURL+updateSignatureFileName, maxUpdateSignatureSize)
+	if err != nil {
+		return fmt.Errorf("get update signature: %w", err)
+	}
+	manifest, artifact, err := verifyUpdateManifest(manifestBytes, signatureBytes, effectiveChannel, u.CoreBaseName(), loadUpdateSequence(effectiveChannel), time.Now())
+	if err != nil {
+		return fmt.Errorf("verify update manifest: %w", err)
+	}
+	latestVersion := manifest.Version
 	log.Infoln("current version %s, latest version %s", C.Version, latestVersion)
 
 	if latestVersion == C.Version && !force {
@@ -176,12 +204,7 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 	// Every name below comes from the validated version and constants;
 	// nothing stored inside the downloaded archive names a file on disk.
 	mihomoBaseName := u.CoreBaseName()
-	packageName := mihomoBaseName + "-" + latestVersion
-	if runtime.GOOS == "windows" {
-		packageName = packageName + ".zip"
-	} else {
-		packageName = packageName + ".gz"
-	}
+	packageName := artifact.Name
 	packageURL := baseURL + packageName
 	log.Infoln("updater: updating using url: %s", packageURL)
 
@@ -205,7 +228,7 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 		return fmt.Errorf("downloading: %w", err)
 	}
 
-	err = u.verify(baseURL+checksumsFileName, packageName, packagePath)
+	err = checkManifestArtifact(packagePath, artifact)
 	if err != nil {
 		return fmt.Errorf("verifying: %w", err)
 	}
@@ -224,8 +247,38 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 	if err != nil {
 		return fmt.Errorf("replacing: %w", err)
 	}
+	if err = saveUpdateSequence(effectiveChannel, manifest.Sequence); err != nil {
+		_ = u.copyFile(backupExePath, currentExePath)
+		return fmt.Errorf("persisting anti-rollback state (executable restored): %w", err)
+	}
 
 	return nil
+}
+
+func (u *CoreUpdater) fetchMetadata(url string, limit int64) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	resp, err := mihomoHttp.HttpRequest(ctx, url, http.MethodGet, nil, nil, mihomoHttp.WithCAOption(ca.Option{ZeroTrust: true}))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, errors.New(resp.Status)
+	}
+	return utils.ReadAllLimit(resp.Body, limit)
+}
+
+func checkManifestArtifact(path string, artifact updateArtifact) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() != artifact.Size {
+		return fmt.Errorf("%s: size %d does not match signed manifest (%d)", artifact.Name, info.Size(), artifact.Size)
+	}
+	want, _ := hex.DecodeString(artifact.SHA256)
+	return checkFileSHA256(path, artifact.Name, want)
 }
 
 func (u *CoreUpdater) getLatestVersion(versionURL string) (version string, err error) {

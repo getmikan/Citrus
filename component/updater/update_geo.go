@@ -55,6 +55,13 @@ func UpdateMMDB() (err error) {
 		return fmt.Errorf("can't download MMDB database file: %w", err)
 	}
 	if oldHash.Equal(hash) { // same hash, ignored
+		data, readErr := os.ReadFile(vehicle.Path())
+		if readErr != nil {
+			return readErr
+		}
+		if err := geodata.VerifyRemoteAsset(geodata.AssetMMDB, data); err != nil {
+			return fmt.Errorf("authenticate unchanged MMDB database file: %w", err)
+		}
 		return nil
 	}
 	if len(data) == 0 {
@@ -66,6 +73,9 @@ func UpdateMMDB() (err error) {
 		return fmt.Errorf("invalid MMDB database file: %s", err)
 	}
 	_ = instance.Close()
+	if err = geodata.VerifyRemoteAsset(geodata.AssetMMDB, data); err != nil {
+		return fmt.Errorf("authenticate MMDB database file: %w", err)
+	}
 
 	defer mmdb.ReloadIP()
 	mmdb.IPInstance().Reader.Close() //  mmdb is loaded with mmap, so it needs to be closed before overwriting the file
@@ -86,6 +96,13 @@ func UpdateASN() (err error) {
 		return fmt.Errorf("can't download ASN database file: %w", err)
 	}
 	if oldHash.Equal(hash) { // same hash, ignored
+		data, readErr := os.ReadFile(vehicle.Path())
+		if readErr != nil {
+			return readErr
+		}
+		if err := geodata.VerifyRemoteAsset(geodata.AssetASN, data); err != nil {
+			return fmt.Errorf("authenticate unchanged ASN database file: %w", err)
+		}
 		return nil
 	}
 	if len(data) == 0 {
@@ -97,6 +114,9 @@ func UpdateASN() (err error) {
 		return fmt.Errorf("invalid ASN database file: %s", err)
 	}
 	_ = instance.Close()
+	if err = geodata.VerifyRemoteAsset(geodata.AssetASN, data); err != nil {
+		return fmt.Errorf("authenticate ASN database file: %w", err)
+	}
 
 	defer mmdb.ReloadASN()
 	mmdb.ASNInstance().Reader.Close() //  mmdb is loaded with mmap, so it needs to be closed before overwriting the file
@@ -119,6 +139,13 @@ func UpdateGeoIp() (err error) {
 		return fmt.Errorf("can't download GeoIP database file: %w", err)
 	}
 	if oldHash.Equal(hash) { // same hash, ignored
+		data, readErr := os.ReadFile(vehicle.Path())
+		if readErr != nil {
+			return readErr
+		}
+		if err := geodata.VerifyRemoteAsset(geodata.AssetGeoIP, data); err != nil {
+			return fmt.Errorf("authenticate unchanged GeoIP database file: %w", err)
+		}
 		return nil
 	}
 	if len(data) == 0 {
@@ -128,11 +155,14 @@ func UpdateGeoIp() (err error) {
 	if _, err = geoLoader.LoadIPByBytes(data, "cn"); err != nil {
 		return fmt.Errorf("invalid GeoIP database file: %s", err)
 	}
+	if err = geodata.VerifyRemoteAsset(geodata.AssetGeoIP, data); err != nil {
+		return fmt.Errorf("authenticate GeoIP database file: %w", err)
+	}
 
-	defer geodata.ClearGeoIPCache()
 	if err = vehicle.Write(data); err != nil {
 		return fmt.Errorf("can't save GeoIP database file: %w", err)
 	}
+	geodata.ClearGeoIPCache()
 	return nil
 }
 
@@ -149,6 +179,13 @@ func UpdateGeoSite() (err error) {
 		return fmt.Errorf("can't download GeoSite database file: %w", err)
 	}
 	if oldHash.Equal(hash) { // same hash, ignored
+		data, readErr := os.ReadFile(vehicle.Path())
+		if readErr != nil {
+			return readErr
+		}
+		if err := geodata.VerifyRemoteAsset(geodata.AssetGeoSite, data); err != nil {
+			return fmt.Errorf("authenticate unchanged GeoSite database file: %w", err)
+		}
 		return nil
 	}
 	if len(data) == 0 {
@@ -158,11 +195,14 @@ func UpdateGeoSite() (err error) {
 	if _, err = geoLoader.LoadSiteByBytes(data, "cn"); err != nil {
 		return fmt.Errorf("invalid GeoSite database file: %s", err)
 	}
+	if err = geodata.VerifyRemoteAsset(geodata.AssetGeoSite, data); err != nil {
+		return fmt.Errorf("authenticate GeoSite database file: %w", err)
+	}
 
-	defer geodata.ClearGeoSiteCache()
 	if err = vehicle.Write(data); err != nil {
 		return fmt.Errorf("can't save GeoSite database file: %w", err)
 	}
+	geodata.ClearGeoSiteCache()
 	return nil
 }
 

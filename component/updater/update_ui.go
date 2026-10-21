@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
@@ -212,10 +211,12 @@ func (u *UIUpdater) downloadUI() error {
 		return err
 	}
 
-	tmpDir := C.Path.Resolve("downloadUI.tmp")
+	tmpDir, err := os.MkdirTemp("", "citrus-ui-")
+	if err != nil {
+		return fmt.Errorf("create private UI staging directory: %w", err)
+	}
 	defer os.RemoveAll(tmpDir)
 
-	os.RemoveAll(tmpDir) // cleanup tmp dir before extract
 	log.Debugln("extractedFolder: %s", tmpDir)
 	err = extract(data, tmpDir, newExtractBudget(maxUIExtractedSize, maxUIEntries))
 	if err != nil {
@@ -225,23 +226,19 @@ func (u *UIUpdater) downloadUI() error {
 	if C.Path.HoldsCoreState(u.externalUIPath) { // never empty the home or config directory
 		return fmt.Errorf("refusing to replace %s: it holds the files of the core", u.externalUIPath)
 	}
-	log.Debugln("cleanupFolder: %s", u.externalUIPath)
-	err = cleanup(u.externalUIPath) // cleanup files in dir don't remove dir itself
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("cleanup exist file error: %w", err)
-		}
-	}
-
-	err = u.prepareUIPath()
-	if err != nil {
+	if err = u.prepareUIPath(); err != nil {
 		return fmt.Errorf("prepare UI path failed: %w", err)
 	}
-
-	log.Debugln("moveFolder from %s to %s", tmpDir, u.externalUIPath)
-	err = moveDir(tmpDir, u.externalUIPath) // move files from tmp to target
+	root, err := openVerifiedUIRoot(u.externalUIPath)
 	if err != nil {
-		return fmt.Errorf("move UI folder failed: %w", err)
+		return err
+	}
+	defer root.Close()
+	if err = cleanupRoot(root); err != nil {
+		return fmt.Errorf("cleanup existing UI: %w", err)
+	}
+	if err = copyDirToRoot(tmpDir, root); err != nil {
+		return fmt.Errorf("install UI: %w", err)
 	}
 	return nil
 }
@@ -254,6 +251,41 @@ func (u *UIUpdater) prepareUIPath() error {
 		}
 	}
 	return nil
+}
+
+func openVerifiedUIRoot(path string) (*os.Root, error) {
+	if !C.Path.IsSafePath(path) {
+		return nil, C.Path.ErrNotSafePath(path)
+	}
+	if C.Path.HoldsCoreState(path) {
+		return nil, fmt.Errorf("refusing to replace %s: it holds the files of the core", path)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !before.IsDir() {
+		return nil, fmt.Errorf("external UI path is not a directory: %s", path)
+	}
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := root.Stat(".")
+	if err != nil || !os.SameFile(before, opened) {
+		root.Close()
+		return nil, errors.New("external UI path changed while opening it")
+	}
+	if !C.Path.IsSafePath(path) || C.Path.HoldsCoreState(path) {
+		root.Close()
+		return nil, errors.New("external UI path became unsafe while opening it")
+	}
+	after, err := os.Stat(path)
+	if err != nil || !os.SameFile(after, opened) {
+		root.Close()
+		return nil, errors.New("external UI path changed while opening it")
+	}
+	return root, nil
 }
 
 func unzip(data []byte, dest string, budget *extractBudget) error {
@@ -387,22 +419,25 @@ func cleanTarPath(path string) string {
 	return path
 }
 
-func cleanup(root string) error {
-	dirEntryList, err := os.ReadDir(root)
+func cleanupRoot(root *os.Root) error {
+	dir, err := root.Open(".")
 	if err != nil {
 		return err
 	}
-
-	for _, dirEntry := range dirEntryList {
-		err = os.RemoveAll(filepath.Join(root, dirEntry.Name()))
-		if err != nil {
+	defer dir.Close()
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err = root.RemoveAll(entry.Name()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func moveDir(src string, dst string) error {
+func copyDirToRoot(src string, dst *os.Root) error {
 	dirEntryList, err := os.ReadDir(src)
 	if err != nil {
 		return err
@@ -417,27 +452,6 @@ func moveDir(src string, dst string) error {
 		}
 	}
 
-	for _, dirEntry := range dirEntryList {
-		srcPath := filepath.Join(src, dirEntry.Name())
-		dstPath := filepath.Join(dst, dirEntry.Name())
-		err = os.Rename(srcPath, dstPath)
-		if err != nil {
-			// Fallback for invalid cross-device link (errno:18).
-			if errors.Is(err, syscall.Errno(18)) {
-				err = copyAll(srcPath, dstPath)
-				_ = os.RemoveAll(srcPath)
-			}
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// copyAll copy the src path and any children it contains to dst
-// modify from [os.CopyFS]
-func copyAll(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -446,31 +460,35 @@ func copyAll(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		newPath := filepath.Join(dst, fpath)
+		if fpath == "." {
+			return nil
+		}
+		if !filepath.IsLocal(fpath) {
+			return &os.PathError{Op: "Copy", Path: fpath, Err: os.ErrInvalid}
+		}
 
 		switch info.Mode().Type() {
 		case os.ModeDir:
-			return os.MkdirAll(newPath, info.Mode().Perm())
+			return dst.MkdirAll(fpath, info.Mode().Perm())
 		case os.ModeSymlink:
-			target, err := os.Readlink(path)
-			if err != nil {
+			return &os.PathError{Op: "Copy", Path: fpath, Err: errors.New("symlinks are not allowed in UI staging")}
+		case 0:
+			if err := dst.MkdirAll(filepath.Dir(fpath), 0o755); err != nil && filepath.Dir(fpath) != "." {
 				return err
 			}
-			return os.Symlink(target, newPath)
-		case 0:
 			r, err := os.Open(path)
 			if err != nil {
 				return err
 			}
 			defer r.Close()
-			w, err := os.OpenFile(newPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
+			w, err := dst.OpenFile(fpath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
 			if err != nil {
 				return err
 			}
 
 			if _, err := io.Copy(w, r); err != nil {
 				w.Close()
-				return &os.PathError{Op: "Copy", Path: newPath, Err: err}
+				return &os.PathError{Op: "Copy", Path: fpath, Err: err}
 			}
 			return w.Close()
 		default:

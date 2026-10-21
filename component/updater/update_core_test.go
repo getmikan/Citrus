@@ -21,14 +21,11 @@ func TestCoreChannelURLs(t *testing.T) {
 		path    string
 	}{
 		{"main", "main", "v1.0.0", "/getmikan/Citrus/releases/download/Prerelease-main/"},
-		{"dev", "dev", "v1.0.0", "/getmikan/Citrus/releases/download/Prerelease-dev/"},
 		{"legacy alpha channel", "alpha", "v1.0.0", "/getmikan/Citrus/releases/download/Prerelease-main/"},
 		{"case insensitive alpha channel", "ALPHA", "v1.0.0", "/getmikan/Citrus/releases/download/Prerelease-main/"},
 		{"explicit auto channel", "auto", "main-abc123", "/getmikan/Citrus/releases/download/Prerelease-main/"},
 		{"main build", "", "main-abc123", "/getmikan/Citrus/releases/download/Prerelease-main/"},
 		{"unversioned main build", "", "main", "/getmikan/Citrus/releases/download/Prerelease-main/"},
-		{"dev build", "", "dev-abc123", "/getmikan/Citrus/releases/download/Prerelease-dev/"},
-		{"unversioned build", "", "dev", "/getmikan/Citrus/releases/download/Prerelease-dev/"},
 		{"release build", "", "v1.0.0", "/getmikan/Citrus/releases/latest/download/"},
 		{"explicit release", "release", "main-abc123", "/getmikan/Citrus/releases/latest/download/"},
 	}
@@ -44,7 +41,7 @@ func TestCoreChannelURLs(t *testing.T) {
 					t.Fatalf("invalid trusted update URL %q: %v", value, err)
 				}
 			}
-			if base != "https://github.com"+tt.path || version != base+"version.txt" {
+			if base != "https://github.com"+tt.path || version != base+updateManifestFileName {
 				t.Fatalf("wrong channel URLs: %q, %q", base, version)
 			}
 		})
@@ -52,7 +49,7 @@ func TestCoreChannelURLs(t *testing.T) {
 }
 
 func TestCoreChannelURLsRejectUnknownChannel(t *testing.T) {
-	for _, channel := range []string{"unknown", "../main", "https://example.com", "main/../../dev"} {
+	for _, channel := range []string{"dev", "unknown", "../main", "https://example.com", "main/../../dev"} {
 		if _, _, err := coreChannelURLs(channel, "dev"); err == nil {
 			t.Fatalf("accepted untrusted channel %q", channel)
 		}
