@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	ErrMissingAssetPin = errors.New("remote geodata requires a pinned SHA-256")
+	ErrMissingAssetPin  = errors.New("remote geodata requires a pinned SHA-256")
 	ErrAssetPinMismatch = errors.New("remote geodata SHA-256 mismatch")
 )
 
