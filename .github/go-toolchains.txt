@@ -12,10 +12,10 @@
 # loong64-abi1 is the Go 1.26.0 toolchain that builds for the old LoongArch
 # ABI (the loong64-abi1 release target); it only runs on linux-amd64.
 # MetaCubeX/loongarch64-golang has no newer 1.26.x release yet (2026-10-17).
-1.26 linux-amd64 go1.26.9 https://github.com/MetaCubeX/go/releases/download/build/go1.26.linux-amd64.tar.gz c1278af2579c9398cf22c638686e5348926b160eda784930d416d95aaa7a9221
-1.26 linux-arm64 go1.26.9 https://github.com/MetaCubeX/go/releases/download/build/go1.26.linux-arm64.tar.gz 0f40288cd4cb6e2d8c105da0ec94c428f253ba13f18ea7f3fe853572c426689f
-1.26 darwin-amd64 go1.26.9 https://github.com/MetaCubeX/go/releases/download/build/go1.26.darwin-amd64.tar.gz 81dbceba7948aa83db5bfe5746012dc58b899507a23d5994a3056b503b1cf4f1
-1.26 darwin-arm64 go1.26.9 https://github.com/MetaCubeX/go/releases/download/build/go1.26.darwin-arm64.tar.gz 18ec7eefd48747a8e4b0bcbdb5303c3ba6d5ae4469ae9de3a65e58c6557ebf89
-1.26 windows-amd64 go1.26.9 https://github.com/MetaCubeX/go/releases/download/build/go1.26.windows-amd64.zip 2483b14ce111fa89ac671cdb00073c5b19670198be1334f491a8f3fe36affeb0
-1.26 windows-arm64 go1.26.9 https://github.com/MetaCubeX/go/releases/download/build/go1.26.windows-arm64.zip 48525181fa1663be5d10791a3dbe13210adb19e7d255695636084b34a25926d9
+1.26 linux-amd64 go1.26.10 https://github.com/MetaCubeX/go/releases/download/build/go1.26.linux-amd64.tar.gz c1278af2579c9398cf22c638686e5348926b160eda784930d416d95aaa7a9221
+1.26 linux-arm64 go1.26.10 https://github.com/MetaCubeX/go/releases/download/build/go1.26.linux-arm64.tar.gz 0f40288cd4cb6e2d8c105da0ec94c428f253ba13f18ea7f3fe853572c426689f
+1.26 darwin-amd64 go1.26.10 https://github.com/MetaCubeX/go/releases/download/build/go1.26.darwin-amd64.tar.gz 81dbceba7948aa83db5bfe5746012dc58b899507a23d5994a3056b503b1cf4f1
+1.26 darwin-arm64 go1.26.10 https://github.com/MetaCubeX/go/releases/download/build/go1.26.darwin-arm64.tar.gz 18ec7eefd48747a8e4b0bcbdb5303c3ba6d5ae4469ae9de3a65e58c6557ebf89
+1.26 windows-amd64 go1.26.10 https://github.com/MetaCubeX/go/releases/download/build/go1.26.windows-amd64.zip 2483b14ce111fa89ac671cdb00073c5b19670198be1334f491a8f3fe36affeb0
+1.26 windows-arm64 go1.26.10 https://github.com/MetaCubeX/go/releases/download/build/go1.26.windows-arm64.zip 48525181fa1663be5d10791a3dbe13210adb19e7d255695636084b34a25926d9
 loong64-abi1 linux-amd64 go1.26.0 https://github.com/MetaCubeX/loongarch64-golang/releases/download/1.26.0/go1.26.0.linux-amd64.tar.gz 46af28946a57d4a33fe7b478728267f0fb734d893b2d857dbcd485aa7cb08974
