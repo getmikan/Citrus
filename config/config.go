@@ -51,30 +51,29 @@ import (
 // General config
 type General struct {
 	Inbound
-	Mode                 T.TunnelMode            `json:"mode"`
-	UnifiedDelay         bool                    `json:"unified-delay"`
-	LogLevel             log.LogLevel            `json:"log-level"`
-	IPv6                 bool                    `json:"ipv6"`
-	Interface            string                  `json:"interface-name"`
-	RoutingMark          int                     `json:"routing-mark"`
-	GeoXUrl              GeoXUrl                 `json:"geox-url"`
-	GeoXSHA256           GeoXSHA256              `json:"geox-sha256"`
-	GeodataAllowUnsigned bool                    `json:"geodata-allow-unsigned"`
-	GeoAutoUpdate        bool                    `json:"geo-auto-update"`
-	GeoUpdateInterval    int                     `json:"geo-update-interval"`
-	GeodataMode          bool                    `json:"geodata-mode"`
-	GeodataLoader        string                  `json:"geodata-loader"`
-	GeositeMatcher       string                  `json:"geosite-matcher"`
-	TCPConcurrent        bool                    `json:"tcp-concurrent"`
-	TCPConnectTimeout    int64                   `json:"tcp-connect-timeout"`
-	FindProcessMode      process.FindProcessMode `json:"find-process-mode"`
-	Sniffing             bool                    `json:"sniffing"`
-	GlobalUA             string                  `json:"global-ua"`
-	ETagSupport          bool                    `json:"etag-support"`
-	KeepAliveIdle        int                     `json:"keep-alive-idle"`
-	KeepAliveInterval    int                     `json:"keep-alive-interval"`
-	DisableKeepAlive     bool                    `json:"disable-keep-alive"`
-	UserStats            bool                    `json:"user-stats"`
+	Mode              T.TunnelMode            `json:"mode"`
+	UnifiedDelay      bool                    `json:"unified-delay"`
+	LogLevel          log.LogLevel            `json:"log-level"`
+	IPv6              bool                    `json:"ipv6"`
+	Interface         string                  `json:"interface-name"`
+	RoutingMark       int                     `json:"routing-mark"`
+	GeoXUrl           GeoXUrl                 `json:"geox-url"`
+	GeoXSHA256        GeoXSHA256              `json:"geox-sha256"`
+	GeoAutoUpdate     bool                    `json:"geo-auto-update"`
+	GeoUpdateInterval int                     `json:"geo-update-interval"`
+	GeodataMode       bool                    `json:"geodata-mode"`
+	GeodataLoader     string                  `json:"geodata-loader"`
+	GeositeMatcher    string                  `json:"geosite-matcher"`
+	TCPConcurrent     bool                    `json:"tcp-concurrent"`
+	TCPConnectTimeout int64                   `json:"tcp-connect-timeout"`
+	FindProcessMode   process.FindProcessMode `json:"find-process-mode"`
+	Sniffing          bool                    `json:"sniffing"`
+	GlobalUA          string                  `json:"global-ua"`
+	ETagSupport       bool                    `json:"etag-support"`
+	KeepAliveIdle     int                     `json:"keep-alive-idle"`
+	KeepAliveInterval int                     `json:"keep-alive-interval"`
+	DisableKeepAlive  bool                    `json:"disable-keep-alive"`
+	UserStats         bool                    `json:"user-stats"`
 
 	LogFormat          log.LogFormat `json:"log-format"`
 	LogTimestampFormat string        `json:"log-timestamp-format"`
@@ -523,28 +522,27 @@ type RawConfig struct {
 	KeepAliveInterval               int                     `yaml:"keep-alive-interval" json:"keep-alive-interval"`
 	DisableKeepAlive                bool                    `yaml:"disable-keep-alive" json:"disable-keep-alive"`
 
-	ProxyProvider        map[string]map[string]any `yaml:"proxy-providers" json:"proxy-providers"`
-	RuleProvider         map[string]map[string]any `yaml:"rule-providers" json:"rule-providers"`
-	Proxy                []map[string]any          `yaml:"proxies" json:"proxies"`
-	ProxyGroup           []map[string]any          `yaml:"proxy-groups" json:"proxy-groups"`
-	Rule                 []string                  `yaml:"rules" json:"rule"`
-	SubRules             map[string][]string       `yaml:"sub-rules" json:"sub-rules"`
-	Listeners            []map[string]any          `yaml:"listeners" json:"listeners"`
-	UserLimits           []map[string]any          `yaml:"user-limits" json:"user-limits"`
-	Metrics              RawMetrics                `yaml:"metrics" json:"metrics"`
-	Hosts                map[string]any            `yaml:"hosts" json:"hosts"`
-	DNS                  RawDNS                    `yaml:"dns" json:"dns"`
-	NTP                  RawNTP                    `yaml:"ntp" json:"ntp"`
-	Tun                  RawTun                    `yaml:"tun" json:"tun"`
-	TuicServer           RawTuicServer             `yaml:"tuic-server" json:"tuic-server"`
-	IPTables             RawIPTables               `yaml:"iptables" json:"iptables"`
-	Experimental         RawExperimental           `yaml:"experimental" json:"experimental"`
-	Profile              RawProfile                `yaml:"profile" json:"profile"`
-	GeoXUrl              RawGeoXUrl                `yaml:"geox-url" json:"geox-url"`
-	GeoXSHA256           RawGeoXSHA256             `yaml:"geox-sha256" json:"geox-sha256"`
-	GeodataAllowUnsigned bool                      `yaml:"geodata-allow-unsigned" json:"geodata-allow-unsigned"`
-	Sniffer              RawSniffer                `yaml:"sniffer" json:"sniffer"`
-	TLS                  RawTLS                    `yaml:"tls" json:"tls"`
+	ProxyProvider map[string]map[string]any `yaml:"proxy-providers" json:"proxy-providers"`
+	RuleProvider  map[string]map[string]any `yaml:"rule-providers" json:"rule-providers"`
+	Proxy         []map[string]any          `yaml:"proxies" json:"proxies"`
+	ProxyGroup    []map[string]any          `yaml:"proxy-groups" json:"proxy-groups"`
+	Rule          []string                  `yaml:"rules" json:"rule"`
+	SubRules      map[string][]string       `yaml:"sub-rules" json:"sub-rules"`
+	Listeners     []map[string]any          `yaml:"listeners" json:"listeners"`
+	UserLimits    []map[string]any          `yaml:"user-limits" json:"user-limits"`
+	Metrics       RawMetrics                `yaml:"metrics" json:"metrics"`
+	Hosts         map[string]any            `yaml:"hosts" json:"hosts"`
+	DNS           RawDNS                    `yaml:"dns" json:"dns"`
+	NTP           RawNTP                    `yaml:"ntp" json:"ntp"`
+	Tun           RawTun                    `yaml:"tun" json:"tun"`
+	TuicServer    RawTuicServer             `yaml:"tuic-server" json:"tuic-server"`
+	IPTables      RawIPTables               `yaml:"iptables" json:"iptables"`
+	Experimental  RawExperimental           `yaml:"experimental" json:"experimental"`
+	Profile       RawProfile                `yaml:"profile" json:"profile"`
+	GeoXUrl       RawGeoXUrl                `yaml:"geox-url" json:"geox-url"`
+	GeoXSHA256    RawGeoXSHA256             `yaml:"geox-sha256" json:"geox-sha256"`
+	Sniffer       RawSniffer                `yaml:"sniffer" json:"sniffer"`
+	TLS           RawTLS                    `yaml:"tls" json:"tls"`
 
 	ClashForAndroid RawClashForAndroid `yaml:"clash-for-android" json:"clash-for-android"`
 }
@@ -919,21 +917,20 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
 			ASN:     strings.ToLower(cfg.GeoXSHA256.ASN),
 			GeoSite: strings.ToLower(cfg.GeoXSHA256.GeoSite),
 		},
-		GeodataAllowUnsigned: cfg.GeodataAllowUnsigned,
-		GeoAutoUpdate:        cfg.GeoAutoUpdate,
-		GeoUpdateInterval:    cfg.GeoUpdateInterval,
-		GeodataMode:          cfg.GeodataMode,
-		GeodataLoader:        cfg.GeodataLoader,
-		GeositeMatcher:       cfg.GeositeMatcher,
-		TCPConcurrent:        cfg.TCPConcurrent,
-		TCPConnectTimeout:    cfg.TCPConnectTimeout,
-		FindProcessMode:      cfg.FindProcessMode,
-		GlobalUA:             cfg.GlobalUA,
-		ETagSupport:          cfg.ETagSupport,
-		KeepAliveIdle:        cfg.KeepAliveIdle,
-		KeepAliveInterval:    cfg.KeepAliveInterval,
-		DisableKeepAlive:     cfg.DisableKeepAlive,
-		UserStats:            cfg.UserStats,
+		GeoAutoUpdate:     cfg.GeoAutoUpdate,
+		GeoUpdateInterval: cfg.GeoUpdateInterval,
+		GeodataMode:       cfg.GeodataMode,
+		GeodataLoader:     cfg.GeodataLoader,
+		GeositeMatcher:    cfg.GeositeMatcher,
+		TCPConcurrent:     cfg.TCPConcurrent,
+		TCPConnectTimeout: cfg.TCPConnectTimeout,
+		FindProcessMode:   cfg.FindProcessMode,
+		GlobalUA:          cfg.GlobalUA,
+		ETagSupport:       cfg.ETagSupport,
+		KeepAliveIdle:     cfg.KeepAliveIdle,
+		KeepAliveInterval: cfg.KeepAliveInterval,
+		DisableKeepAlive:  cfg.DisableKeepAlive,
+		UserStats:         cfg.UserStats,
 
 		LogFormat:          cfg.LogFormat,
 		LogTimestampFormat: logTimestampFormat,
