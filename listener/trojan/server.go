@@ -187,11 +187,7 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		}
 	}
 	if config.WsPath != "" {
-		httpMux := http.NewServeMux()
-		if page != nil {
-			httpMux.Handle("/", page)
-		}
-		httpMux.HandleFunc(config.WsPath, func(w http.ResponseWriter, r *http.Request) {
+		httpServer.Handler = fallback.WebSocket(config.WsPath, page, func(w http.ResponseWriter, r *http.Request) {
 			conn, err := v2ray.StreamUpgradedWebsocketConn(w, r)
 			if err != nil {
 				http.Error(w, err.Error(), 500)
@@ -199,7 +195,6 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 			}
 			sl.HandleHTTPConn(r, conn, tunnel, additions...)
 		})
-		httpServer.Handler = httpMux
 		httpServer.Protocols.SetHTTP1(true)
 		tlsConfig.NextProtos = append(tlsConfig.NextProtos, "http/1.1")
 	}

@@ -215,11 +215,7 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		}
 	}
 	if config.WsPath != "" {
-		httpMux := http.NewServeMux()
-		if page != nil {
-			httpMux.Handle("/", page)
-		}
-		httpMux.HandleFunc(config.WsPath, func(w http.ResponseWriter, r *http.Request) {
+		httpServer.Handler = fallback.WebSocket(config.WsPath, page, func(w http.ResponseWriter, r *http.Request) {
 			conn, err := v2ray.StreamUpgradedWebsocketConn(w, r)
 			if err != nil {
 				http.Error(w, err.Error(), 500)
@@ -227,7 +223,6 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 			}
 			sl.HandleHTTPConn(r, conn, tunnel, additions...)
 		})
-		httpServer.Handler = httpMux
 		httpServer.Protocols.SetHTTP1(true)
 		tlsConfig.NextProtos = append(tlsConfig.NextProtos, "http/1.1")
 	}
@@ -265,10 +260,6 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		return nil, errors.New("invalid negative value of xhttp server-max-header-bytes")
 	}
 	if xhttpOn {
-		other := httpServer.Handler
-		if other == nil {
-			other = page
-		}
 		httpServer.Handler, err = xhttp.NewServerHandler(xhttp.ServerOption{
 			Config: xhttp.Config{
 				Host:                 config.XHTTPConfig.Host,
@@ -296,7 +287,8 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 			ConnHandler: func(conn net.Conn, r *http.Request) {
 				sl.HandleHTTPConn(r, conn, tunnel, additions...)
 			},
-			HttpHandler: other,
+			HttpHandler: httpServer.Handler,
+			Fallback:    page,
 			// NewConnection reports the authenticated user through the
 			// request's OnAuthenticated (HandleHTTPConn passes it on)
 			ReportsAuthentication: true,
