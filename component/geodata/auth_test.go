@@ -23,12 +23,8 @@ func TestVerifyRemoteAsset(t *testing.T) {
 		}
 	}
 	SetVerificationPolicy(VerificationPolicy{})
-	if err := VerifyRemoteAsset(AssetGeoIP, data); err == nil {
-		t.Fatal("missing pin accepted")
-	}
-	SetVerificationPolicy(VerificationPolicy{AllowUnsigned: true})
 	if err := VerifyRemoteAsset(AssetGeoIP, data); err != nil {
-		t.Fatalf("explicit compatibility opt-in rejected: %v", err)
+		t.Fatalf("unpinned database rejected: %v", err)
 	}
 }
 

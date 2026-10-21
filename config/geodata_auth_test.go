@@ -17,12 +17,11 @@ func TestParseGeneralValidatesGeodataPins(t *testing.T) {
 	pin := strings.Repeat("A", 64)
 	cfg := DefaultRawConfig()
 	cfg.GeoXSHA256.GeoIp = pin
-	cfg.GeodataAllowUnsigned = true
 	general, err := parseGeneral(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if general.GeoXSHA256.GeoIp != strings.ToLower(pin) || !general.GeodataAllowUnsigned {
+	if general.GeoXSHA256.GeoIp != strings.ToLower(pin) {
 		t.Fatalf("geodata policy lost: %+v", general)
 	}
 }

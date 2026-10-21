@@ -227,22 +227,21 @@ func GetGeneral() *config.General {
 			ASN:     geoVerification.ASN,
 			GeoSite: geoVerification.GeoSite,
 		},
-		GeodataAllowUnsigned: geoVerification.AllowUnsigned,
-		GeoAutoUpdate:        updater.GeoAutoUpdate(),
-		GeoUpdateInterval:    updater.GeoUpdateInterval(),
-		GeodataMode:          geodata.GeodataMode(),
-		GeodataLoader:        geodata.LoaderName(),
-		GeositeMatcher:       geodata.SiteMatcherName(),
-		TCPConcurrent:        dialer.GetTcpConcurrent(),
-		TCPConnectTimeout:    tunnel.TCPConnectTimeout().Milliseconds(),
-		FindProcessMode:      tunnel.FindProcessMode(),
-		Sniffing:             tunnel.IsSniffing(),
-		GlobalUA:             mihomoHttp.UA(),
-		ETagSupport:          resource.ETag(),
-		KeepAliveInterval:    int(keepalive.KeepAliveInterval() / time.Second),
-		KeepAliveIdle:        int(keepalive.KeepAliveIdle() / time.Second),
-		DisableKeepAlive:     keepalive.DisableKeepAlive(),
-		UserStats:            statistic.UserStatsEnabled(),
+		GeoAutoUpdate:     updater.GeoAutoUpdate(),
+		GeoUpdateInterval: updater.GeoUpdateInterval(),
+		GeodataMode:       geodata.GeodataMode(),
+		GeodataLoader:     geodata.LoaderName(),
+		GeositeMatcher:    geodata.SiteMatcherName(),
+		TCPConcurrent:     dialer.GetTcpConcurrent(),
+		TCPConnectTimeout: tunnel.TCPConnectTimeout().Milliseconds(),
+		FindProcessMode:   tunnel.FindProcessMode(),
+		Sniffing:          tunnel.IsSniffing(),
+		GlobalUA:          mihomoHttp.UA(),
+		ETagSupport:       resource.ETag(),
+		KeepAliveInterval: int(keepalive.KeepAliveInterval() / time.Second),
+		KeepAliveIdle:     int(keepalive.KeepAliveIdle() / time.Second),
+		DisableKeepAlive:  keepalive.DisableKeepAlive(),
+		UserStats:         statistic.UserStatsEnabled(),
 	}
 	general.LogFormat, general.LogTimestampFormat = log.Format()
 
@@ -526,7 +525,6 @@ func updateGeneral(general *config.General, logging bool) {
 	geodata.SetVerificationPolicy(geodata.VerificationPolicy{
 		GeoIP: general.GeoXSHA256.GeoIp, MMDB: general.GeoXSHA256.Mmdb,
 		ASN: general.GeoXSHA256.ASN, GeoSite: general.GeoXSHA256.GeoSite,
-		AllowUnsigned: general.GeodataAllowUnsigned,
 	})
 	mihomoHttp.SetUA(general.GlobalUA)
 	resource.SetETag(general.ETagSupport)

@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
-
-	"github.com/metacubex/mihomo/log"
 )
 
 type AssetType string
@@ -20,14 +18,12 @@ const (
 	AssetGeoSite AssetType = "geosite"
 )
 
-var (
-	ErrMissingAssetPin  = errors.New("remote geodata requires a pinned SHA-256")
-	ErrAssetPinMismatch = errors.New("remote geodata SHA-256 mismatch")
-)
+var ErrAssetPinMismatch = errors.New("remote geodata SHA-256 mismatch")
 
+// VerificationPolicy holds the optional per-type SHA-256 pins. An empty pin
+// accepts the database as is: the publishers sign none of them.
 type VerificationPolicy struct {
 	GeoIP, MMDB, ASN, GeoSite string
-	AllowUnsigned             bool
 }
 
 var verificationPolicy atomic.Pointer[VerificationPolicy]
@@ -38,9 +34,6 @@ func SetVerificationPolicy(policy VerificationPolicy) {
 	policy.ASN = strings.ToLower(strings.TrimSpace(policy.ASN))
 	policy.GeoSite = strings.ToLower(strings.TrimSpace(policy.GeoSite))
 	verificationPolicy.Store(&policy)
-	if policy.AllowUnsigned {
-		log.Warnln("geodata-allow-unsigned explicitly permits unauthenticated remote routing data")
-	}
 }
 
 func CurrentVerificationPolicy() VerificationPolicy {
@@ -73,10 +66,7 @@ func VerifyRemoteDigest(asset AssetType, digest [sha256.Size]byte) error {
 	policy := CurrentVerificationPolicy()
 	pin := policy.pin(asset)
 	if pin == "" {
-		if policy.AllowUnsigned {
-			return nil
-		}
-		return fmt.Errorf("%w: %s", ErrMissingAssetPin, asset)
+		return nil
 	}
 	want, err := hex.DecodeString(pin)
 	if err != nil || len(want) != sha256.Size {
