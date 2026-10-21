@@ -35,6 +35,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#132](https://github.com/getmikan/Citrus/pull/132) Журнал изменений дополнен до второй беты v1.0.0-beta.2.
 - [#134](https://github.com/getmikan/Citrus/pull/134) Новость о второй бете, дорожная карта после неё.
 - [#135](https://github.com/getmikan/Citrus/pull/135) Зависимости тестов и сайта: клиент Docker в тестах переведён на `moby/moby`, обновлён `postcss-selector-parser` — закрыты предупреждения Dependabot.
+- [#150](https://github.com/getmikan/Citrus/pull/150) Добавлена отдельная Linux CI-проверка полного inbound-набора с race detector, включая конкурентные подтесты в одном процессе. Логи сохраняются как артефакты; раздельные проверки протоколов сохранены.
 
 ## Удалённое наследие
 

@@ -35,6 +35,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#132](https://github.com/getmikan/Citrus/pull/132) Changelog brought up to the second beta, v1.0.0-beta.2.
 - [#134](https://github.com/getmikan/Citrus/pull/134) News post on the second beta, the roadmap after it.
 - [#135](https://github.com/getmikan/Citrus/pull/135) Test and site dependencies: the Docker client in tests moved to `moby/moby`, `postcss-selector-parser` bumped — the Dependabot alerts are closed.
+- [#150](https://github.com/getmikan/Citrus/pull/150) Added an independent Linux CI job for the complete inbound suite with the race detector, including concurrent subtests in one process. Logs are preserved as artifacts; protocol-isolated checks remain enabled.
 
 ## Removed legacy
 
