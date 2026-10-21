@@ -357,16 +357,20 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 		listener.SetAllowLan(*general.AllowLan)
 	}
 
-	if general.SkipAuthPrefixes != nil {
-		inbound.SetSkipAuthPrefixes(*general.SkipAuthPrefixes)
-	}
-
-	if general.LanAllowedIPs != nil {
-		inbound.SetAllowedIPs(*general.LanAllowedIPs)
-	}
-
-	if general.LanDisAllowedIPs != nil {
-		inbound.SetDisAllowedIPs(*general.LanDisAllowedIPs)
+	if general.SkipAuthPrefixes != nil || general.LanAllowedIPs != nil || general.LanDisAllowedIPs != nil {
+		skipAuth := inbound.SkipAuthPrefixes()
+		allowed := inbound.AllowedIPs()
+		denied := inbound.DisAllowedIPs()
+		if general.SkipAuthPrefixes != nil {
+			skipAuth = *general.SkipAuthPrefixes
+		}
+		if general.LanAllowedIPs != nil {
+			allowed = *general.LanAllowedIPs
+		}
+		if general.LanDisAllowedIPs != nil {
+			denied = *general.LanDisAllowedIPs
+		}
+		inbound.SetAccessPolicy(skipAuth, allowed, denied)
 	}
 
 	if general.BindAddress != nil {

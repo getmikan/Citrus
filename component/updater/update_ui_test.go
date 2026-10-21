@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -173,5 +174,35 @@ func TestGetLatestVersionLimit(t *testing.T) {
 	var limitErr *utils.SizeLimitError
 	if !errors.As(err, &limitErr) {
 		t.Fatalf("want SizeLimitError, got %v", err)
+	}
+}
+
+func TestUIUpdaterRequiresAuthenticatedSource(t *testing.T) {
+	archive := makeZip(t, []archiveEntry{{"ui/index.html", 4}})
+	u := NewUiUpdater("", "http://ui.example/archive.zip", "", "", false)
+	if err := u.validateSource(); err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("plaintext source: %v", err)
+	}
+
+	u = NewUiUpdater("", "https://ui.example/archive.zip", "", "", false)
+	if err := u.validateSource(); err == nil || !strings.Contains(err.Error(), "sha256") {
+		t.Fatalf("missing digest: %v", err)
+	}
+
+	u = NewUiUpdater("", "http://ui.example/archive.zip", "", strings.Repeat("0", 64), true)
+	if err := u.validateSource(); err != nil {
+		t.Fatalf("explicit insecure source: %v", err)
+	}
+	if err := u.verifyArchive(archive); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("wrong digest: %v", err)
+	}
+
+	digest := fmt.Sprintf("%x", sha256.Sum256(archive))
+	u = NewUiUpdater("", "https://ui.example/archive.zip", "", digest, false)
+	if err := u.validateSource(); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.verifyArchive(archive); err != nil {
+		t.Fatalf("valid pinned archive: %v", err)
 	}
 }

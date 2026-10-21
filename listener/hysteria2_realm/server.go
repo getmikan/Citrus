@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -40,6 +41,27 @@ const (
 func DefaultALPN() []string { return []string{"h2", "http/1.1"} }
 
 func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*Listener, error) {
+	hasCertificate := config.Certificate != ""
+	hasPrivateKey := config.PrivateKey != ""
+	if hasCertificate != hasPrivateKey {
+		return nil, errors.New("hysteria2-realm certificate and private-key must be configured together")
+	}
+	if !hasCertificate {
+		if !config.AllowInsecure {
+			return nil, errors.New("hysteria2-realm TLS is required; set allow-insecure: true only for an explicitly trusted loopback proxy")
+		}
+		for _, addr := range strings.Split(config.Listen, ",") {
+			host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+			if err != nil {
+				return nil, fmt.Errorf("invalid hysteria2-realm listen address %q: %w", addr, err)
+			}
+			ip, err := netip.ParseAddr(host)
+			if !strings.EqualFold(host, "localhost") && (err != nil || !ip.Unmap().IsLoopback()) {
+				return nil, fmt.Errorf("hysteria2-realm plaintext is restricted to loopback, got %q", addr)
+			}
+		}
+		log.Warnln("[RealmServer] %s: allow-insecure explicitly enables plaintext bearer tokens on loopback", config.Listen)
+	}
 	if len(additions) == 0 {
 		additions = []inbound.Addition{
 			inbound.WithInName("DEFAULT-HYSTERIA2-REALM"),
@@ -70,7 +92,7 @@ func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunn
 	})
 
 	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
-	if config.Certificate != "" && config.PrivateKey != "" {
+	if hasCertificate {
 		certLoader, err := ca.NewTLSKeyPairLoader(config.Certificate, config.PrivateKey)
 		if err != nil {
 			return nil, err

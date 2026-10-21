@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -113,6 +114,8 @@ type Controller struct {
 	ExternalUI                    string
 	ExternalUIURL                 string
 	ExternalUIName                string
+	ExternalUISHA256              string
+	ExternalUIAllowInsecure       bool
 	ExternalDohServer             string
 	Secret                        string
 	Cors                          Cors
@@ -142,12 +145,13 @@ type IPTables struct {
 
 // NTP config
 type NTP struct {
-	Enable        bool
-	Server        string
-	Port          int
-	Interval      int
-	DialerProxy   string
-	WriteToSystem bool
+	Enable                   bool
+	Server                   string
+	Port                     int
+	Interval                 int
+	DialerProxy              string
+	WriteToSystem            bool
+	AllowUnsafeWriteToSystem bool
 }
 
 // DNS config
@@ -304,12 +308,13 @@ type RawClashForAndroid struct {
 }
 
 type RawNTP struct {
-	Enable        bool   `yaml:"enable" json:"enable"`
-	Server        string `yaml:"server" json:"server"`
-	Port          int    `yaml:"port" json:"port"`
-	Interval      int    `yaml:"interval" json:"interval"`
-	DialerProxy   string `yaml:"dialer-proxy" json:"dialer-proxy"`
-	WriteToSystem bool   `yaml:"write-to-system" json:"write-to-system"`
+	Enable                   bool   `yaml:"enable" json:"enable"`
+	Server                   string `yaml:"server" json:"server"`
+	Port                     int    `yaml:"port" json:"port"`
+	Interval                 int    `yaml:"interval" json:"interval"`
+	DialerProxy              string `yaml:"dialer-proxy" json:"dialer-proxy"`
+	WriteToSystem            bool   `yaml:"write-to-system" json:"write-to-system"`
+	AllowUnsafeWriteToSystem bool   `yaml:"allow-unsafe-write-to-system" json:"allow-unsafe-write-to-system"`
 }
 
 type RawTun struct {
@@ -476,6 +481,8 @@ type RawConfig struct {
 	ExternalUI                      string                  `yaml:"external-ui" json:"external-ui"`
 	ExternalUIURL                   string                  `yaml:"external-ui-url" json:"external-ui-url"`
 	ExternalUIName                  string                  `yaml:"external-ui-name" json:"external-ui-name"`
+	ExternalUISHA256                string                  `yaml:"external-ui-sha256" json:"external-ui-sha256"`
+	ExternalUIAllowInsecure         bool                    `yaml:"external-ui-allow-insecure" json:"external-ui-allow-insecure"`
 	ExternalDohServer               string                  `yaml:"external-doh-server" json:"external-doh-server"`
 	Secret                          string                  `yaml:"secret" json:"secret"`
 	Interface                       string                  `yaml:"interface-name" json:"interface-name"`
@@ -909,6 +916,28 @@ func CheckExternalUI(externalUI, externalUIName string) error {
 	return nil
 }
 
+var controllerReservedPaths = []string{
+	"/auth", "/cache", "/configs", "/connections", "/debug", "/dns",
+	"/events", "/group", "/healthz", "/inbounds", "/limits", "/logs",
+	"/memory", "/metrics", "/providers", "/proxies", "/readyz", "/restart",
+	"/rules", "/storage", "/traffic", "/ui", "/upgrade", "/version",
+}
+
+func validateExternalDoHPath(dohPath string) error {
+	if dohPath == "" {
+		return nil
+	}
+	if !strings.HasPrefix(dohPath, "/") || dohPath == "/" || path.Clean(dohPath) != dohPath || strings.Contains(dohPath, "%") {
+		return fmt.Errorf("external-doh-server must be a canonical absolute endpoint path, got %q", dohPath)
+	}
+	for _, reserved := range controllerReservedPaths {
+		if strings.HasPrefix(reserved, dohPath) || strings.HasPrefix(dohPath, reserved+"/") {
+			return fmt.Errorf("external-doh-server %q overlaps reserved controller path %q", dohPath, reserved)
+		}
+	}
+	return nil
+}
+
 func parseController(cfg *RawConfig) (*Controller, error) {
 	if path := cfg.ExternalUI; path != "" && !C.Path.IsSafePath(path) {
 		return nil, C.Path.ErrNotSafePath(path)
@@ -919,11 +948,16 @@ func parseController(cfg *RawConfig) (*Controller, error) {
 	if err := CheckExternalUI(cfg.ExternalUI, cfg.ExternalUIName); err != nil {
 		return nil, err
 	}
+	if err := validateExternalDoHPath(cfg.ExternalDohServer); err != nil {
+		return nil, err
+	}
 	return &Controller{
 		ExternalController:            cfg.ExternalController,
 		ExternalUI:                    cfg.ExternalUI,
 		ExternalUIURL:                 cfg.ExternalUIURL,
 		ExternalUIName:                cfg.ExternalUIName,
+		ExternalUISHA256:              cfg.ExternalUISHA256,
+		ExternalUIAllowInsecure:       cfg.ExternalUIAllowInsecure,
 		Secret:                        cfg.Secret,
 		ExternalControllerRoutingMark: cfg.ExternalControllerRoutingMark,
 		ExternalControllerPipe:        cfg.ExternalControllerPipe,
@@ -957,13 +991,17 @@ func parseIPTables(cfg *RawConfig) (*IPTables, error) {
 }
 
 func parseNTP(cfg *RawConfig) (*NTP, error) {
+	if cfg.NTP.WriteToSystem && !cfg.NTP.AllowUnsafeWriteToSystem {
+		return nil, errors.New("ntp write-to-system uses unauthenticated NTP; set allow-unsafe-write-to-system: true to explicitly accept this risk")
+	}
 	return &NTP{
-		Enable:        cfg.NTP.Enable,
-		Server:        cfg.NTP.Server,
-		Port:          cfg.NTP.Port,
-		Interval:      cfg.NTP.Interval,
-		DialerProxy:   cfg.NTP.DialerProxy,
-		WriteToSystem: cfg.NTP.WriteToSystem,
+		Enable:                   cfg.NTP.Enable,
+		Server:                   cfg.NTP.Server,
+		Port:                     cfg.NTP.Port,
+		Interval:                 cfg.NTP.Interval,
+		DialerProxy:              cfg.NTP.DialerProxy,
+		WriteToSystem:            cfg.NTP.WriteToSystem,
+		AllowUnsafeWriteToSystem: cfg.NTP.AllowUnsafeWriteToSystem,
 	}, nil
 }
 

@@ -78,9 +78,9 @@ type Config struct {
 	DohServer      string
 	IsDebug        bool
 	Cors           Cors
-	// AllowInsecure lets the tcp and tls listeners run on a non-loopback
-	// address without a secret and turns off the browser guard of a
-	// controller without a secret (external-controller-allow-insecure).
+	// AllowInsecure explicitly enables legacy unauthenticated TCP controllers
+	// and remote plaintext HTTP carrying a bearer secret. It also turns off the
+	// browser guard of a controller without a secret.
 	AllowInsecure             bool
 	AllowLegacyWebSocketToken bool
 }
@@ -235,8 +235,8 @@ func start(cfg *Config) {
 			log.Errorln("External controller refused: %s", err)
 			return
 		}
-		if cfg.Secret != "" && !isLoopbackAddr(cfg.Addr) {
-			log.Warnln("External controller %s is plain HTTP on a non-loopback address: the secret travels in clear text, prefer external-controller-tls, a loopback address or external-controller-unix", cfg.Addr)
+		if cfg.AllowInsecure {
+			log.Warnln("External controller %s uses the explicit insecure compatibility mode; bearer credentials may travel in clear text and a secretless listener grants the full API", cfg.Addr)
 		}
 		lc := inbound.NewListenConfig()
 		lc.SetRouteMark(cfg.RoutingMark)

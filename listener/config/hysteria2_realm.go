@@ -13,6 +13,7 @@ type Hysteria2RealmServer struct {
 	RealmNamePattern   string   `yaml:"realm-name-pattern" json:"realm-name-pattern,omitempty"`
 	Certificate        string   `yaml:"certificate" json:"certificate"`
 	PrivateKey         string   `yaml:"private-key" json:"private-key"`
+	AllowInsecure      bool     `yaml:"allow-insecure" json:"allow-insecure,omitempty"`
 	ClientAuthType     string   `yaml:"client-auth-type" json:"client-auth-type,omitempty"`
 	ClientAuthCert     string   `yaml:"client-auth-cert" json:"client-auth-cert,omitempty"`
 	EchKey             string   `yaml:"ech-key" json:"ech-key,omitempty"`

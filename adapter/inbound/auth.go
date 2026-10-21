@@ -7,22 +7,18 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 )
 
-var skipAuthPrefixes []netip.Prefix
-
 func SetSkipAuthPrefixes(prefixes []netip.Prefix) {
-	skipAuthPrefixes = prefixes
+	policy := loadAccessPolicy()
+	SetAccessPolicy(prefixes, policy.allowed, policy.denied)
 }
 
 func SkipAuthPrefixes() []netip.Prefix {
-	return skipAuthPrefixes
+	return clonePrefixes(loadAccessPolicy().skipAuth)
 }
 
 func SkipAuthRemoteAddr(addr net.Addr) bool {
-	m := C.Metadata{}
-	if err := m.SetRemoteAddr(addr); err != nil {
-		return false
-	}
-	return skipAuth(m.AddrPort().Addr())
+	_, skip := EvaluateRemoteAddr(addr)
+	return skip
 }
 
 func SkipAuthRemoteAddress(addr string) bool {
@@ -34,5 +30,5 @@ func SkipAuthRemoteAddress(addr string) bool {
 }
 
 func skipAuth(addr netip.Addr) bool {
-	return prefixesContains(skipAuthPrefixes, addr)
+	return prefixesContains(loadAccessPolicy().skipAuth, addr)
 }

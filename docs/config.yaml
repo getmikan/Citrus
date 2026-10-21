@@ -87,21 +87,18 @@ tls:
 external-controller: 0.0.0.0:9093 # RESTful API 监听地址
 external-controller-tls: 0.0.0.0:9443 # RESTful API HTTPS 监听地址，需要配置 tls 部分配置文件
 secret: "123456" # `Authorization:Bearer ${secret}`
-# The controller refuses to start external-controller or external-controller-tls
-# on a non-loopback address (0.0.0.0, :9090, a LAN address) while secret is empty:
-# anyone who reaches it would get the whole API. Loopback addresses
-# (127.0.0.1, [::1], localhost), external-controller-unix and
-# external-controller-pipe work without a secret. external-controller-tls also
-# starts without a secret when tls.client-auth-type is require-and-verify (or
-# client-auth-cert is set): the client certificate is the credential.
+# TCP controllers require a secret even on loopback. Plain HTTP is restricted
+# to loopback by default, because a remote bearer secret would travel in clear
+# text. external-controller-unix and external-controller-pipe may work without
+# a secret; external-controller-tls may do so with verified client certificates.
 # A tcp/tls controller without a secret only answers requests whose Host is an
 # IP address or localhost, and refuses browser requests from other origins
 # (Origin header) unless they are listed literally in
 # external-controller-cors.allow-origins ("*" does not count).
 # PUT /configs applies a changed secret, address, TLS or CORS setting: the
 # controller listeners restart and open websocket streams are closed.
-# 内核拒绝在非回环地址上无 secret 启动 external-controller / external-controller-tls。
-# external-controller-allow-insecure: false # true: accept a non-loopback controller without a secret (not recommended); env CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true or -ext-ctl-allow-insecure
+# TCP 控制器即使在回环地址也需要 secret；远程明文 HTTP 默认拒绝。
+# external-controller-allow-insecure: false # dangerous legacy opt-in: allow secretless TCP or remote plaintext bearer HTTP; env CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true or -ext-ctl-allow-insecure
 
 # WebSocket: POST /auth/ws-ticket with Authorization: Bearer <secret> and
 # JSON {"path":"/events?types=auth"}, then connect to that exact path with
@@ -197,6 +194,8 @@ external-ui: /path/to/ui/folder/
 external-ui-name: xd
 # 目前支持下载zip,tgz格式的压缩包
 external-ui-url: "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip"
+# external-ui-sha256: "..." # required for network downloads unless the dangerous compatibility option below is set
+# external-ui-allow-insecure: false # permits an unpinned or plaintext dashboard source; downloaded JS runs on the controller origin
 
 # 在RESTful API端口上开启DOH服务器
 # ！！！该URL不会验证secret， 如果开启请自行保证安全问题 ！！！

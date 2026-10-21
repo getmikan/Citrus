@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -40,8 +41,8 @@ type SshOption struct {
 	PrivateKeyPassphrase string   `proxy:"private-key-passphrase,omitempty"`
 	HostKey              []string `proxy:"host-key,omitempty"`
 	HostKeyAlgorithms    []string `proxy:"host-key-algorithms,omitempty"`
-	// SkipHostKeyCheck acknowledges that the server is not authenticated
-	// when no host-key is pinned; it only silences the warning.
+	// SkipHostKeyCheck explicitly permits an unauthenticated server identity
+	// when no host-key is pinned.
 	SkipHostKeyCheck bool `proxy:"skip-host-key-check,omitempty"`
 }
 
@@ -117,6 +118,12 @@ func (s *Ssh) Close() error {
 }
 
 func NewSsh(option SshOption) (*Ssh, error) {
+	if len(option.HostKey) == 0 && !option.SkipHostKeyCheck {
+		return nil, errors.New("ssh host-key is required unless skip-host-key-check is explicitly true")
+	}
+	if len(option.HostKey) != 0 && option.SkipHostKeyCheck {
+		return nil, errors.New("ssh host-key and skip-host-key-check cannot be used together")
+	}
 	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
 
 	config := ssh.ClientConfig{
@@ -176,7 +183,7 @@ func NewSsh(option SshOption) (*Ssh, error) {
 			return fmt.Errorf("host key mismatch, server send :%s %s", key.Type(), base64.StdEncoding.EncodeToString(serverKey))
 		}
 	} else {
-		config.HostKeyCallback = unverifiedHostKeyCallback(option.Name, option.SkipHostKeyCheck)
+		log.Warnln("[SSH] %s: skip-host-key-check explicitly disables server identity verification", option.Name)
 	}
 
 	version := "SSH-2.0-OpenSSH_"
@@ -205,25 +212,4 @@ func NewSsh(option SshOption) (*Ssh, error) {
 	}
 	outbound.dialer = option.NewDialer(outbound.DialOptions())
 	return outbound, nil
-}
-
-// unverifiedHostKeyCallback accepts any server key, as SSH outbounds without
-// host-key always have. Unless skip-host-key-check acknowledges that, it
-// warns when the proxy is created and logs the key the server presents, so
-// it can be pinned with host-key.
-//
-// Accepting the key keeps existing configs working; a future major version
-// may require host-key or skip-host-key-check.
-func unverifiedHostKeyCallback(name string, skip bool) ssh.HostKeyCallback {
-	if skip {
-		return ssh.InsecureIgnoreHostKey()
-	}
-	log.Warnln("[SSH] %s: no host-key is set, so the server's identity is not checked and an on-path attacker can impersonate it (and receive the password). Pin the server key with host-key, or set skip-host-key-check: true to accept this", name)
-	var once sync.Once
-	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		once.Do(func() {
-			log.Warnln("[SSH] %s: accepted unverified host key from %s: %s", name, hostname, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))))
-		})
-		return nil
-	}
 }

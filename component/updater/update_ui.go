@@ -5,9 +5,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,9 +24,11 @@ import (
 )
 
 type UIUpdater struct {
-	externalUIURL  string
-	externalUIPath string
-	autoDownloadUI bool
+	externalUIURL    string
+	externalUIPath   string
+	externalUISHA256 string
+	allowInsecure    bool
+	autoDownloadUI   bool
 
 	mutex sync.Mutex
 }
@@ -93,8 +98,8 @@ func (b *extractBudget) copy(dst io.Writer, src io.Reader) error {
 
 var DefaultUiUpdater = &UIUpdater{}
 
-func NewUiUpdater(externalUI, externalUIURL, externalUIName string) *UIUpdater {
-	updater := &UIUpdater{}
+func NewUiUpdater(externalUI, externalUIURL, externalUIName, externalUISHA256 string, allowInsecure bool) *UIUpdater {
+	updater := &UIUpdater{externalUISHA256: strings.TrimSpace(externalUISHA256), allowInsecure: allowInsecure}
 	// checkout externalUI exist
 	if externalUI != "" {
 		updater.autoDownloadUI = true
@@ -112,10 +117,8 @@ func NewUiUpdater(externalUI, externalUIURL, externalUIName string) *UIUpdater {
 
 	if externalUIURL != "" {
 		updater.externalUIURL = externalUIURL
-		// The dashboard runs with the controller's origin and sees its
-		// secret; over plain HTTP anyone on the path can replace it.
-		if strings.HasPrefix(strings.ToLower(externalUIURL), "http://") {
-			log.Warnln("external-ui-url %s uses plain HTTP: the downloaded dashboard can be replaced in transit", externalUIURL)
+		if allowInsecure {
+			log.Warnln("external-ui-allow-insecure explicitly permits an unpinned or plaintext dashboard source")
 		}
 	}
 	return updater
@@ -144,6 +147,35 @@ func (u *UIUpdater) DownloadUI() error {
 	return u.downloadUI()
 }
 
+func (u *UIUpdater) validateSource() error {
+	parsedURL, err := url.Parse(u.externalUIURL)
+	if err != nil || parsedURL.Host == "" {
+		return fmt.Errorf("invalid external-ui-url %q", u.externalUIURL)
+	}
+	if !strings.EqualFold(parsedURL.Scheme, "https") && !u.allowInsecure {
+		return errors.New("external-ui-url must use HTTPS unless external-ui-allow-insecure is true")
+	}
+	if u.externalUISHA256 == "" && !u.allowInsecure {
+		return errors.New("external-ui-sha256 is required unless external-ui-allow-insecure is true")
+	}
+	return nil
+}
+
+func (u *UIUpdater) verifyArchive(data []byte) error {
+	if u.externalUISHA256 == "" {
+		return nil
+	}
+	expected, err := hex.DecodeString(u.externalUISHA256)
+	if err != nil || len(expected) != sha256.Size {
+		return errors.New("external-ui-sha256 must be a 64-character SHA-256 hex digest")
+	}
+	actual := sha256.Sum256(data)
+	if !bytes.Equal(actual[:], expected) {
+		return errors.New("external UI archive SHA-256 does not match external-ui-sha256")
+	}
+	return nil
+}
+
 func detectFileType(data []byte) compressionType {
 	if len(data) < 4 {
 		return typeUnknown
@@ -169,9 +201,15 @@ func (u *UIUpdater) downloadUI() error {
 	if !C.Path.IsSafePath(u.externalUIPath) {
 		return C.Path.ErrNotSafePath(u.externalUIPath)
 	}
+	if err := u.validateSource(); err != nil {
+		return err
+	}
 	data, err := downloadForBytes(u.externalUIURL, maxUIArchiveSize)
 	if err != nil {
 		return fmt.Errorf("can't download file: %w", err)
+	}
+	if err := u.verifyArchive(data); err != nil {
+		return err
 	}
 
 	tmpDir := C.Path.Resolve("downloadUI.tmp")

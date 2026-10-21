@@ -2,6 +2,7 @@ package provider
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -59,8 +60,23 @@ func (d *domainStrategy) FromMrs(r io.Reader, count int) error {
 	if err != nil {
 		return err
 	}
+	if err := validateDomainSetEntries(domainSet, maxIndexedProviderEntries); err != nil {
+		return err
+	}
 	d.count = count
 	d.domainSet = domainSet
+	return nil
+}
+
+func validateDomainSetEntries(domainSet *trie.DomainSet, limit int) error {
+	entries := 0
+	domainSet.Foreach(func(string) bool {
+		entries++
+		return entries <= limit
+	})
+	if entries > limit {
+		return fmt.Errorf("compiled domain provider exceeds the %d-entry limit", limit)
+	}
 	return nil
 }
 

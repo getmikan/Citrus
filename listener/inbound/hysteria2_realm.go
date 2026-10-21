@@ -19,6 +19,7 @@ type Hysteria2RealmServerOption struct {
 	RealmNamePattern   string   `inbound:"realm-name-pattern,omitempty"`
 	Certificate        string   `inbound:"certificate,omitempty"`
 	PrivateKey         string   `inbound:"private-key,omitempty"`
+	AllowInsecure      bool     `inbound:"allow-insecure,omitempty"`
 	ClientAuthType     string   `inbound:"client-auth-type,omitempty"`
 	ClientAuthCert     string   `inbound:"client-auth-cert,omitempty"`
 	EchKey             string   `inbound:"ech-key,omitempty"`
@@ -64,6 +65,7 @@ func NewHysteria2RealmServer(options *Hysteria2RealmServerOption) (*Hysteria2Rea
 			RealmNamePattern:   options.RealmNamePattern,
 			Certificate:        options.Certificate,
 			PrivateKey:         options.PrivateKey,
+			AllowInsecure:      options.AllowInsecure,
 			ClientAuthType:     options.ClientAuthType,
 			ClientAuthCert:     options.ClientAuthCert,
 			EchKey:             options.EchKey,

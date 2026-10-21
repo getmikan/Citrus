@@ -65,6 +65,9 @@ func rulesMrsParse(buf []byte, strategy ruleStrategy) (ruleStrategy, error) {
 		if count < 0 || count > math.MaxInt32 {
 			return nil, fmt.Errorf("rule count %d is invalid", count)
 		}
+		if limit := int64(ruleLimit(strategy.Behavior())); count > limit {
+			return nil, fmt.Errorf("rule count %d exceeds the %d-rule limit for %s behavior", count, limit, strategy.Behavior())
+		}
 
 		// extra (reserved for future using)
 		var length int64

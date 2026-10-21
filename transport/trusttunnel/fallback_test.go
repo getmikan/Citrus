@@ -67,6 +67,10 @@ func TestFallbackForwardedHeaders(t *testing.T) {
 	}))
 	defer backend.Close()
 	s := newFallbackService(t, backend)
+	backendURL, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	request := httptest.NewRequest("GET", "https://cover.example/", nil)
 	request.Header.Set("Forwarded", "for=198.51.100.77;proto=http")
@@ -82,8 +86,8 @@ func TestFallbackForwardedHeaders(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
 	}
-	if host != "cover.example" {
-		t.Errorf("Host = %q, want cover.example", host)
+	if host != backendURL.Host {
+		t.Errorf("Host = %q, want configured backend %q", host, backendURL.Host)
 	}
 	for _, name := range []string{"Forwarded", "Proxy-Authorization", "X-Probe"} {
 		if value := header.Get(name); value != "" {
@@ -451,6 +455,10 @@ func TestFallbackConnectReachesBackend(t *testing.T) {
 		_, _ = io.WriteString(w, "not here")
 	}))
 	defer backend.Close()
+	backendURL, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, address := startFallbackServer(t, backend, time.Minute)
 
 	for name, transport := range fallbackClients(t) {
@@ -474,8 +482,8 @@ func TestFallbackConnectReachesBackend(t *testing.T) {
 			if response.StatusCode != http.StatusMethodNotAllowed || response.Header.Get("Server") != "cover" || string(body) != "not here" {
 				t.Errorf("got %d Server=%q body=%q, want the backend's own response", response.StatusCode, response.Header.Get("Server"), body)
 			}
-			if method != http.MethodConnect || host != "cover.example:443" {
-				t.Errorf("backend saw %s %q, want CONNECT cover.example:443", method, host)
+			if method != http.MethodConnect || host != backendURL.Host {
+				t.Errorf("backend saw %s %q, want CONNECT %s", method, host, backendURL.Host)
 			}
 		})
 	}

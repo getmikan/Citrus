@@ -43,12 +43,12 @@ tun:
   enable: false
 rules: ['MATCH,DIRECT']
 YAML
-config=$(base64 < "$work/config.yaml" | tr -d '\r\n')
 docker volume create "$name" >/dev/null
 docker run -d --name "$name" --read-only --cap-drop ALL \
   --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=8m \
   --mount "type=volume,src=$name,dst=/var/lib/citrus" \
-  -p 127.0.0.1::18080 "$image" -config "$config" >/dev/null
+  --mount "type=bind,src=$context/config.yaml,dst=/etc/citrus/config.yaml,readonly" \
+  -p 127.0.0.1::18080 "$image" -f /etc/citrus/config.yaml >/dev/null
 docker exec "$name" sh -ec '
   test "$(id -u)" = 65532
   test "$(id -g)" = 65532

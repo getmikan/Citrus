@@ -253,9 +253,7 @@ func GetGeneral() *config.General {
 func updateListeners(general *config.General, listeners map[string]C.InboundListener, force bool) {
 	listener.PatchInboundListeners(listeners, tunnel.Tunnel, true)
 
-	inbound.SetSkipAuthPrefixes(general.SkipAuthPrefixes)
-	inbound.SetAllowedIPs(general.LanAllowedIPs)
-	inbound.SetDisAllowedIPs(general.LanDisAllowedIPs)
+	inbound.SetAccessPolicy(general.SkipAuthPrefixes, general.LanAllowedIPs, general.LanDisAllowedIPs)
 	listener.SetAllowLan(general.AllowLan)
 	listener.SetBindAddress(general.BindAddress)
 
@@ -468,7 +466,7 @@ func updateUpdater(cfg *config.Config) {
 	updater.SetGeoUpdateInterval(general.GeoUpdateInterval)
 
 	controller := cfg.Controller
-	updater.DefaultUiUpdater = updater.NewUiUpdater(controller.ExternalUI, controller.ExternalUIURL, controller.ExternalUIName)
+	updater.DefaultUiUpdater = updater.NewUiUpdater(controller.ExternalUI, controller.ExternalUIURL, controller.ExternalUIName, controller.ExternalUISHA256, controller.ExternalUIAllowInsecure)
 	updater.DefaultUiUpdater.AutoDownloadUI()
 }
 
