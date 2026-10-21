@@ -18,6 +18,7 @@ import (
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/fallback"
 	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/jls"
 	"github.com/metacubex/mihomo/listener/reality"
@@ -177,8 +178,19 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 			return nil, err
 		}
 	}
+	// fallback-page: what a request that is not the inbound's own gets on an HTTP transport.
+	// Only with one: a handler makes the listener serve HTTP, which plain Trojan does not.
+	var page http.Handler
+	if config.FallbackPage != "" && (config.WsPath != "" || config.GrpcServiceName != "") {
+		if page, err = fallback.Page(config.FallbackPage); err != nil {
+			return nil, err
+		}
+	}
 	if config.WsPath != "" {
 		httpMux := http.NewServeMux()
+		if page != nil {
+			httpMux.Handle("/", page)
+		}
 		httpMux.HandleFunc(config.WsPath, func(w http.ResponseWriter, r *http.Request) {
 			conn, err := v2ray.StreamUpgradedWebsocketConn(w, r)
 			if err != nil {
@@ -192,12 +204,16 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		tlsConfig.NextProtos = append(tlsConfig.NextProtos, "http/1.1")
 	}
 	if config.GrpcServiceName != "" {
+		other := httpServer.Handler
+		if other == nil {
+			other = page
+		}
 		httpServer.Handler = gun.NewServerHandler(gun.ServerOption{
 			ServiceName: config.GrpcServiceName,
 			ConnHandler: func(conn net.Conn, r *http.Request) {
 				sl.HandleHTTPConn(r, conn, tunnel, additions...)
 			},
-			HttpHandler: httpServer.Handler,
+			HttpHandler: other,
 		})
 		httpServer.Protocols.SetHTTP2(true)
 		// SetUnencryptedHTTP2 to ensure we can work in plain http2 and some tls conn is not *tls.Conn (like *reality.Conn)

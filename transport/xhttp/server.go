@@ -385,6 +385,11 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.config.Host != "" && !equalHost(r.Host, h.config.Host) {
+		// Another name is no request of this inbound: the handler of the rest answers it.
+		if h.httpHandler != nil {
+			h.httpHandler.ServeHTTP(w, r)
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}

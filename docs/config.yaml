@@ -2490,6 +2490,9 @@ listeners:
         flow: xtls-rprx-vision
     # ws-path: "/" # 如果不为空则开启 websocket 传输层
     # grpc-service-name: "GunService" # 如果不为空则开启 grpc 传输层
+    # fallback-page: ./page.html # 有 websocket/grpc/xhttp 传输层时，不属于该入站的请求在 "/" 得到此 HTML 页面，其他路径为 404
+    #   A request that is not the inbound's own gets this HTML page at "/" (404 elsewhere)
+    #   instead of a bare 404; only with an HTTP transport (ws/grpc/xhttp)
     # xhttp-config: # 如果不为空则开启 xhttp 传输层
     #   path: "/"
     #   host: ""
@@ -2712,6 +2715,7 @@ listeners:
         password: 9d0cb9d0-964f-4ef6-897d-6c6b3ccf9e68
     # ws-path: "/" # 如果不为空则开启 websocket 传输层
     # grpc-service-name: "GunService" # 如果不为空则开启 grpc 传输层
+    # fallback-page: ./page.html # 有 websocket/grpc 传输层时，不属于该入站的请求在 "/" 得到此 HTML 页面，其他路径为 404
     # 下面两项如果填写则开启 tls（需要同时填写）
     certificate: ./server.crt # 证书 PEM 格式，或者 证书的路径
     private-key: ./server.key # 证书对应的私钥 PEM 格式，或者私钥路径
