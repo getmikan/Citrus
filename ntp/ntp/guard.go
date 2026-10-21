@@ -7,13 +7,6 @@ const (
 	// the previous accepted answer plus the monotonic time since then. Real
 	// drift between syncs is milliseconds.
 	maxNTPStep = 10 * time.Minute
-	// ntpConfirmations is how many consecutive, mutually consistent answers
-	// it takes to accept a larger step (after a suspend, say, or when the
-	// previous answer was the wrong one).
-	ntpConfirmations = 3
-	// largeInitialOffset only changes how loudly the first sync is logged:
-	// devices without a real-time clock legitimately start decades off.
-	largeInitialOffset = 24 * time.Hour
 )
 
 // stepGuard keeps one spoofed or broken NTP answer from moving Citrus's
@@ -25,9 +18,6 @@ type stepGuard struct {
 	lastMon time.Time // local time.Now() of the last accepted answer (monotonic reading)
 	lastNTP time.Time // NTP time of the last accepted answer
 
-	candMon   time.Time
-	candNTP   time.Time
-	candCount int
 }
 
 func absDuration(d time.Duration) time.Duration {
@@ -42,21 +32,15 @@ func absDuration(d time.Duration) time.Duration {
 // is from the clock predicted by the last accepted answer.
 func (g *stepGuard) check(now, ntpTime time.Time) (ok bool, step time.Duration) {
 	if !g.synced {
-		g.accept(now, ntpTime)
-		return true, 0
-	}
-	step = ntpTime.Sub(g.lastNTP.Add(now.Sub(g.lastMon)))
-	if absDuration(step) <= maxNTPStep {
+		step = ntpTime.Sub(now)
+		if absDuration(step) > maxNTPStep {
+			return false, step
+		}
 		g.accept(now, ntpTime)
 		return true, step
 	}
-	if g.candCount > 0 && absDuration(ntpTime.Sub(g.candNTP.Add(now.Sub(g.candMon)))) <= maxNTPStep {
-		g.candCount++
-	} else {
-		g.candCount = 1
-	}
-	g.candMon, g.candNTP = now, ntpTime
-	if g.candCount >= ntpConfirmations {
+	step = ntpTime.Sub(g.lastNTP.Add(now.Sub(g.lastMon)))
+	if absDuration(step) <= maxNTPStep {
 		g.accept(now, ntpTime)
 		return true, step
 	}
@@ -66,5 +50,4 @@ func (g *stepGuard) check(now, ntpTime time.Time) (ok bool, step time.Duration) 
 func (g *stepGuard) accept(now, ntpTime time.Time) {
 	g.synced = true
 	g.lastMon, g.lastNTP = now, ntpTime
-	g.candCount = 0
 }

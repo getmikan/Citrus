@@ -44,6 +44,7 @@ func TestFallbackConnectAcceptingBackend(t *testing.T) {
 					seen <- observation{r.Host, r.ContentLength, r.TransferEncoding, n}
 				}))
 				defer backend.Close()
+				wantHost := strings.TrimPrefix(backend.URL, "http://")
 				s, address := startFallbackServer(t, backend, time.Second)
 				s.UpdateUsers(map[string]string{"alice": "secret"})
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -78,7 +79,7 @@ func TestFallbackConnectAcceptingBackend(t *testing.T) {
 				}
 				select {
 				case observation := <-seen:
-					if observation.host != "10.0.0.5:22" || observation.length != 0 || len(observation.transfer) != 0 || observation.bytes != 0 {
+					if observation.host != wantHost || observation.length != 0 || len(observation.transfer) != 0 || observation.bytes != 0 {
 						t.Fatalf("CONNECT payload reached backend: %+v", observation)
 					}
 				case <-ctx.Done():

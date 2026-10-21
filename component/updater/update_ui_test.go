@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/stretchr/testify/require"
 )
 
 type archiveEntry struct {
@@ -174,4 +176,71 @@ func TestGetLatestVersionLimit(t *testing.T) {
 	if !errors.As(err, &limitErr) {
 		t.Fatalf("want SizeLimitError, got %v", err)
 	}
+}
+
+func TestUIUpdaterRequiresAuthenticatedSource(t *testing.T) {
+	archive := makeZip(t, []archiveEntry{{"ui/index.html", 4}})
+	u := NewUiUpdater("", "http://ui.example/archive.zip", "", "", false)
+	if err := u.validateSource(); err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("plaintext source: %v", err)
+	}
+
+	u = NewUiUpdater("", "https://ui.example/archive.zip", "", "", false)
+	if err := u.validateSource(); err == nil || !strings.Contains(err.Error(), "sha256") {
+		t.Fatalf("missing digest: %v", err)
+	}
+
+	u = NewUiUpdater("", "http://ui.example/archive.zip", "", strings.Repeat("0", 64), true)
+	if err := u.validateSource(); err != nil {
+		t.Fatalf("explicit insecure source: %v", err)
+	}
+	if err := u.verifyArchive(archive); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("wrong digest: %v", err)
+	}
+
+	digest := fmt.Sprintf("%x", sha256.Sum256(archive))
+	u = NewUiUpdater("", "https://ui.example/archive.zip", "", digest, false)
+	if err := u.validateSource(); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.verifyArchive(archive); err != nil {
+		t.Fatalf("valid pinned archive: %v", err)
+	}
+}
+
+func TestUIRootOperationsDoNotFollowReplacedPath(t *testing.T) {
+	base := t.TempDir()
+	ui := filepath.Join(base, "ui")
+	moved := filepath.Join(base, "ui-opened")
+	victim := filepath.Join(base, "victim")
+	require.NoError(t, os.Mkdir(ui, 0o700))
+	require.NoError(t, os.Mkdir(victim, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(ui, "old.js"), []byte("old"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(victim, "keep.txt"), []byte("keep"), 0o600))
+
+	root, err := os.OpenRoot(ui)
+	require.NoError(t, err)
+	defer root.Close()
+	if err := os.Rename(ui, moved); err == nil {
+		if err := os.Symlink(victim, ui); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+	}
+	require.NoError(t, cleanupRoot(root))
+	_, err = os.Stat(filepath.Join(victim, "keep.txt"))
+	require.NoError(t, err, "cleanup followed the replaced UI pathname")
+}
+
+func TestCopyDirToRootPreservesSingleRootLayout(t *testing.T) {
+	staging := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(staging, "bundle"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(staging, "bundle", "index.html"), []byte("ok"), 0o600))
+	dest := t.TempDir()
+	root, err := os.OpenRoot(dest)
+	require.NoError(t, err)
+	defer root.Close()
+	require.NoError(t, copyDirToRoot(staging, root))
+	data, err := os.ReadFile(filepath.Join(dest, "index.html"))
+	require.NoError(t, err)
+	require.Equal(t, "ok", string(data))
 }

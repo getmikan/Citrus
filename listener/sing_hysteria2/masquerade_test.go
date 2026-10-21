@@ -50,3 +50,22 @@ func TestMasqueradeEmptyAndUnknownScheme(t *testing.T) {
 	_, err = newMasqueradeHandler("ftp://127.0.0.1/", false, nil)
 	assert.Error(t, err)
 }
+
+func TestMasqueradeBindsHostToConfiguredBackend(t *testing.T) {
+	host := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host <- r.Host
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	var dialer net.Dialer
+	handler, err := newMasqueradeHandler(upstream.URL, false, dialer.DialContext)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodGet, "https://attacker.example/", nil)
+	req.Host = "sibling.internal"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.NotEqual(t, "sibling.internal", <-host)
+}

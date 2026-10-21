@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/metacubex/mihomo/component/resolver"
@@ -41,46 +42,110 @@ func isNonPublicAddr(addr netip.Addr) bool {
 		cgnatPrefix.Contains(addr)
 }
 
-// isNonPublicHost reports whether host (an IP literal or a name) points to a
-// non-public address. Names are resolved; a name that does not resolve here
-// is treated as public, because the request itself will then go wherever the
-// dialer (possibly a remote proxy) resolves it.
-func isNonPublicHost(ctx context.Context, host string) bool {
+func resolveRedirectHost(ctx context.Context, host string) ([]netip.Addr, error) {
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
+		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
-		return isNonPublicAddr(addr)
+		return []netip.Addr{addr.Unmap()}, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	addrs, err := redirectLookup(ctx, host)
-	if err != nil {
-		return false
+	if err != nil || len(addrs) == 0 {
+		if err == nil {
+			err = errors.New("no addresses")
+		}
+		return nil, err
 	}
+	for i := range addrs {
+		addrs[i] = addrs[i].Unmap()
+	}
+	return addrs, nil
+}
+
+type redirectPolicy struct {
+	mu            sync.RWMutex
+	pinned        map[string][]netip.Addr
+	privateOrigin bool
+	originErr     error
+}
+
+func newRedirectPolicy(ctx context.Context, originHost string) *redirectPolicy {
+	p := &redirectPolicy{pinned: make(map[string][]netip.Addr)}
+	addrs, err := resolveRedirectHost(ctx, originHost)
+	if err != nil {
+		p.originErr = err
+		return p
+	}
+	private, public := false, false
 	for _, addr := range addrs {
 		if isNonPublicAddr(addr) {
-			return true
+			private = true
+		} else {
+			public = true
 		}
 	}
-	return false
+	if private && public {
+		p.originErr = errors.New("origin resolves to both public and non-public addresses")
+		return p
+	}
+	p.privateOrigin = private
+	return p
+}
+
+func normalizeRedirectHost(host string) string {
+	return strings.TrimSuffix(strings.ToLower(host), ".")
+}
+
+func (p *redirectPolicy) pin(host string, addrs []netip.Addr) {
+	p.mu.Lock()
+	p.pinned[normalizeRedirectHost(host)] = append([]netip.Addr(nil), addrs...)
+	p.mu.Unlock()
+}
+
+func (p *redirectPolicy) approved(host string) ([]netip.Addr, bool) {
+	p.mu.RLock()
+	addrs, ok := p.pinned[normalizeRedirectHost(host)]
+	p.mu.RUnlock()
+	return append([]netip.Addr(nil), addrs...), ok
 }
 
 // checkRedirect keeps a remote resource (provider, rule set, GEO database,
 // dashboard) from redirecting Citrus to loopback, link-local or private
 // addresses. A resource whose configured URL is itself on such an address
 // (a provider served from the LAN, say) may still redirect anywhere.
-func checkRedirect(req *http.Request, via []*http.Request) error {
+func (p *redirectPolicy) checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxRedirects {
 		return fmt.Errorf("stopped after %d redirects", maxRedirects)
 	}
+	if p.originErr != nil {
+		return fmt.Errorf("cannot validate redirect origin %s: %w", via[0].URL.Host, p.originErr)
+	}
+	if p.privateOrigin {
+		// The origin's private identity was captured before the first request;
+		// later DNS answers cannot manufacture this exemption.
+		return nil
+	}
+
 	target := req.URL.Hostname()
-	if !isNonPublicHost(req.Context(), target) {
-		return nil
+	addrs, err := resolveRedirectHost(req.Context(), target)
+	if err != nil {
+		return fmt.Errorf("cannot validate redirect target %s: %w", req.URL.Host, err)
 	}
-	if isNonPublicHost(req.Context(), via[0].URL.Hostname()) {
-		return nil
+	for _, addr := range addrs {
+		if isNonPublicAddr(addr) {
+			return errors.New("refusing redirect from " + via[0].URL.Host + " to non-public address " + req.URL.Host)
+		}
 	}
-	return errors.New("refusing redirect from " + via[0].URL.Host + " to non-public address " + req.URL.Host)
+	if len(addrs) == 0 {
+		return errors.New("refusing redirect target with no validated addresses: " + req.URL.Host)
+	}
+	p.pin(target, addrs)
+	return nil
+}
+
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	return newRedirectPolicy(req.Context(), via[0].URL.Hostname()).checkRedirect(req, via)
 }

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/netip"
 
@@ -59,6 +60,14 @@ func (i *ipcidrStrategy) FromMrs(r io.Reader, count int) error {
 	cidrSet, err := cidr.ReadIpCidrSet(r)
 	if err != nil {
 		return err
+	}
+	entries := 0
+	cidrSet.Foreach(func(netip.Prefix) bool {
+		entries++
+		return entries <= maxIndexedProviderRules
+	})
+	if entries > maxIndexedProviderRules {
+		return fmt.Errorf("compiled IP-CIDR provider exceeds the %d-entry limit", maxIndexedProviderRules)
 	}
 	i.count = count
 	i.cidrSet = cidrSet

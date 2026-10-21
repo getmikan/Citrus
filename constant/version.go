@@ -1,10 +1,11 @@
 package constant
 
 var (
-	Meta       = true
-	Version    = "dev"
-	BuildTime  = "unknown time"
-	MihomoName = "citrus"
+	Meta          = true
+	Version       = "dev"
+	BuildTime     = "unknown time"
+	BuildSequence = "0"
+	MihomoName    = "citrus"
 )
 
 // UserAgent is the default User-Agent of the core's own HTTP requests

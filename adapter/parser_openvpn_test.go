@@ -35,7 +35,7 @@ func TestParseProxyOpenVPNTLSVersionMin(t *testing.T) {
 	mapping := func(version any) map[string]any {
 		m := map[string]any{
 			"name": "ovpn", "type": "openvpn", "server": "127.0.0.1", "port": 1194,
-			"ca": ca, "username": "u", "password": "p",
+			"ca": ca, "username": "u", "password": "p", "skip-server-identity-check": true,
 		}
 		if version != nil {
 			m["tls-version-min"] = version

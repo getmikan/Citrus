@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	URL "net/url"
@@ -67,6 +68,16 @@ func HttpRequest(ctx context.Context, url, method string, header map[string][]st
 		return nil, err
 	}
 
+	policy := newRedirectPolicy(ctx, urlRes.Hostname())
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if opt.dialer != nil {
+			return opt.dialer.DialContext(ctx, network, address)
+		}
+		if conn, err := inner.HandleTcp(inner.GetTunnel(), address, opt.specialProxy); err == nil {
+			return conn, nil
+		}
+		return dialer.DialContext(ctx, network, address)
+	}
 	transport := &http.Transport{
 		// from http.DefaultTransport
 		DisableKeepAlives:     runtime.GOOS == "android",
@@ -75,18 +86,32 @@ func HttpRequest(ctx context.Context, url, method string, header map[string][]st
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			if opt.dialer != nil {
-				return opt.dialer.DialContext(ctx, network, address)
+			host, port, splitErr := net.SplitHostPort(address)
+			if splitErr == nil {
+				if approved, ok := policy.approved(host); ok {
+					var errs []error
+					for _, ip := range approved {
+						if (network == "tcp4" && !ip.Is4()) || (network == "tcp6" && !ip.Is6()) {
+							continue
+						}
+						conn, dialErr := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+						if dialErr == nil {
+							return conn, nil
+						}
+						errs = append(errs, dialErr)
+					}
+					if len(errs) == 0 {
+						return nil, errors.New("redirect target has no validated address for " + network)
+					}
+					return nil, errors.Join(errs...)
+				}
 			}
-			if conn, err := inner.HandleTcp(inner.GetTunnel(), address, opt.specialProxy); err == nil {
-				return conn, nil
-			}
-			return dialer.DialContext(ctx, network, address)
+			return dial(ctx, network, address)
 		},
 		TLSClientConfig: tlsConfig,
 	}
 
-	client := http.Client{Transport: transport, CheckRedirect: checkRedirect}
+	client := http.Client{Transport: transport, CheckRedirect: policy.checkRedirect}
 	return client.Do(req)
 }
 

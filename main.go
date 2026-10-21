@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/metacubex/mihomo/common/cmd"
+	"github.com/metacubex/mihomo/common/secureargs"
 	"github.com/metacubex/mihomo/component/age"
 	_ "github.com/metacubex/mihomo/component/gcballast" // a server build: raise the GC heap goal
 	"github.com/metacubex/mihomo/component/generator"
@@ -51,6 +52,7 @@ var (
 	externalControllerInsecure    bool
 	secret                        string
 	secretFile                    string
+	allowSecretArguments          bool
 	postUp                        string
 	postDown                      string
 )
@@ -81,6 +83,7 @@ func init() {
 	flag.BoolVar(&externalControllerInsecure, "ext-ctl-allow-insecure", getBoolEnv("CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE"), "allow the external controller on a non-loopback address without a secret")
 	flag.StringVar(&secret, "secret", os.Getenv("CLASH_OVERRIDE_SECRET"), "override secret for RESTful API")
 	flag.StringVar(&secretFile, "secret-file", os.Getenv("CLASH_OVERRIDE_SECRET_FILE"), "read the override secret for RESTful API from a file")
+	flag.BoolVar(&allowSecretArguments, "allow-secret-arguments", false, "allow deprecated secret-bearing command-line arguments (unsafe: visible in process listings)")
 	flag.StringVar(&postUp, "post-up", os.Getenv("CLASH_POST_UP"), "set post-up script")
 	flag.StringVar(&postDown, "post-down", os.Getenv("CLASH_POST_DOWN"), "set post-down script")
 	flag.BoolVar(&geodataMode, "m", false, "set geodata mode")
@@ -123,6 +126,10 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "age" {
 		age.Main(os.Args[2:])
 		return
+	}
+
+	if name := secureargs.SecretBearingFlag(flag.CommandLine); name != "" && !allowSecretArguments {
+		log.Fatalln("Refusing -%s because secret-bearing command-line values are visible to other host users; use -f/-f -, -secret-file, or -age-secret-key-file, or explicitly accept the legacy risk with -allow-secret-arguments", name)
 	}
 
 	if version {

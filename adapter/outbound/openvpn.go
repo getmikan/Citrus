@@ -39,36 +39,37 @@ type OpenVPN struct {
 
 type OpenVPNOption struct {
 	BasicOption
-	Name               string            `proxy:"name"`
-	Server             string            `proxy:"server"`
-	Port               int               `proxy:"port"`
-	Proto              string            `proxy:"proto,omitempty"`
-	Dev                string            `proxy:"dev,omitempty"`
-	Cipher             string            `proxy:"cipher,omitempty"`
-	DataCiphers        []string          `proxy:"data-ciphers,omitempty"`
-	DataCipherFallback string            `proxy:"data-ciphers-fallback,omitempty"`
-	Auth               string            `proxy:"auth,omitempty"`
-	CompLZO            string            `proxy:"comp-lzo,omitempty"`
-	CA                 string            `proxy:"ca"`
-	Cert               string            `proxy:"cert,omitempty"`
-	Key                string            `proxy:"key,omitempty"`
-	TLSAuth            string            `proxy:"tls-auth,omitempty"`
-	KeyDirection       string            `proxy:"key-direction,omitempty"`
-	TLSCrypt           string            `proxy:"tls-crypt,omitempty"`
-	TLSCryptV2         string            `proxy:"tls-crypt-v2,omitempty"`
-	Username           string            `proxy:"username,omitempty"`
-	Password           string            `proxy:"password,omitempty"`
-	PeerInfo           map[string]string `proxy:"peer-info,omitempty"`
-	Ping               int               `proxy:"ping,omitempty"`
-	PingRestart        int               `proxy:"ping-restart,omitempty"`
-	TranWindow         *int              `proxy:"tran-window,omitempty"`
-	HandshakeTimeout   int               `proxy:"handshake-timeout,omitempty"`
-	TLSVersionMin      string            `proxy:"tls-version-min,omitempty"`
-	VerifyX509Name     string            `proxy:"verify-x509-name,omitempty"`
-	VerifyX509Type     string            `proxy:"verify-x509-type,omitempty"`
-	VerifyServerName   bool              `proxy:"verify-server-name,omitempty"`
-	MTU                int               `proxy:"mtu,omitempty"`
-	UDP                bool              `proxy:"udp,omitempty"`
+	Name                    string            `proxy:"name"`
+	Server                  string            `proxy:"server"`
+	Port                    int               `proxy:"port"`
+	Proto                   string            `proxy:"proto,omitempty"`
+	Dev                     string            `proxy:"dev,omitempty"`
+	Cipher                  string            `proxy:"cipher,omitempty"`
+	DataCiphers             []string          `proxy:"data-ciphers,omitempty"`
+	DataCipherFallback      string            `proxy:"data-ciphers-fallback,omitempty"`
+	Auth                    string            `proxy:"auth,omitempty"`
+	CompLZO                 string            `proxy:"comp-lzo,omitempty"`
+	CA                      string            `proxy:"ca"`
+	Cert                    string            `proxy:"cert,omitempty"`
+	Key                     string            `proxy:"key,omitempty"`
+	TLSAuth                 string            `proxy:"tls-auth,omitempty"`
+	KeyDirection            string            `proxy:"key-direction,omitempty"`
+	TLSCrypt                string            `proxy:"tls-crypt,omitempty"`
+	TLSCryptV2              string            `proxy:"tls-crypt-v2,omitempty"`
+	Username                string            `proxy:"username,omitempty"`
+	Password                string            `proxy:"password,omitempty"`
+	PeerInfo                map[string]string `proxy:"peer-info,omitempty"`
+	Ping                    int               `proxy:"ping,omitempty"`
+	PingRestart             int               `proxy:"ping-restart,omitempty"`
+	TranWindow              *int              `proxy:"tran-window,omitempty"`
+	HandshakeTimeout        int               `proxy:"handshake-timeout,omitempty"`
+	TLSVersionMin           string            `proxy:"tls-version-min,omitempty"`
+	VerifyX509Name          string            `proxy:"verify-x509-name,omitempty"`
+	VerifyX509Type          string            `proxy:"verify-x509-type,omitempty"`
+	VerifyServerName        bool              `proxy:"verify-server-name,omitempty"`
+	SkipServerIdentityCheck bool              `proxy:"skip-server-identity-check,omitempty"`
+	MTU                     int               `proxy:"mtu,omitempty"`
+	UDP                     bool              `proxy:"udp,omitempty"`
 
 	IPStack IPStackOption `proxy:"ip-stack,omitempty"`
 
@@ -90,6 +91,12 @@ func openVPNTransitionWindow(value *int) (time.Duration, bool, error) {
 }
 
 func NewOpenVPN(option OpenVPNOption) (*OpenVPN, error) {
+	if option.SkipServerIdentityCheck && (option.VerifyX509Name != "" || option.VerifyServerName) {
+		return nil, errors.New("openvpn skip-server-identity-check cannot be combined with verify-x509-name or verify-server-name")
+	}
+	if !option.SkipServerIdentityCheck && option.VerifyX509Name == "" && !option.VerifyServerName {
+		return nil, errors.New("openvpn server identity is not configured; set verify-x509-name or verify-server-name, or explicitly set skip-server-identity-check: true")
+	}
 	if option.HandshakeTimeout < 0 {
 		return nil, errors.New("openvpn handshake timeout must be non-negative")
 	}
@@ -133,8 +140,8 @@ func NewOpenVPN(option OpenVPNOption) (*OpenVPN, error) {
 	if err := cfg.Prepare(); err != nil {
 		return nil, err
 	}
-	if !cfg.ChecksServerIdentity() {
-		log.Warnln("[OpenVPN] %s: the server certificate is only checked against the CA, so any server certificate from that CA is accepted. Set verify-x509-name (as in the .ovpn file) or verify-server-name: true", option.Name)
+	if option.SkipServerIdentityCheck {
+		log.Warnln("[OpenVPN] %s: skip-server-identity-check explicitly permits any server certificate from the configured CA", option.Name)
 	}
 
 	outbound := &OpenVPN{

@@ -143,7 +143,7 @@ func (pp *proxySetProvider) MarshalJSON() ([]byte, error) {
 		Type:             pp.Type().String(),
 		VehicleType:      pp.VehicleType().String(),
 		Proxies:          pp.Proxies(),
-		TestUrl:          pp.healthCheck.url,
+		TestUrl:          redactURLForLog(pp.healthCheck.url),
 		ExpectedStatus:   pp.healthCheck.expectedStatus.String(),
 		UpdatedAt:        pp.UpdatedAt(),
 		SubscriptionInfo: pp.subscriptionInfo,
@@ -253,7 +253,7 @@ func (ip *inlineProvider) MarshalJSON() ([]byte, error) {
 		Type:           ip.Type().String(),
 		VehicleType:    ip.VehicleType().String(),
 		Proxies:        ip.Proxies(),
-		TestUrl:        ip.healthCheck.url,
+		TestUrl:        redactURLForLog(ip.healthCheck.url),
 		ExpectedStatus: ip.healthCheck.expectedStatus.String(),
 		UpdatedAt:      ip.updateAt,
 	})
@@ -315,7 +315,7 @@ func (cp *compatibleProvider) MarshalJSON() ([]byte, error) {
 		Type:           cp.Type().String(),
 		VehicleType:    cp.VehicleType().String(),
 		Proxies:        cp.Proxies(),
-		TestUrl:        cp.healthCheck.url,
+		TestUrl:        redactURLForLog(cp.healthCheck.url),
 		ExpectedStatus: cp.healthCheck.expectedStatus.String(),
 	})
 }

@@ -33,15 +33,18 @@ func TestSshHostKey(t *testing.T) {
 	require.NoError(t, s.config.HostKeyCallback("192.0.2.1:22", remote, pinned))
 	require.Error(t, s.config.HostKeyCallback("192.0.2.1:22", remote, other))
 
-	// Without host-key the server key is accepted as before (with a warning),
-	// and skip-host-key-check only silences the warning.
-	for _, skip := range []bool{false, true} {
-		opt = base
-		opt.SkipHostKeyCheck = skip
-		s, err = NewSsh(opt)
-		require.NoError(t, err)
-		require.NoError(t, s.config.HostKeyCallback("192.0.2.1:22", remote, other))
-	}
+	opt = base
+	_, err = NewSsh(opt)
+	require.ErrorContains(t, err, "host-key is required")
+
+	opt.SkipHostKeyCheck = true
+	s, err = NewSsh(opt)
+	require.NoError(t, err)
+	require.NoError(t, s.config.HostKeyCallback("192.0.2.1:22", remote, other))
+
+	opt.HostKey = []string{strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pinned)))}
+	_, err = NewSsh(opt)
+	require.ErrorContains(t, err, "cannot be used together")
 
 	opt = base
 	opt.HostKey = []string{"not a key"}

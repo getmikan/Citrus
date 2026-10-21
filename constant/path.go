@@ -160,12 +160,23 @@ func (p *path) SafePaths() []string {
 // emptied or served as a whole, whatever SKIP_SAFE_PATH_CHECK says.
 func (p *path) HoldsCoreState(dir string) bool {
 	dir = filepath.Clean(p.Resolve(dir))
+	if realDir, err := evalExisting(dir); err == nil {
+		dir = filepath.Clean(realDir)
+	} else {
+		// A path whose identity cannot be established must never be used as a
+		// destructive/served UI root.
+		return true
+	}
 	roots := append([]string{filepath.Dir(p.Resolve(p.configFile))}, p.SafePaths()...)
 	for _, root := range roots {
 		if root == "" {
 			continue
 		}
-		if rel, err := filepath.Rel(dir, filepath.Clean(root)); err == nil && filepath.IsLocal(rel) {
+		root = filepath.Clean(root)
+		if realRoot, err := evalExisting(root); err == nil {
+			root = filepath.Clean(realRoot)
+		}
+		if rel, err := filepath.Rel(dir, root); err == nil && filepath.IsLocal(rel) {
 			return true
 		}
 	}

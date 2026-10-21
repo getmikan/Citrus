@@ -1,11 +1,14 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -48,28 +51,30 @@ import (
 // General config
 type General struct {
 	Inbound
-	Mode              T.TunnelMode            `json:"mode"`
-	UnifiedDelay      bool                    `json:"unified-delay"`
-	LogLevel          log.LogLevel            `json:"log-level"`
-	IPv6              bool                    `json:"ipv6"`
-	Interface         string                  `json:"interface-name"`
-	RoutingMark       int                     `json:"routing-mark"`
-	GeoXUrl           GeoXUrl                 `json:"geox-url"`
-	GeoAutoUpdate     bool                    `json:"geo-auto-update"`
-	GeoUpdateInterval int                     `json:"geo-update-interval"`
-	GeodataMode       bool                    `json:"geodata-mode"`
-	GeodataLoader     string                  `json:"geodata-loader"`
-	GeositeMatcher    string                  `json:"geosite-matcher"`
-	TCPConcurrent     bool                    `json:"tcp-concurrent"`
-	TCPConnectTimeout int64                   `json:"tcp-connect-timeout"`
-	FindProcessMode   process.FindProcessMode `json:"find-process-mode"`
-	Sniffing          bool                    `json:"sniffing"`
-	GlobalUA          string                  `json:"global-ua"`
-	ETagSupport       bool                    `json:"etag-support"`
-	KeepAliveIdle     int                     `json:"keep-alive-idle"`
-	KeepAliveInterval int                     `json:"keep-alive-interval"`
-	DisableKeepAlive  bool                    `json:"disable-keep-alive"`
-	UserStats         bool                    `json:"user-stats"`
+	Mode                 T.TunnelMode            `json:"mode"`
+	UnifiedDelay         bool                    `json:"unified-delay"`
+	LogLevel             log.LogLevel            `json:"log-level"`
+	IPv6                 bool                    `json:"ipv6"`
+	Interface            string                  `json:"interface-name"`
+	RoutingMark          int                     `json:"routing-mark"`
+	GeoXUrl              GeoXUrl                 `json:"geox-url"`
+	GeoXSHA256           GeoXSHA256              `json:"geox-sha256"`
+	GeodataAllowUnsigned bool                    `json:"geodata-allow-unsigned"`
+	GeoAutoUpdate        bool                    `json:"geo-auto-update"`
+	GeoUpdateInterval    int                     `json:"geo-update-interval"`
+	GeodataMode          bool                    `json:"geodata-mode"`
+	GeodataLoader        string                  `json:"geodata-loader"`
+	GeositeMatcher       string                  `json:"geosite-matcher"`
+	TCPConcurrent        bool                    `json:"tcp-concurrent"`
+	TCPConnectTimeout    int64                   `json:"tcp-connect-timeout"`
+	FindProcessMode      process.FindProcessMode `json:"find-process-mode"`
+	Sniffing             bool                    `json:"sniffing"`
+	GlobalUA             string                  `json:"global-ua"`
+	ETagSupport          bool                    `json:"etag-support"`
+	KeepAliveIdle        int                     `json:"keep-alive-idle"`
+	KeepAliveInterval    int                     `json:"keep-alive-interval"`
+	DisableKeepAlive     bool                    `json:"disable-keep-alive"`
+	UserStats            bool                    `json:"user-stats"`
 
 	LogFormat          log.LogFormat `json:"log-format"`
 	LogTimestampFormat string        `json:"log-timestamp-format"`
@@ -103,6 +108,13 @@ type GeoXUrl struct {
 	GeoSite string `json:"geo-site"`
 }
 
+type GeoXSHA256 struct {
+	GeoIp   string `json:"geoip"`
+	Mmdb    string `json:"mmdb"`
+	ASN     string `json:"asn"`
+	GeoSite string `json:"geosite"`
+}
+
 // Controller config
 type Controller struct {
 	ExternalController            string
@@ -113,6 +125,8 @@ type Controller struct {
 	ExternalUI                    string
 	ExternalUIURL                 string
 	ExternalUIName                string
+	ExternalUISHA256              string
+	ExternalUIAllowInsecure       bool
 	ExternalDohServer             string
 	Secret                        string
 	Cors                          Cors
@@ -142,12 +156,13 @@ type IPTables struct {
 
 // NTP config
 type NTP struct {
-	Enable        bool
-	Server        string
-	Port          int
-	Interval      int
-	DialerProxy   string
-	WriteToSystem bool
+	Enable                   bool
+	Server                   string
+	Port                     int
+	Interval                 int
+	DialerProxy              string
+	WriteToSystem            bool
+	AllowUnsafeWriteToSystem bool
 }
 
 // DNS config
@@ -304,12 +319,13 @@ type RawClashForAndroid struct {
 }
 
 type RawNTP struct {
-	Enable        bool   `yaml:"enable" json:"enable"`
-	Server        string `yaml:"server" json:"server"`
-	Port          int    `yaml:"port" json:"port"`
-	Interval      int    `yaml:"interval" json:"interval"`
-	DialerProxy   string `yaml:"dialer-proxy" json:"dialer-proxy"`
-	WriteToSystem bool   `yaml:"write-to-system" json:"write-to-system"`
+	Enable                   bool   `yaml:"enable" json:"enable"`
+	Server                   string `yaml:"server" json:"server"`
+	Port                     int    `yaml:"port" json:"port"`
+	Interval                 int    `yaml:"interval" json:"interval"`
+	DialerProxy              string `yaml:"dialer-proxy" json:"dialer-proxy"`
+	WriteToSystem            bool   `yaml:"write-to-system" json:"write-to-system"`
+	AllowUnsafeWriteToSystem bool   `yaml:"allow-unsafe-write-to-system" json:"allow-unsafe-write-to-system"`
 }
 
 type RawTun struct {
@@ -413,6 +429,13 @@ type RawGeoXUrl struct {
 	GeoSite string `yaml:"geosite" json:"geosite"`
 }
 
+type RawGeoXSHA256 struct {
+	GeoIp   string `yaml:"geoip" json:"geoip"`
+	Mmdb    string `yaml:"mmdb" json:"mmdb"`
+	ASN     string `yaml:"asn" json:"asn"`
+	GeoSite string `yaml:"geosite" json:"geosite"`
+}
+
 type RawSniffer struct {
 	Enable          bool     `yaml:"enable" json:"enable"`
 	OverrideDest    bool     `yaml:"override-destination" json:"override-destination"`
@@ -476,6 +499,8 @@ type RawConfig struct {
 	ExternalUI                      string                  `yaml:"external-ui" json:"external-ui"`
 	ExternalUIURL                   string                  `yaml:"external-ui-url" json:"external-ui-url"`
 	ExternalUIName                  string                  `yaml:"external-ui-name" json:"external-ui-name"`
+	ExternalUISHA256                string                  `yaml:"external-ui-sha256" json:"external-ui-sha256"`
+	ExternalUIAllowInsecure         bool                    `yaml:"external-ui-allow-insecure" json:"external-ui-allow-insecure"`
 	ExternalDohServer               string                  `yaml:"external-doh-server" json:"external-doh-server"`
 	Secret                          string                  `yaml:"secret" json:"secret"`
 	Interface                       string                  `yaml:"interface-name" json:"interface-name"`
@@ -498,26 +523,28 @@ type RawConfig struct {
 	KeepAliveInterval               int                     `yaml:"keep-alive-interval" json:"keep-alive-interval"`
 	DisableKeepAlive                bool                    `yaml:"disable-keep-alive" json:"disable-keep-alive"`
 
-	ProxyProvider map[string]map[string]any `yaml:"proxy-providers" json:"proxy-providers"`
-	RuleProvider  map[string]map[string]any `yaml:"rule-providers" json:"rule-providers"`
-	Proxy         []map[string]any          `yaml:"proxies" json:"proxies"`
-	ProxyGroup    []map[string]any          `yaml:"proxy-groups" json:"proxy-groups"`
-	Rule          []string                  `yaml:"rules" json:"rule"`
-	SubRules      map[string][]string       `yaml:"sub-rules" json:"sub-rules"`
-	Listeners     []map[string]any          `yaml:"listeners" json:"listeners"`
-	UserLimits    []map[string]any          `yaml:"user-limits" json:"user-limits"`
-	Metrics       RawMetrics                `yaml:"metrics" json:"metrics"`
-	Hosts         map[string]any            `yaml:"hosts" json:"hosts"`
-	DNS           RawDNS                    `yaml:"dns" json:"dns"`
-	NTP           RawNTP                    `yaml:"ntp" json:"ntp"`
-	Tun           RawTun                    `yaml:"tun" json:"tun"`
-	TuicServer    RawTuicServer             `yaml:"tuic-server" json:"tuic-server"`
-	IPTables      RawIPTables               `yaml:"iptables" json:"iptables"`
-	Experimental  RawExperimental           `yaml:"experimental" json:"experimental"`
-	Profile       RawProfile                `yaml:"profile" json:"profile"`
-	GeoXUrl       RawGeoXUrl                `yaml:"geox-url" json:"geox-url"`
-	Sniffer       RawSniffer                `yaml:"sniffer" json:"sniffer"`
-	TLS           RawTLS                    `yaml:"tls" json:"tls"`
+	ProxyProvider        map[string]map[string]any `yaml:"proxy-providers" json:"proxy-providers"`
+	RuleProvider         map[string]map[string]any `yaml:"rule-providers" json:"rule-providers"`
+	Proxy                []map[string]any          `yaml:"proxies" json:"proxies"`
+	ProxyGroup           []map[string]any          `yaml:"proxy-groups" json:"proxy-groups"`
+	Rule                 []string                  `yaml:"rules" json:"rule"`
+	SubRules             map[string][]string       `yaml:"sub-rules" json:"sub-rules"`
+	Listeners            []map[string]any          `yaml:"listeners" json:"listeners"`
+	UserLimits           []map[string]any          `yaml:"user-limits" json:"user-limits"`
+	Metrics              RawMetrics                `yaml:"metrics" json:"metrics"`
+	Hosts                map[string]any            `yaml:"hosts" json:"hosts"`
+	DNS                  RawDNS                    `yaml:"dns" json:"dns"`
+	NTP                  RawNTP                    `yaml:"ntp" json:"ntp"`
+	Tun                  RawTun                    `yaml:"tun" json:"tun"`
+	TuicServer           RawTuicServer             `yaml:"tuic-server" json:"tuic-server"`
+	IPTables             RawIPTables               `yaml:"iptables" json:"iptables"`
+	Experimental         RawExperimental           `yaml:"experimental" json:"experimental"`
+	Profile              RawProfile                `yaml:"profile" json:"profile"`
+	GeoXUrl              RawGeoXUrl                `yaml:"geox-url" json:"geox-url"`
+	GeoXSHA256           RawGeoXSHA256             `yaml:"geox-sha256" json:"geox-sha256"`
+	GeodataAllowUnsigned bool                      `yaml:"geodata-allow-unsigned" json:"geodata-allow-unsigned"`
+	Sniffer              RawSniffer                `yaml:"sniffer" json:"sniffer"`
+	TLS                  RawTLS                    `yaml:"tls" json:"tls"`
 
 	ClashForAndroid RawClashForAndroid `yaml:"clash-for-android" json:"clash-for-android"`
 }
@@ -831,6 +858,20 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 func temporaryUpdateGeneral(general *General) func()
 
 func parseGeneral(cfg *RawConfig) (*General, error) {
+	for name, value := range map[string]string{
+		"geox-sha256.geoip":   cfg.GeoXSHA256.GeoIp,
+		"geox-sha256.mmdb":    cfg.GeoXSHA256.Mmdb,
+		"geox-sha256.asn":     cfg.GeoXSHA256.ASN,
+		"geox-sha256.geosite": cfg.GeoXSHA256.GeoSite,
+	} {
+		if value == "" {
+			continue
+		}
+		decoded, err := hex.DecodeString(value)
+		if err != nil || len(decoded) != sha256.Size {
+			return nil, fmt.Errorf("%s must be a 64-character SHA-256 hex digest", name)
+		}
+	}
 	if cfg.GlobalClientFingerprint != "" {
 		log.Errorln("The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead")
 	}
@@ -872,20 +913,27 @@ func parseGeneral(cfg *RawConfig) (*General, error) {
 			ASN:     cfg.GeoXUrl.ASN,
 			GeoSite: cfg.GeoXUrl.GeoSite,
 		},
-		GeoAutoUpdate:     cfg.GeoAutoUpdate,
-		GeoUpdateInterval: cfg.GeoUpdateInterval,
-		GeodataMode:       cfg.GeodataMode,
-		GeodataLoader:     cfg.GeodataLoader,
-		GeositeMatcher:    cfg.GeositeMatcher,
-		TCPConcurrent:     cfg.TCPConcurrent,
-		TCPConnectTimeout: cfg.TCPConnectTimeout,
-		FindProcessMode:   cfg.FindProcessMode,
-		GlobalUA:          cfg.GlobalUA,
-		ETagSupport:       cfg.ETagSupport,
-		KeepAliveIdle:     cfg.KeepAliveIdle,
-		KeepAliveInterval: cfg.KeepAliveInterval,
-		DisableKeepAlive:  cfg.DisableKeepAlive,
-		UserStats:         cfg.UserStats,
+		GeoXSHA256: GeoXSHA256{
+			GeoIp:   strings.ToLower(cfg.GeoXSHA256.GeoIp),
+			Mmdb:    strings.ToLower(cfg.GeoXSHA256.Mmdb),
+			ASN:     strings.ToLower(cfg.GeoXSHA256.ASN),
+			GeoSite: strings.ToLower(cfg.GeoXSHA256.GeoSite),
+		},
+		GeodataAllowUnsigned: cfg.GeodataAllowUnsigned,
+		GeoAutoUpdate:        cfg.GeoAutoUpdate,
+		GeoUpdateInterval:    cfg.GeoUpdateInterval,
+		GeodataMode:          cfg.GeodataMode,
+		GeodataLoader:        cfg.GeodataLoader,
+		GeositeMatcher:       cfg.GeositeMatcher,
+		TCPConcurrent:        cfg.TCPConcurrent,
+		TCPConnectTimeout:    cfg.TCPConnectTimeout,
+		FindProcessMode:      cfg.FindProcessMode,
+		GlobalUA:             cfg.GlobalUA,
+		ETagSupport:          cfg.ETagSupport,
+		KeepAliveIdle:        cfg.KeepAliveIdle,
+		KeepAliveInterval:    cfg.KeepAliveInterval,
+		DisableKeepAlive:     cfg.DisableKeepAlive,
+		UserStats:            cfg.UserStats,
 
 		LogFormat:          cfg.LogFormat,
 		LogTimestampFormat: logTimestampFormat,
@@ -909,6 +957,28 @@ func CheckExternalUI(externalUI, externalUIName string) error {
 	return nil
 }
 
+var controllerReservedPaths = []string{
+	"/auth", "/cache", "/configs", "/connections", "/debug", "/dns",
+	"/events", "/group", "/healthz", "/inbounds", "/limits", "/logs",
+	"/memory", "/metrics", "/providers", "/proxies", "/readyz", "/restart",
+	"/rules", "/storage", "/traffic", "/ui", "/upgrade", "/version",
+}
+
+func validateExternalDoHPath(dohPath string) error {
+	if dohPath == "" {
+		return nil
+	}
+	if !strings.HasPrefix(dohPath, "/") || dohPath == "/" || path.Clean(dohPath) != dohPath || strings.Contains(dohPath, "%") {
+		return fmt.Errorf("external-doh-server must be a canonical absolute endpoint path, got %q", dohPath)
+	}
+	for _, reserved := range controllerReservedPaths {
+		if strings.HasPrefix(reserved, dohPath) || strings.HasPrefix(dohPath, reserved+"/") {
+			return fmt.Errorf("external-doh-server %q overlaps reserved controller path %q", dohPath, reserved)
+		}
+	}
+	return nil
+}
+
 func parseController(cfg *RawConfig) (*Controller, error) {
 	if path := cfg.ExternalUI; path != "" && !C.Path.IsSafePath(path) {
 		return nil, C.Path.ErrNotSafePath(path)
@@ -919,11 +989,16 @@ func parseController(cfg *RawConfig) (*Controller, error) {
 	if err := CheckExternalUI(cfg.ExternalUI, cfg.ExternalUIName); err != nil {
 		return nil, err
 	}
+	if err := validateExternalDoHPath(cfg.ExternalDohServer); err != nil {
+		return nil, err
+	}
 	return &Controller{
 		ExternalController:            cfg.ExternalController,
 		ExternalUI:                    cfg.ExternalUI,
 		ExternalUIURL:                 cfg.ExternalUIURL,
 		ExternalUIName:                cfg.ExternalUIName,
+		ExternalUISHA256:              cfg.ExternalUISHA256,
+		ExternalUIAllowInsecure:       cfg.ExternalUIAllowInsecure,
 		Secret:                        cfg.Secret,
 		ExternalControllerRoutingMark: cfg.ExternalControllerRoutingMark,
 		ExternalControllerPipe:        cfg.ExternalControllerPipe,
@@ -957,13 +1032,17 @@ func parseIPTables(cfg *RawConfig) (*IPTables, error) {
 }
 
 func parseNTP(cfg *RawConfig) (*NTP, error) {
+	if cfg.NTP.WriteToSystem && !cfg.NTP.AllowUnsafeWriteToSystem {
+		return nil, errors.New("ntp write-to-system uses unauthenticated NTP; set allow-unsafe-write-to-system: true to explicitly accept this risk")
+	}
 	return &NTP{
-		Enable:        cfg.NTP.Enable,
-		Server:        cfg.NTP.Server,
-		Port:          cfg.NTP.Port,
-		Interval:      cfg.NTP.Interval,
-		DialerProxy:   cfg.NTP.DialerProxy,
-		WriteToSystem: cfg.NTP.WriteToSystem,
+		Enable:                   cfg.NTP.Enable,
+		Server:                   cfg.NTP.Server,
+		Port:                     cfg.NTP.Port,
+		Interval:                 cfg.NTP.Interval,
+		DialerProxy:              cfg.NTP.DialerProxy,
+		WriteToSystem:            cfg.NTP.WriteToSystem,
+		AllowUnsafeWriteToSystem: cfg.NTP.AllowUnsafeWriteToSystem,
 	}, nil
 }
 

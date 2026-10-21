@@ -62,32 +62,32 @@ func isLoopbackAddr(addr string) bool {
 	return ip.WithZone("").IsLoopback()
 }
 
-func (c *Config) insecureError(key, addr string) error {
-	return fmt.Errorf("%s %s is not a loopback address and secret is empty, so anyone who reaches it gets the whole controller API; "+
-		"set secret, listen on a loopback address or external-controller-unix, or set external-controller-allow-insecure: true to accept this", key, addr)
-}
-
-// checkTCP refuses the plain tcp listener on a non-loopback address without a
-// secret.
+// checkTCP requires authentication on loopback and also requires transport
+// confidentiality when the reusable bearer secret leaves the host.
 func (c *Config) checkTCP() error {
-	if c.Addr == "" || c.Secret != "" || c.AllowInsecure || isLoopbackAddr(c.Addr) {
+	if c.Addr == "" || c.AllowInsecure {
 		return nil
 	}
-	return c.insecureError("external-controller", c.Addr)
+	if c.Secret == "" {
+		return fmt.Errorf("external-controller %s requires a secret even on loopback; use external-controller-unix/named-pipe for secretless local control, or set external-controller-allow-insecure: true", c.Addr)
+	}
+	if isLoopbackAddr(c.Addr) {
+		return nil
+	}
+	return fmt.Errorf("external-controller %s would send its bearer secret over plain HTTP; use external-controller-tls, loopback/Unix/named-pipe, or set external-controller-allow-insecure: true", c.Addr)
 }
 
-// checkTLS refuses the tls listener on a non-loopback address without a
-// secret, unless it requires and verifies client certificates: then the
-// certificate is the credential.
+// checkTLS requires either a bearer secret or verified client certificates on
+// every TCP listener. Unix sockets and named pipes use their OS access control.
 func (c *Config) checkTLS() error {
-	if c.TLSAddr == "" || c.Secret != "" || c.AllowInsecure || isLoopbackAddr(c.TLSAddr) {
+	if c.TLSAddr == "" || c.Secret != "" || c.AllowInsecure {
 		return nil
 	}
 	clientAuth := ca.ClientAuthTypeFromString(c.ClientAuthType)
 	if clientAuth == tls.RequireAndVerifyClientCert || (clientAuth == tls.NoClientCert && c.ClientAuthCert != "") {
 		return nil
 	}
-	return c.insecureError("external-controller-tls", c.TLSAddr)
+	return fmt.Errorf("external-controller-tls %s requires a secret or verified client certificates even on loopback; use external-controller-unix/named-pipe for secretless local control, or set external-controller-allow-insecure: true", c.TLSAddr)
 }
 
 // Validate reports the listeners that ReCreateServer would refuse to start.
@@ -106,7 +106,7 @@ func (c *Config) Validate() error {
 // are not affected. The DoH path, public by design, is left out.
 func browserGuard(next http.Handler, allowOrigins []string, dohPath string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(dohPath) > 0 && dohPath[0] == '/' && strings.HasPrefix(r.URL.Path, dohPath) {
+		if len(dohPath) > 0 && dohPath[0] == '/' && r.URL.Path == dohPath {
 			next.ServeHTTP(w, r)
 			return
 		}

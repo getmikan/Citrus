@@ -20,9 +20,7 @@ func GetOffset() time.Duration {
 }
 
 func Now() time.Time {
-	now := time.Now()
-	if offset := GetOffset(); offset != 0 {
-		now = now.Add(offset)
-	}
-	return now
+	// Certificate validation and protocol freshness must never depend on an
+	// unauthenticated NTP response. Keep this security clock on OS time.
+	return time.Now()
 }

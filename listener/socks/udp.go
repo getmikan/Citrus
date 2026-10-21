@@ -72,10 +72,11 @@ func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.T
 	// whose user the datagram is relayed as.
 	accept := func(remoteAddr net.Addr) (user string, ok bool) {
 		applyDefault := isDefault || store == authStore.Default
-		if applyDefault && !inbound.IsRemoteAddrDisAllowed(remoteAddr) {
+		allowed, skipAuth := inbound.EvaluateRemoteAddr(remoteAddr)
+		if applyDefault && !allowed {
 			return "", false
 		}
-		if store.Authenticator() == nil || (applyDefault && inbound.SkipAuthRemoteAddr(remoteAddr)) {
+		if store.Authenticator() == nil || (applyDefault && skipAuth) {
 			return "", true
 		}
 		return lookupAssociation(l.LocalAddr(), remoteAddr)

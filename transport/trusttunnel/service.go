@@ -267,12 +267,9 @@ func NewService(options ServiceOptions) *Service {
 			Rewrite: func(r *httputil.ProxyRequest) {
 				r.Out.URL.Scheme = "http"
 				r.Out.URL.Host = target
-				// Keep the client's Host header: named virtual hosts keep working and
-				// the internal backend address is not leaked in redirects. The backend
-				// therefore routes on a Host the client chose: point the fallback at a
-				// server that serves only the cover site, not at one whose other virtual
-				// hosts are meant to stay internal.
-				r.Out.Host = r.In.Host
+				// Bind virtual-host routing to the configured cover backend. An
+				// unauthenticated client must not select a sibling internal vhost.
+				r.Out.Host = target
 				r.SetXForwarded()
 				if strings.EqualFold(r.In.Method, http.MethodConnect) { // any spelling: a lenient backend would take it
 					// Keep the site's rejection, but never give a backend a live

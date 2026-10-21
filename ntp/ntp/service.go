@@ -10,8 +10,6 @@ import (
 	"github.com/metacubex/mihomo/component/proxydialer"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
-	mihomoNtp "github.com/metacubex/mihomo/ntp"
-
 	M "github.com/metacubex/sing/common/metadata"
 	"github.com/metacubex/sing/common/ntp"
 )
@@ -66,9 +64,9 @@ func (srv *Service) Stop() {
 
 func (srv *Service) update() error {
 	var err error
-	// Three attempts for network errors, plus room to confirm a large step
-	// with consecutive answers (see stepGuard).
-	for i := 0; i < 2+ntpConfirmations; i++ {
+	// Retry network failures, but never treat repeated answers from the same
+	// unauthenticated source as independent confirmation of a large step.
+	for i := 0; i < 3; i++ {
 		if i > 0 {
 			select {
 			case <-srv.ctx.Done():
@@ -88,8 +86,20 @@ func (srv *Service) update() error {
 		now := time.Now()
 		ok, step := srv.guard.check(now, now.Add(offset))
 		if !ok {
-			log.Warnln("NTP answer from %s would move the clock by %s since the last sync; ignored until consecutive answers confirm it", srv.server, step)
-			err = fmt.Errorf("unconfirmed clock step of %s", step)
+			if srv.syncSystemTime && !srv.guard.synced {
+				// This path is reachable only after the configuration parser's
+				// allow-unsafe-write-to-system opt-in. It preserves RTC-less
+				// bootstrap compatibility without feeding the offset directly to
+				// TLS/protocol clocks.
+				if syncErr := setSystemTime(response.Time); syncErr != nil {
+					return fmt.Errorf("unsafe bootstrap system-clock write: %w", syncErr)
+				}
+				srv.guard.accept(now, now.Add(offset))
+				log.Warnln("Applied explicitly allowed unauthenticated initial system-clock step of %s", step)
+				return nil
+			}
+			log.Warnln("NTP answer from %s would move the clock by %s; refusing unauthenticated large step", srv.server, step)
+			err = fmt.Errorf("unsafe unauthenticated clock step of %s", step)
 			continue
 		}
 		if offset > time.Duration(0) {
@@ -97,10 +107,7 @@ func (srv *Service) update() error {
 		} else if offset < time.Duration(0) {
 			log.Infoln("System clock is behind NTP time by %s", -offset)
 		}
-		if absDuration(offset) > largeInitialOffset {
-			log.Warnln("NTP time differs from the system clock by %s; certificate checks now use NTP time", absDuration(offset))
-		}
-		mihomoNtp.SetOffset(offset)
+		// TLS and protocol freshness remain bound to the operating-system clock.
 		if srv.syncSystemTime {
 			timeNow := response.Time
 			syncErr := setSystemTime(timeNow)
@@ -117,7 +124,6 @@ func (srv *Service) update() error {
 }
 
 func (srv *Service) loopUpdate() {
-	defer mihomoNtp.SetOffset(0)
 	defer srv.ticker.Stop()
 	for {
 		err := srv.update()

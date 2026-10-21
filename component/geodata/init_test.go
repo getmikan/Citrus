@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDownloadToPathLimit(t *testing.T) {
@@ -68,4 +70,20 @@ func TestDownloadToPathLimit(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("temp files left behind: %v", entries)
 	}
+}
+
+func TestAuthenticatedDownloadPreservesOldFileOnPinFailure(t *testing.T) {
+	oldPolicy := CurrentVerificationPolicy()
+	t.Cleanup(func() { SetVerificationPolicy(oldPolicy) })
+	SetVerificationPolicy(VerificationPolicy{GeoSite: strings.Repeat("0", 64)})
+	payload := []byte("candidate")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(payload) }))
+	defer srv.Close()
+	path := filepath.Join(t.TempDir(), "GeoSite.dat")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o600))
+	err := downloadToPathLimitVerified(srv.URL, path, 1024, AssetGeoSite, nil)
+	require.ErrorIs(t, err, ErrAssetPinMismatch)
+	got, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Equal(t, "old", string(got))
 }
