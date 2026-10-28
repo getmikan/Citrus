@@ -2,9 +2,65 @@ package updater
 
 import (
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestInstallKeepsCurrentOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	current := filepath.Join(dir, "citrus")
+	if err := os.WriteFile(current, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	u := &CoreUpdater{}
+	if err := u.install(filepath.Join(dir, "missing"), current); err == nil {
+		t.Fatal("install of a missing binary succeeded")
+	}
+	if got, err := os.ReadFile(current); err != nil || string(got) != "old" {
+		t.Fatalf("failed install changed the current binary: %q, %v", got, err)
+	}
+	if _, err := os.Stat(current + ".new"); !os.IsNotExist(err) {
+		t.Fatalf("failed install left its temp file: %v", err)
+	}
+
+	update := filepath.Join(dir, "update")
+	if err := os.WriteFile(update, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.install(update, current); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(current); string(got) != "new" {
+		t.Fatalf("install wrote %q", got)
+	}
+}
+
+func TestRestorePutsBackupBack(t *testing.T) {
+	u := &CoreUpdater{}
+	// The current binary missing (the Windows backup renamed it away) and
+	// present (the new binary was installed) must both restore.
+	for _, existing := range []bool{false, true} {
+		dir := t.TempDir()
+		current := filepath.Join(dir, "citrus")
+		backup := filepath.Join(dir, "backup")
+		if err := os.WriteFile(backup, []byte("old"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if existing {
+			if err := os.WriteFile(current, []byte("new"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := u.restore(backup, current); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := os.ReadFile(current); string(got) != "old" {
+			t.Fatalf("existing=%v: restored %q", existing, got)
+		}
+	}
+}
 
 func TestCoreBaseName(t *testing.T) {
 	name := DefaultCoreUpdater.CoreBaseName()

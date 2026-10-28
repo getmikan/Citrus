@@ -254,16 +254,55 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 		return fmt.Errorf("backuping: %w", err)
 	}
 
-	err = u.copyFile(updateExePath, currentExePath)
+	err = u.install(updateExePath, currentExePath)
 	if err != nil {
+		if runtime.GOOS == "windows" {
+			// backup moved the executable away; without this there is
+			// nothing left to start.
+			if restoreErr := u.restore(backupExePath, currentExePath); restoreErr != nil {
+				return fmt.Errorf("replacing: %w (restoring %s failed: %v)", err, backupExePath, restoreErr)
+			}
+		}
 		return fmt.Errorf("replacing: %w", err)
 	}
 	if err = saveUpdateSequence(effectiveChannel, manifest.Sequence); err != nil {
-		_ = u.copyFile(backupExePath, currentExePath)
+		if restoreErr := u.restore(backupExePath, currentExePath); restoreErr != nil {
+			return fmt.Errorf("persisting anti-rollback state: %w (restoring %s failed: %v)", err, backupExePath, restoreErr)
+		}
 		return fmt.Errorf("persisting anti-rollback state (executable restored): %w", err)
 	}
 
 	return nil
+}
+
+// install puts newExePath at currentExePath. The new binary is written in
+// full next to the target and then renamed over it, so a failed copy (disk
+// full, a scanner holding the file, an I/O error) never leaves
+// currentExePath missing or truncated, and the running binary is never
+// rewritten in place.
+func (u *CoreUpdater) install(newExePath, currentExePath string) error {
+	tmpPath := currentExePath + ".new"
+	_ = os.Remove(tmpPath)
+	if err := u.copyFile(newExePath, tmpPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, currentExePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+// restore puts the backup made by backup back at currentExePath.
+func (u *CoreUpdater) restore(backupExePath, currentExePath string) error {
+	if runtime.GOOS == "windows" {
+		// backup renamed the executable away: rename it back (over the new
+		// binary, if one is there). Unlike a copy this cannot fail for lack
+		// of disk space.
+		return os.Rename(backupExePath, currentExePath)
+	}
+	return u.install(backupExePath, currentExePath)
 }
 
 func (u *CoreUpdater) fetchMetadata(url string, limit int64) ([]byte, error) {
@@ -663,6 +702,9 @@ func (u *CoreUpdater) copyFile(src, dst string) (err error) {
 	_, err = io.Copy(wc, rc)
 	if err != nil {
 		return fmt.Errorf("io.Copy(): %w", err)
+	}
+	if err = wc.Sync(); err != nil {
+		return fmt.Errorf("sync %s: %w", dst, err)
 	}
 
 	if runtime.GOOS == "darwin" {
