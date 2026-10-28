@@ -19,6 +19,9 @@ const (
 	DHCPTimeout = time.Minute
 )
 
+// resolveDNSFromDHCP is a variable so tests can stub the DHCP exchange.
+var resolveDNSFromDHCP = dhcp.ResolveDNSFromDHCP
+
 type dhcpClient struct {
 	ifaceName string
 
@@ -81,7 +84,7 @@ func (d *dhcpClient) resolve(ctx context.Context) ([]dnsClient, error) {
 			defer cancel()
 
 			var res []dnsClient
-			dns, err := dhcp.ResolveDNSFromDHCP(ctx, d.ifaceName)
+			dns, err := resolveDNSFromDHCP(ctx, d.ifaceName)
 			// dns never empty if err is nil
 			if err == nil {
 				nameserver := make([]NameServer, 0, len(dns))
