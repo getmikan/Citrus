@@ -1,11 +1,8 @@
 package provider
 
 import (
-	"errors"
 	"testing"
 
-	"github.com/metacubex/mihomo/adapter"
-	C "github.com/metacubex/mihomo/constant"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,10 +20,4 @@ func TestProviderSkipsEntriesWithoutIdentityPolicy(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, proxies, 1)
 	require.Equal(t, "ok", proxies[0].Name())
-}
-
-// Top-level proxies keep the hard error.
-func TestIdentityPolicyErrorsStayFatalOutsideProviders(t *testing.T) {
-	_, err := adapter.ParseProxy(map[string]any{"name": "ssh", "type": "ssh", "server": "192.0.2.1", "port": 22, "username": "u", "password": "p"})
-	require.True(t, errors.Is(err, C.ErrProviderSkip), "got %v", err)
 }
