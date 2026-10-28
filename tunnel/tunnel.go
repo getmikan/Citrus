@@ -326,11 +326,23 @@ func isHandle(t C.Type) bool {
 func fixMetadata(metadata *C.Metadata) {
 	// first unmap dstIP
 	metadata.DstIP = metadata.DstIP.Unmap()
+	metadata.Host = normalizeHost(metadata.Host)
 	// handle IP string on host
 	if ip, err := netip.ParseAddr(metadata.Host); err == nil {
 		metadata.DstIP = ip.Unmap()
 		metadata.Host = ""
 	}
+}
+
+// normalizeHost lowercases a client-supplied host and drops one trailing dot.
+// DNS treats "WWW.Example.COM." and "www.example.com" as the same name, and
+// the DOMAIN* rule payloads are stored lowercased without the root dot, so
+// without this a client could pick a spelling that skips those rules.
+func normalizeHost(host string) string {
+	if len(host) > 1 && host[len(host)-1] == '.' {
+		host = host[:len(host)-1]
+	}
+	return strings.ToLower(host)
 }
 
 func needLookupIP(metadata *C.Metadata) bool {
