@@ -1,6 +1,7 @@
 package shadowquic
 
 import (
+	"context"
 	"net"
 	"os"
 	"sync"
@@ -140,7 +141,7 @@ func (a *association) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	case udpModeStream:
 		stream := a.uniStreams[key]
 		if stream == nil {
-			stream, err = a.parent.quicConn.OpenUniStreamSync(a.parent.ctx)
+			stream, err = a.openUniStream()
 			if err != nil {
 				return 0, err
 			}
@@ -164,6 +165,34 @@ func (a *association) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	}
 
 	return len(p), nil
+}
+
+// openUniStream opens a packet stream, waiting for stream credit until the
+// association closes or the write deadline passes. It runs under a.mu, so
+// waiting only on the connection would keep Close, which takes a.mu, from
+// returning once the peer's stream limit is reached.
+func (a *association) openUniStream() (*quic.SendStream, error) {
+	ctx, cancel := context.WithCancel(a.parent.ctx)
+	defer cancel()
+	go func() {
+		select {
+		case <-a.closed:
+		case <-a.writeDeadline.Wait():
+		case <-ctx.Done():
+		}
+		cancel()
+	}()
+	stream, err := a.parent.quicConn.OpenUniStreamSync(ctx)
+	if err != nil {
+		select {
+		case <-a.closed:
+			return nil, net.ErrClosed
+		case <-a.writeDeadline.Wait():
+			return nil, os.ErrDeadlineExceeded
+		default:
+		}
+	}
+	return stream, err
 }
 
 func (a *association) Close() error {
