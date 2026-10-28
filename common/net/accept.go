@@ -38,20 +38,3 @@ func (b *AcceptBackoff) Retry(err error, done <-chan struct{}) bool {
 
 // Reset restarts the back-off after a successful Accept.
 func (b *AcceptBackoff) Reset() { b.delay = 0 }
-
-// ServeAccept hands every connection accepted from l to handle until l is
-// closed or closed reports true after an Accept error.
-func ServeAccept(l net.Listener, closed func() bool, handle func(net.Conn)) {
-	var backoff AcceptBackoff
-	for {
-		c, err := l.Accept()
-		if err != nil {
-			if closed() || !backoff.Retry(err, nil) {
-				return
-			}
-			continue
-		}
-		backoff.Reset()
-		handle(c)
-	}
-}

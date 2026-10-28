@@ -1,10 +1,8 @@
 package net
 
 import (
-	"errors"
 	"net"
 	"os"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -40,86 +38,5 @@ func TestAcceptBackoffGrowsAndResets(t *testing.T) {
 	b.Reset()
 	if b.delay != 0 {
 		t.Fatalf("delay %v after Reset", b.delay)
-	}
-}
-
-type scriptedListener struct {
-	net.Listener
-	errs  []error
-	calls atomic.Int32
-}
-
-func (l *scriptedListener) Accept() (net.Conn, error) {
-	i := int(l.calls.Add(1)) - 1
-	if i < len(l.errs) {
-		return nil, l.errs[i]
-	}
-	return nil, net.ErrClosed
-}
-
-func TestServeAcceptRetriesUntilClosed(t *testing.T) {
-	l := &scriptedListener{errs: []error{
-		errors.New("no buffer space"),
-		&net.OpError{Op: "accept", Err: os.NewSyscallError("socket", syscall.Errno(10024))},
-	}}
-	done := make(chan struct{})
-	go func() {
-		ServeAccept(l, func() bool { return false }, func(net.Conn) { t.Error("unexpected connection") })
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("ServeAccept did not return on a closed listener")
-	}
-	if n := l.calls.Load(); n != 3 {
-		t.Fatalf("Accept called %d times, want 3", n)
-	}
-}
-
-func TestServeAcceptStopsWhenClosed(t *testing.T) {
-	l := &scriptedListener{errs: []error{errors.New("listener gone"), errors.New("listener gone")}}
-	done := make(chan struct{})
-	go func() {
-		ServeAccept(l, func() bool { return true }, func(net.Conn) {})
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("ServeAccept kept retrying after closed reported true")
-	}
-	if n := l.calls.Load(); n != 1 {
-		t.Fatalf("Accept called %d times, want 1", n)
-	}
-}
-
-func TestServeAcceptHandsOverConnections(t *testing.T) {
-	raw, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	handled := make(chan net.Conn, 1)
-	done := make(chan struct{})
-	go func() {
-		ServeAccept(raw, func() bool { return false }, func(c net.Conn) { handled <- c })
-		close(done)
-	}()
-	c, err := net.Dial("tcp", raw.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	select {
-	case s := <-handled:
-		s.Close()
-	case <-time.After(2 * time.Second):
-		t.Fatal("connection not handed over")
-	}
-	raw.Close()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("ServeAccept did not return after the listener closed")
 	}
 }
