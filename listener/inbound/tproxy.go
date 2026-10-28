@@ -59,12 +59,14 @@ func (t *TProxy) Listen(tunnel C.Tunnel) error {
 	for _, addr := range strings.Split(t.RawAddress(), ",") {
 		lTCP, err := tproxy.New(addr, tunnel, t.Additions()...)
 		if err != nil {
+			_ = t.Close() // the addresses already listening
 			return err
 		}
 		t.lTCP = append(t.lTCP, lTCP)
 		if t.udp {
 			lUDP, err := tproxy.NewUDP(addr, tunnel, t.Additions()...)
 			if err != nil {
+				_ = t.Close() // the addresses already listening
 				return err
 			}
 			t.lUDP = append(t.lUDP, lUDP)

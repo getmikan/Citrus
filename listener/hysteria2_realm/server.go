@@ -130,6 +130,7 @@ func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunn
 		//TCP
 		l, err := lc.Listen(context.Background(), "tcp", addr)
 		if err != nil {
+			_ = sl.Close() // the earlier addresses
 			return nil, err
 		}
 		if tlsConfig.GetCertificate != nil {

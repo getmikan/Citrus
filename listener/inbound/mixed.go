@@ -88,12 +88,14 @@ func (m *Mixed) Listen(tunnel C.Tunnel) error {
 		}
 		l, err := mixed.NewWithConfig(config, lc, tunnel, m.Additions()...)
 		if err != nil {
+			_ = m.Close() // the addresses already listening
 			return err
 		}
 		m.l = append(m.l, l)
 		if m.udp {
 			lUDP, err := socks.NewUDPWithConfig(config, lc, tunnel, m.Additions()...)
 			if err != nil {
+				_ = m.Close() // the addresses already listening
 				return err
 			}
 			m.lUDP = append(m.lUDP, lUDP)

@@ -104,6 +104,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 			//UDP
 			ul, err := NewUDP(addr, lc, pickCipher, tunnel, additions...)
 			if err != nil {
+				_ = sl.Close() // the earlier addresses
 				return nil, err
 			}
 			sl.udpListeners = append(sl.udpListeners, ul)
@@ -112,6 +113,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 		//TCP
 		l, err := lc.Listen(context.Background(), "tcp", addr)
 		if err != nil {
+			_ = sl.Close() // the earlier addresses
 			return nil, err
 		}
 		if shadowTLSBuilder != nil {

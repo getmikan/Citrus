@@ -50,7 +50,7 @@ type Listener struct {
 	fallbacks  *fallback.Streams // nil: none
 }
 
-func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (sl *Listener, err error) {
+func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (_ *Listener, err error) {
 	if len(additions) == 0 {
 		additions = []inbound.Addition{
 			inbound.WithInName("DEFAULT-TROJAN"),
@@ -92,7 +92,7 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		log.Warnln("[Trojan] %s: trusted-proxy-header %q is ignored until trusted-proxies lists the reverse proxies", config.Listen, realIP.Header)
 	}
 
-	sl = &Listener{false, config, nil, users, pickCipher, h, realIP, nil}
+	sl := &Listener{false, config, nil, users, pickCipher, h, realIP, nil}
 
 	if len(config.Fallbacks) > 0 {
 		if pickCipher != nil {
@@ -245,6 +245,11 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		tlsConfig.NextProtos = append([]string{"h2"}, tlsConfig.NextProtos...) // h2 must before http/1.1
 	}
 
+	defer func() { // a later address failed: stop serving the earlier ones
+		if err != nil {
+			_ = sl.Close()
+		}
+	}()
 	for _, addr := range strings.Split(config.Listen, ",") {
 		addr := addr
 
@@ -264,6 +269,7 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		} else if tlsConfig.GetCertificate != nil {
 			l = tls.NewListener(l, tlsConfig)
 		} else if !config.TrojanSSOption.Enabled && !config.AllowInsecure {
+			_ = l.Close()
 			return nil, errors.New("disallow using Trojan without any certificates/shadow-tls/res-tls/jls/reality/ss/allow-insecure config")
 		}
 		sl.listeners = append(sl.listeners, l)

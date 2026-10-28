@@ -59,13 +59,9 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		}
 	}
 
-	l, err := lc.Listen(context.Background(), "tcp", config.Listen)
-	if err != nil {
-		return nil, err
-	}
-
 	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
 	var realityBuilder *reality.Builder
+	var err error
 
 	if config.Certificate != "" && config.PrivateKey != "" {
 		certLoader, err := ca.NewTLSKeyPairLoader(config.Certificate, config.PrivateKey)
@@ -107,6 +103,13 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// listen once the configuration is validated: an error above must not
+	// leave the port bound with nobody accepting
+	l, err := lc.Listen(context.Background(), "tcp", config.Listen)
+	if err != nil {
+		return nil, err
 	}
 
 	if realityBuilder != nil {
