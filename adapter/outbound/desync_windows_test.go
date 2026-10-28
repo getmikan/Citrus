@@ -12,6 +12,7 @@ import (
 	"time"
 
 	N "github.com/metacubex/mihomo/common/net"
+	"github.com/metacubex/mihomo/component/egress"
 	C "github.com/metacubex/mihomo/constant"
 
 	"github.com/Nemu-x/desync"
@@ -107,4 +108,26 @@ func TestDesyncWindowsUDPBurst(t *testing.T) {
 	assert.Equal(t, 2, v.Desync.UDP.Repeats)
 	assert.Equal(t, 1, v.Desync.UDP.Packets)
 	assert.Equal(t, desync.UDPSnapshot{Packets: 2, FakePackets: 2, Peers: 1}, v.Desync.UDP.Counters)
+}
+
+// The egress guard sits outside the UDP wrapper: a server inbound user's
+// datagram to a blocked address is dropped before the burst, so neither the
+// fake datagrams nor the original reach it.
+func TestDesyncWindowsUDPEgressGuard(t *testing.T) {
+	withEgressOptions(t, egress.Options{Enable: true})
+	d := newTestDesync(t, DesyncOption{UDP: &DesyncUDPOption{TTL: 4, Repeats: 2, Packets: 1}})
+	server, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer server.Close()
+	ap := server.LocalAddr().(*net.UDPAddr).AddrPort()
+	pc, err := d.ListenPacketContext(context.Background(), &C.Metadata{NetWork: C.UDP, Type: C.TUIC, DstIP: ap.Addr(), DstPort: ap.Port()})
+	require.NoError(t, err, "the session is opened")
+	defer pc.Close()
+
+	_, err = pc.WriteTo([]byte("original"), server.LocalAddr())
+	require.NoError(t, err, "dropped like a lost datagram")
+	require.NoError(t, server.SetReadDeadline(time.Now().Add(300*time.Millisecond)))
+	_, _, err = server.ReadFrom(make([]byte, 256))
+	assert.Error(t, err, "nothing may reach the blocked address")
+	assert.Equal(t, desync.UDPSnapshot{}, d.udp.Counters.Snapshot(), "no fake datagram was sent")
 }

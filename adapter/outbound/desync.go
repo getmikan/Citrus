@@ -12,6 +12,7 @@ import (
 
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/egress"
 	"github.com/metacubex/mihomo/component/loopback"
 	"github.com/metacubex/mihomo/component/resolver"
 	C "github.com/metacubex/mihomo/constant"
@@ -92,6 +93,10 @@ func (d *Desync) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn,
 	}
 	opts := d.DialOptions()
 	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
+	if guard := egress.For(metadata); guard != nil {
+		// as DIRECT: checked on the resolved addresses right before the connect
+		opts = append(opts, dialer.WithAddrFilter(guard))
+	}
 	c, err := dialer.DialContext(ctx, "tcp", directAddress(metadata), opts...)
 	if err != nil {
 		return nil, err
@@ -126,7 +131,12 @@ func (d *Desync) ListenPacketContext(ctx context.Context, metadata *C.Metadata) 
 		_ = pc.Close()
 		return nil, err
 	}
-	return d.loopBack.NewPacketConn(NewPacketConn(&desyncPacketConn{wrapped}, d)), nil
+	var out net.PacketConn = &desyncPacketConn{wrapped}
+	if guard := egress.For(metadata); guard != nil {
+		// outside the wrapper, so a blocked peer gets no fake datagrams either
+		out = egress.NewPacketConn(out, guard)
+	}
+	return d.loopBack.NewPacketConn(NewPacketConn(out, d)), nil
 }
 
 // MarshalJSON implements C.ProxyAdapter
