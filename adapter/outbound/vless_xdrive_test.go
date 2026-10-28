@@ -1,9 +1,20 @@
 package outbound
 
 import (
-	"github.com/metacubex/mihomo/transport/xdrive"
+	"errors"
 	"testing"
+
+	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/transport/xdrive"
 )
+
+func TestVlessXDriveProviderSkipsLocalServices(t *testing.T) {
+	o := VlessOption{Name: "x", UUID: "27848739-7e62-4138-9fd3-098a63964b6b", Network: "xdrive", Encryption: "mlkem768x25519plus.native.0rtt.XKbaq1BuzJKKKPxZbwgRpn-gYQbnhrYketgezASCL1I", XDriveOpts: &xdrive.Config{Service: "local", RemoteFolder: t.TempDir()}}
+	o.ProviderName = "sub"
+	if _, err := NewVless(o); !errors.Is(err, C.ErrProviderSkip) {
+		t.Fatalf("want ErrProviderSkip, got %v", err)
+	}
+}
 
 func TestVlessXDriveValidation(t *testing.T) {
 	valid := VlessOption{Name: "x", UUID: "27848739-7e62-4138-9fd3-098a63964b6b", Network: "xdrive", Encryption: "mlkem768x25519plus.native.0rtt.XKbaq1BuzJKKKPxZbwgRpn-gYQbnhrYketgezASCL1I", XDriveOpts: &xdrive.Config{Service: "local", RemoteFolder: t.TempDir()}}
@@ -21,6 +32,11 @@ func TestVlessXDriveValidation(t *testing.T) {
 		"empty-encryption": func(o *VlessOption) { o.Encryption = "" },
 		"flow":             func(o *VlessOption) { o.Flow = "xtls-rprx-vision" },
 		"packetaddr":       func(o *VlessOption) { o.PacketEncoding = "packetaddr" },
+		"provider-local":   func(o *VlessOption) { o.ProviderName = "sub" },
+		"provider-template": func(o *VlessOption) {
+			o.ProviderName = "sub"
+			o.XDriveOpts = &xdrive.Config{Service: "template", RemoteFolder: "f", Template: map[string]any{"put": map[string]any{"url": "http://127.0.0.1/"}}}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			o := valid

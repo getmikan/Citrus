@@ -513,6 +513,15 @@ func NewVless(option VlessOption) (*Vless, error) {
 		if err := option.XDriveOpts.Validate(); err != nil {
 			return nil, err
 		}
+		// A provider entry must not pick arbitrary HTTP requests (template)
+		// or a filesystem path to write to (local): health checks dial every
+		// entry right after a subscription loads.
+		if option.ProviderName != "" {
+			switch option.XDriveOpts.Service {
+			case "local", "template":
+				return nil, C.ProviderSkipError("xdrive local and template services are allowed only in the top-level proxies")
+			}
+		}
 		if option.Flow != "" {
 			return nil, errors.New("xdrive does not support VLESS flow")
 		}
