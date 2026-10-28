@@ -27,6 +27,14 @@ type association struct {
 	recvIDSet  map[uint16]struct{}
 	uniStreams map[string]*quic.SendStream
 
+	// The packet stream a WriteTo writes to under mu. Close and the write
+	// deadline reach it through wmu: a write that waits for the peer's flow
+	// control would keep them from taking mu.
+	wmu       sync.Mutex
+	writing   *quic.SendStream
+	writeTime time.Time // the write deadline
+	wclosed   bool
+
 	closed    chan struct{}
 	closeOnce sync.Once
 	closeErr  error
@@ -145,13 +153,17 @@ func (a *association) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 			if err != nil {
 				return 0, err
 			}
-			if err = WritePacketStreamHeader(stream, id); err != nil {
+			if err = a.writeStream(stream, func() error { return WritePacketStreamHeader(stream, id) }); err != nil {
 				_ = stream.Close()
 				return 0, err
 			}
 			a.uniStreams[key] = stream
 		}
-		if err = WritePacketStreamPayload(stream, p); err != nil {
+		if err = a.writeStream(stream, func() error { return WritePacketStreamPayload(stream, p) }); err != nil {
+			// a part of the packet may have been written: the next one
+			// goes on a new stream, which the peer reads from its start
+			stream.CancelWrite(0)
+			delete(a.uniStreams, key)
 			return 0, err
 		}
 	default:
@@ -195,9 +207,50 @@ func (a *association) openUniStream() (*quic.SendStream, error) {
 	return stream, err
 }
 
+// writeStream runs write, a write to stream, with the association's write
+// deadline on stream, and so that Close ends it.
+func (a *association) writeStream(stream *quic.SendStream, write func() error) error {
+	a.wmu.Lock()
+	if a.wclosed {
+		a.wmu.Unlock()
+		return net.ErrClosed
+	}
+	a.writing = stream
+	_ = stream.SetWriteDeadline(a.writeTime)
+	a.wmu.Unlock()
+
+	err := write()
+
+	a.wmu.Lock()
+	a.writing = nil
+	closed := a.wclosed
+	a.wmu.Unlock()
+	if err != nil && closed {
+		return net.ErrClosed
+	}
+	return err
+}
+
+// setStreamWriteDeadline applies a new write deadline to the packet stream
+// being written to; writeStream applies it to the next ones.
+func (a *association) setStreamWriteDeadline(t time.Time) {
+	a.wmu.Lock()
+	a.writeTime = t
+	if a.writing != nil {
+		_ = a.writing.SetWriteDeadline(t)
+	}
+	a.wmu.Unlock()
+}
+
 func (a *association) Close() error {
 	a.closeOnce.Do(func() {
 		close(a.closed)
+		a.wmu.Lock()
+		a.wclosed = true
+		if a.writing != nil {
+			_ = a.writing.SetWriteDeadline(time.Now())
+		}
+		a.wmu.Unlock()
 		a.closeErr = a.close()
 	})
 	return a.closeErr
@@ -232,8 +285,7 @@ func (a *association) LocalAddr() net.Addr {
 
 func (a *association) SetDeadline(t time.Time) error {
 	a.readDeadline.Set(t)
-	a.writeDeadline.Set(t)
-	return nil
+	return a.SetWriteDeadline(t)
 }
 
 func (a *association) SetReadDeadline(t time.Time) error {
@@ -243,6 +295,7 @@ func (a *association) SetReadDeadline(t time.Time) error {
 
 func (a *association) SetWriteDeadline(t time.Time) error {
 	a.writeDeadline.Set(t)
+	a.setStreamWriteDeadline(t)
 	return nil
 }
 
