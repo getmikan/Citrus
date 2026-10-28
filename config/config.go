@@ -217,6 +217,8 @@ type TLS struct {
 	EchKey          string
 	CustomTrustCert []string
 	RootPolicy      ca.RootPolicy
+	// Roots is the pool of RootPolicy and CustomTrustCert, installed while the config is parsed.
+	Roots *ca.Roots
 }
 
 // Config is mihomo config manager
@@ -769,6 +771,16 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 	config.TLS = tlsCfg
+	// Most proxies keep the root pool they are built with, so the one of this config is installed
+	// before they are parsed. ApplyConfig installs it again, a config that fails to parse puts the
+	// previous one back.
+	prevRoots := ca.SwapRoots(tlsCfg.Roots)
+	parsed := false
+	defer func() {
+		if !parsed {
+			ca.SwapRoots(prevRoots)
+		}
+	}()
 
 	proxies, providers, err := parseProxies(rawCfg)
 	if err != nil {
@@ -856,6 +868,7 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 	elapsedTime := time.Since(startTime) / time.Millisecond                     // duration in ms
 	log.Infoln("Initial configuration complete, total time: %dms", elapsedTime) //Segment finished in xxm
 
+	parsed = true
 	return config, nil
 }
 
@@ -1062,6 +1075,11 @@ func parseTLS(cfg *RawConfig) (*TLS, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tls: %w", err)
 	}
+	policy := ca.RootPolicy{Source: source, DisableDenylist: !cfg.TLS.CADenylist}
+	roots, errs := ca.NewRoots(policy, cfg.TLS.CustomTrustCert)
+	for _, err := range errs {
+		log.Warnln("%s", err)
+	}
 	return &TLS{
 		Certificate:     cfg.TLS.Certificate,
 		PrivateKey:      cfg.TLS.PrivateKey,
@@ -1069,7 +1087,8 @@ func parseTLS(cfg *RawConfig) (*TLS, error) {
 		ClientAuthCert:  cfg.TLS.ClientAuthCert,
 		EchKey:          cfg.TLS.EchKey,
 		CustomTrustCert: cfg.TLS.CustomTrustCert,
-		RootPolicy:      ca.RootPolicy{Source: source, DisableDenylist: !cfg.TLS.CADenylist},
+		RootPolicy:      policy,
+		Roots:           roots,
 	}, nil
 }
 

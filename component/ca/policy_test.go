@@ -173,12 +173,13 @@ func TestDenylistedSystemRootRejected(t *testing.T) {
 	assert.Equal(t, "Citrus Test Root", distrusted.Name)
 	assert.ErrorAs(t, pki.handshake(t, Option{NameCertVerify: policyServerName}), &distrusted)
 
-	// a caller's own VerifyConnection still runs after the check
+	// a caller's own VerifyConnection runs after the check, and only when it passes
 	called := false
-	assert.ErrorAs(t, pki.handshake(t, Option{TLSConfig: &tls.Config{VerifyConnection: func(tls.ConnectionState) error {
+	callerVerify := func(tls.ConnectionState) error {
 		called = true
 		return nil
-	}}}), &distrusted)
+	}
+	assert.ErrorAs(t, pki.handshake(t, Option{TLSConfig: &tls.Config{VerifyConnection: callerVerify}}), &distrusted)
 	assert.False(t, called)
 
 	// pinning and skip-cert-verify trust the server explicitly
@@ -189,6 +190,14 @@ func TestDenylistedSystemRootRejected(t *testing.T) {
 	addSystemRoot()
 	assert.NoError(t, pki.handshake(t, Option{}))
 	assert.NoError(t, pki.handshake(t, Option{NameCertVerify: policyServerName}))
+	assert.NoError(t, pki.handshake(t, Option{TLSConfig: &tls.Config{VerifyConnection: callerVerify}}))
+	assert.True(t, called, "the caller's VerifyConnection is wrapped, not replaced")
+
+	// and its error is returned
+	callerErr := errors.New("caller")
+	assert.ErrorIs(t, pki.handshake(t, Option{TLSConfig: &tls.Config{VerifyConnection: func(tls.ConnectionState) error {
+		return callerErr
+	}}}), callerErr)
 }
 
 func TestCustomCertificateExemptFromDenylist(t *testing.T) {
@@ -254,4 +263,31 @@ func TestCheckChains(t *testing.T) {
 	err := CheckChains([][]*x509.Certificate{distrusted})
 	var target *DistrustedError
 	assert.True(t, errors.As(err, &target))
+}
+
+func TestNewRootsAndSwap(t *testing.T) {
+	pki := newTestPKI(t)
+	pki.denylist(t)
+	usePolicy(t, RootPolicy{}, nil)
+	installed := GetCertPool()
+
+	roots, errs := NewRoots(RootPolicy{Source: RootsBundle}, []string{pki.rootPEM, "not a certificate"})
+	assert.Len(t, errs, 1)
+	// built, not installed yet
+	assert.Same(t, installed, GetCertPool())
+
+	prev := SwapRoots(roots)
+	assert.Same(t, roots.pool, GetCertPool())
+	// the custom root is trusted and exempt from the denylist
+	assert.NoError(t, pki.handshake(t, Option{}))
+
+	SwapRoots(prev)
+	assert.Same(t, installed, GetCertPool())
+	var unknown x509.UnknownAuthorityError
+	assert.ErrorAs(t, pki.handshake(t, Option{}), &unknown)
+
+	// nil is the default policy, built by the next GetCertPool
+	SwapRoots(nil)
+	assert.Equal(t, RootPolicy{}, rootPolicy)
+	assert.NotNil(t, GetCertPool())
 }

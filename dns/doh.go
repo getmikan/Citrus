@@ -605,18 +605,7 @@ func (doh *dnsOverHTTPS) probeH3(
 		return addr, nil
 	}
 
-	// Use a new *tls.Config with empty session cache for probe connections.
-	// Surprisingly, this is really important since otherwise it invalidates
-	// the existing cache.
-	// TODO(ameshkov): figure out why the sessions cache invalidates here.
-	probeTLSCfg := tlsConfig.Clone()
-	probeTLSCfg.ClientSessionCache = nil
-
-	// Do not expose probe connections to the callbacks that are passed to
-	// the bootstrap options to avoid side-effects.
-	// TODO(ameshkov): consider exposing, somehow mark that this is a probe.
-	probeTLSCfg.VerifyPeerCertificate = nil
-	probeTLSCfg.VerifyConnection = nil
+	probeTLSCfg := probeTLSConfig(tlsConfig)
 
 	// Run probeQUIC and probeTLS in parallel and see which one is faster.
 	chQuic := make(chan error, 1)
@@ -642,6 +631,16 @@ func (doh *dnsOverHTTPS) probeH3(
 
 		return "", errors.New("TLS was faster than QUIC, prefer it")
 	}
+}
+
+// probeTLSConfig returns the config of the probe connections: a new *tls.Config with empty session
+// cache, since otherwise it invalidates the existing cache. Its VerifyConnection is the one of
+// ca.GetTLSConfig (name-cert-verify, the denylist), so it is kept: a probe through an interceptor
+// must fail like the real connection does.
+func probeTLSConfig(tlsConfig *tls.Config) *tls.Config {
+	probeTLSCfg := tlsConfig.Clone()
+	probeTLSCfg.ClientSessionCache = nil
+	return probeTLSCfg
 }
 
 // probeQUIC attempts to establish a QUIC connection to the specified address.

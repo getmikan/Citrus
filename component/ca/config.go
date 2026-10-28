@@ -93,21 +93,12 @@ func AddCertificate(certificate string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	if certificate == "" {
-		return fmt.Errorf("certificate is empty")
+	certs, err := decodeCertificate(certificate)
+	if err != nil {
+		return err
 	}
-
 	if globalCertPool == nil {
 		initializeCertPool()
-	}
-
-	certs := parseCertificates([]byte(certificate))
-	if len(certs) == 0 {
-		cert, err := x509.ParseCertificate([]byte(certificate))
-		if err != nil {
-			return fmt.Errorf("add certificate failed")
-		}
-		certs = append(certs, cert)
 	}
 	custom := make(map[[sha256.Size]byte]struct{}, len(customSPKI)+len(certs))
 	for hash := range customSPKI {
@@ -119,6 +110,66 @@ func AddCertificate(certificate string) error {
 	}
 	customSPKI = custom
 	return nil
+}
+
+// decodeCertificate returns the certificates of a tls.custom-certifactes entry, PEM or a single DER.
+func decodeCertificate(certificate string) ([]*x509.Certificate, error) {
+	if certificate == "" {
+		return nil, fmt.Errorf("certificate is empty")
+	}
+	certs := parseCertificates([]byte(certificate))
+	if len(certs) == 0 {
+		cert, err := x509.ParseCertificate([]byte(certificate))
+		if err != nil {
+			return nil, fmt.Errorf("add certificate failed")
+		}
+		certs = append(certs, cert)
+	}
+	return certs, nil
+}
+
+// Roots is a root pool with the policy and the tls.custom-certifactes it was built from. Most proxies
+// keep the pool [GetTLSConfig] or [GetCertPool] gave them when they were built, so a config builds its
+// Roots and installs them with [SwapRoots] before its proxies are parsed.
+type Roots struct {
+	pool   *x509.CertPool
+	policy RootPolicy
+	custom map[[sha256.Size]byte]struct{}
+}
+
+// NewRoots builds the pool of policy with certificates on top without installing it. The certificates
+// that cannot be decoded are left out and returned in errs.
+func NewRoots(policy RootPolicy, certificates []string) (r *Roots, errs []error) {
+	r = &Roots{pool: buildPool(policy), policy: policy}
+	for _, certificate := range certificates {
+		certs, err := decodeCertificate(certificate)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s\nadd error: %w", certificate, err))
+			continue
+		}
+		if r.custom == nil {
+			r.custom = make(map[[sha256.Size]byte]struct{}, len(certs))
+		}
+		for _, cert := range certs {
+			r.pool.AddCert(cert)
+			r.custom[spkiHash(cert)] = struct{}{}
+		}
+	}
+	return
+}
+
+// SwapRoots installs r and returns the roots it replaced, so they can be put back. nil is the default
+// policy without custom certificates.
+func SwapRoots(r *Roots) (prev *Roots) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	prev = &Roots{pool: globalCertPool, policy: rootPolicy, custom: customSPKI}
+	if r == nil {
+		r = &Roots{}
+	}
+	// a nil pool is built by the next GetCertPool, with no custom certificates
+	globalCertPool, rootPolicy, customSPKI = r.pool, r.policy, r.custom
+	return prev
 }
 
 // parseCertificates returns the certificates of the PEM blocks in data like AppendCertsFromPEM,
@@ -155,8 +206,12 @@ func appendBundle(pool *x509.CertPool, denylist bool) (n int) {
 
 func initializeCertPool() {
 	customSPKI = nil
+	globalCertPool = buildPool(rootPolicy)
+}
+
+func buildPool(policy RootPolicy) (pool *x509.CertPool) {
 	useSystem, useBundle := true, true
-	switch rootPolicy.Source {
+	switch policy.Source {
 	case RootsBundle:
 		useSystem = false
 	case RootsSystem:
@@ -169,16 +224,17 @@ func initializeCertPool() {
 	if useSystem {
 		// The system pool cannot be filtered (on Windows and macOS it is the platform verifier),
 		// CheckChains rejects its denylisted CAs after the verification instead.
-		globalCertPool, err = x509.SystemCertPool()
+		pool, err = x509.SystemCertPool()
 		if err != nil {
-			globalCertPool = x509.NewCertPool()
+			pool = x509.NewCertPool()
 		}
 	} else {
-		globalCertPool = x509.NewCertPool()
+		pool = x509.NewCertPool()
 	}
 	if useBundle {
-		appendBundle(globalCertPool, !rootPolicy.DisableDenylist)
+		appendBundle(pool, !policy.DisableDenylist)
 	}
+	return pool
 }
 
 func ResetCertificate() {

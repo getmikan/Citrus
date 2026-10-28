@@ -94,13 +94,8 @@ func ApplyConfig(cfg *config.Config, force bool) {
 
 	tunnel.OnSuspend()
 
-	ca.SetRootPolicy(cfg.TLS.RootPolicy)
-	ca.ResetCertificate()
-	for _, c := range cfg.TLS.CustomTrustCert {
-		if err := ca.AddCertificate(c); err != nil {
-			log.Warnln("%s\nadd error: %s", c, err.Error())
-		}
-	}
+	// the pool the proxies of cfg were built with, see config.ParseRawConfig
+	ca.SwapRoots(cfg.TLS.Roots)
 
 	updateExperimental(cfg.Experimental)
 	updateMetrics(cfg.Metrics)

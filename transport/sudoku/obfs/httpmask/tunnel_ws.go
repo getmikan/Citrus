@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/metacubex/mihomo/component/ca"
+
 	"github.com/gobwas/ws"
 	"github.com/metacubex/tls"
 )
@@ -162,9 +164,12 @@ func dialWS(ctx context.Context, serverAddress string, opts TunnelDialOptions) (
 		},
 	}
 	if scheme == "wss" {
-		tlsConfig := &tls.Config{
+		tlsConfig, err := ca.GetTLSConfig(ca.Option{TLSConfig: &tls.Config{
 			ServerName: serverName,
 			MinVersion: tls.VersionTLS12,
+		}})
+		if err != nil {
+			return nil, err
 		}
 		d.TLSClient = func(conn net.Conn, hostname string) net.Conn {
 			return tls.Client(conn, tlsConfig)

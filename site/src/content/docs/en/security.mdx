@@ -78,6 +78,7 @@ This covers the core's own TLS clients: TLS, WebSocket and gRPC transports of VL
 - **Denylist.** Some state CAs exist to intercept TLS, and once installed on a device they would let their operator read proxied traffic. The core never trusts them, whether they come from the system or from the bundle: the Russian Trusted Root CA and Russian Trusted Sub CA (the 2022 and 2024 keys), and Kazakhstan's Qaznet Trust Network and Information Security Certification Authority (2019-2021). Entries are matched by the SHA-256 of the public key, so a re-issued certificate with the same key is caught too. A chain through such a CA fails with `certificate chain goes through the distrusted CA`. The list and its sources are in `component/ca/denylist.go`.
 - **Opting out.** `tls.ca-denylist: false` trusts these CAs again. To trust only one of them, add it to `tls.custom-certifactes`: chains anchored at a custom certificate are exempt from the denylist.
 - **Pinning.** `fingerprint` and `skip-cert-verify` are explicit choices for a single proxy, the denylist does not apply to them.
+- **Exception.** The Tailscale control client adds these roots to the system pool itself, so `bundle` does not narrow it and the denylist does not apply there.
 
 ```yaml
 tls:
