@@ -57,6 +57,12 @@ func TestCheckRedirect(t *testing.T) {
 		{"https://public.example/sub", "http://nas.lan/", false},
 		{"https://public.example/sub", "http://rebind.example/", false},
 		{"https://public.example/sub", "http://[::ffff:10.0.0.1]/", false},
+		// An origin that resolves only through a proxy (or to a public and
+		// private mix) gets the public-origin checks, not a blanket refusal.
+		{"https://proxied.example/sub", "https://cdn.example/sub", true},
+		{"https://proxied.example/sub", "http://127.0.0.1:9090/configs", false},
+		{"https://rebind.example/sub", "https://cdn.example/sub", true},
+		{"https://rebind.example/sub", "http://nas.lan/", false},
 		// Configured on the LAN: redirects stay unrestricted.
 		{"http://nas.lan/sub", "http://192.168.1.11/sub", true},
 		{"http://192.168.1.10/sub", "http://127.0.0.1/sub", true},
@@ -101,6 +107,17 @@ func TestRedirectPolicyPinsValidatedAddresses(t *testing.T) {
 	if !ok || len(got) != 2 || got[0] != netip.MustParseAddr("203.0.113.10") {
 		t.Fatalf("approved addresses = %v, %v", got, ok)
 	}
+
+	if got, pinned, err := p.approvedFor("tcp6", "cdn.example:443"); err != nil || !pinned || len(got) != 1 || !got[0].Is6() {
+		t.Fatalf("approvedFor tcp6 = %v, %v, %v", got, pinned, err)
+	}
+	if _, pinned, err := p.approvedFor("tcp", "other.example:443"); err != nil || pinned {
+		t.Fatalf("unvalidated host reported pinned=%v err=%v", pinned, err)
+	}
+	p.pin("v4only.example", []netip.Addr{netip.MustParseAddr("203.0.113.11")})
+	if _, pinned, err := p.approvedFor("tcp6", "v4only.example:443"); err == nil || !pinned {
+		t.Fatalf("tcp6 to an IPv4-only target: pinned=%v err=%v", pinned, err)
+	}
 }
 
 func TestRedirectPolicyOriginRebindCannotGainPrivateExemption(t *testing.T) {
@@ -117,6 +134,7 @@ func TestRedirectPolicyOriginRebindCannotGainPrivateExemption(t *testing.T) {
 		return nil, errors.New("no such host")
 	}
 	p := newRedirectPolicy(context.Background(), "public.example")
+	<-p.originDone // the origin is classified as the request starts
 	originPrivate = true
 	from, _ := http.NewRequest(http.MethodGet, "https://public.example/", nil)
 	to, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/admin", nil)
