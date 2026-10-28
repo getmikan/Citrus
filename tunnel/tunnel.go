@@ -829,17 +829,23 @@ func logMetadata(metadata *C.Metadata, rule C.Rule, remoteConn C.Connection) {
 }
 
 func match(metadata *C.Metadata, helper C.RuleMatchHelper) (C.Proxy, C.Rule, error) {
+	// Take a snapshot and walk it unlocked. Rule matching may resolve the
+	// host, and with respect-rules the DNS dial calls back into match; a
+	// read lock held across that would wait behind any queued writer
+	// (UpdateRules, ReplaceRules, ...) that is itself waiting for this
+	// reader, stalling every new connection until the DNS timeout.
 	configMux.RLock()
-	defer configMux.RUnlock()
+	curRules, curSubRules, curProxies := rules, subRules, proxies
+	configMux.RUnlock()
 
 	var rematchChain []string
 	for {
 		var rematchProxy C.Proxy
 		var rematchRule C.Rule
 	GetRules:
-		for _, rule := range getRules(metadata) {
+		for _, rule := range getRules(metadata, curRules, curSubRules) {
 			if matched, ada := rule.Match(metadata, helper); matched {
-				adapter, ok := proxies[ada]
+				adapter, ok := curProxies[ada]
 				if !ok {
 					continue
 				}
@@ -883,11 +889,11 @@ func match(metadata *C.Metadata, helper C.RuleMatchHelper) (C.Proxy, C.Rule, err
 			log.Debugln("[Rule] rematch proxy %s update metadata to rematch-name=%q sub-rule=%q", rematchProxy.Name(), metadata.InName, metadata.SpecialRules)
 			continue
 		}
-		return proxies["DIRECT"], nil, nil
+		return curProxies["DIRECT"], nil, nil
 	}
 }
 
-func getRules(metadata *C.Metadata) []C.Rule {
+func getRules(metadata *C.Metadata, rules []C.Rule, subRules map[string][]C.Rule) []C.Rule {
 	if sr, ok := subRules[metadata.SpecialRules]; ok {
 		log.Debugln("[Rule] use %s rules", metadata.SpecialRules)
 		return sr
