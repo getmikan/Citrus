@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"testing"
 	"time"
+
+	C "github.com/metacubex/mihomo/constant"
 )
 
 func signedManifestFixture(t *testing.T, mutate func(*updateManifest)) ([]byte, []byte, string) {
@@ -78,5 +81,23 @@ func TestUpdateManifestRejectsExpiryChannelAndRollback(t *testing.T) {
 	expired, expiredSig, expiredBase := signedManifestFixture(t, func(m *updateManifest) { m.ExpiresAt = time.Now().Add(-time.Minute) })
 	if _, _, err := verifyUpdateManifest(expired, expiredSig, ReleaseChannel, expiredBase, 0, time.Now()); err == nil {
 		t.Fatal("expired manifest accepted")
+	}
+}
+
+func TestUpdateManifestForRunningVersion(t *testing.T) {
+	oldVersion := C.Version
+	C.Version = "v1.2.3"
+	t.Cleanup(func() { C.Version = oldVersion })
+
+	// The newest build carries its manifest's sequence: no update, not a
+	// rollback.
+	manifest, signatures, coreBase := signedManifestFixture(t, func(m *updateManifest) { m.Sequence = buildSequence() })
+	if _, _, err := verifyUpdateManifest(manifest, signatures, ReleaseChannel, coreBase, 0, time.Now()); !errors.Is(err, errAlreadyLatest) {
+		t.Fatalf("manifest of the running build: %v", err)
+	}
+	// An older sequence for another version is still a rollback.
+	older, olderSig, olderBase := signedManifestFixture(t, func(m *updateManifest) { m.Sequence = buildSequence(); m.Version = "v1.2.2" })
+	if _, _, err := verifyUpdateManifest(older, olderSig, ReleaseChannel, olderBase, 0, time.Now()); err == nil || errors.Is(err, errAlreadyLatest) {
+		t.Fatalf("stale manifest for another version: %v", err)
 	}
 }

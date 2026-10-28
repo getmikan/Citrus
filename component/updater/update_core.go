@@ -217,16 +217,15 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 		return fmt.Errorf("get update signature: %w", err)
 	}
 	manifest, artifact, err := verifyUpdateManifest(manifestBytes, signatureBytes, effectiveChannel, u.CoreBaseName(), loadUpdateSequence(effectiveChannel), time.Now())
-	if err != nil {
+	if err != nil && !errors.Is(err, errAlreadyLatest) {
 		return fmt.Errorf("verify update manifest: %w", err)
 	}
-	latestVersion := manifest.Version
-	log.Infoln("current version %s, latest version %s", C.Version, latestVersion)
-
-	if latestVersion == C.Version && !force {
+	if err != nil || (manifest.Version == C.Version && !force) {
 		// don't change this output, some downstream dependencies on the upgrader's output fields
 		return fmt.Errorf("update error: already using latest version %s", C.Version)
 	}
+	latestVersion := manifest.Version
+	log.Infoln("current version %s, latest version %s", C.Version, latestVersion)
 
 	defer func() {
 		if err != nil {
