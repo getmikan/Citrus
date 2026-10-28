@@ -1,5 +1,5 @@
 {
-  "note": "Citrus/mihomo ratios (above 1 = Citrus better): per metric the lowest of three CI runs of PR #127 (2026-10-18, Citrus dev f6136f7 vs mihomo v1.19.32, ubuntu-latest, 4 vCPUs). The gate fails below (1 - tolerance) x these.",
+  "note": "Citrus/mihomo ratios (above 1 = Citrus better): per metric the lowest of three CI runs of PR #127 (2026-10-18, Citrus dev f6136f7 vs mihomo v1.19.32, ubuntu-latest, 4 vCPUs). The gate fails below (1 - tolerance) x these. mem1k_rss: the lowest of three runs on runner image ubuntu-24.04 20261018 (2026-10-21, -28, -29; Citrus dev bd5ea27 and e75ad19): with that image mihomo's idle RSS dropped (hy2 50.2 -> 20.6 KiB, ss2022 209 -> 56 KiB) while Citrus's stayed, so the old ratios no longer applied.",
   "ratios": {
     "hy2": {
       "dl1_mbps": 0.966,
@@ -7,7 +7,7 @@
       "dl32_mbps": 0.969,
       "hs_cpu_ms": 1.016,
       "hs_rate": 1.015,
-      "mem1k_rss": 2.371,
+      "mem1k_rss": 1.199,
       "ul1_mbps": 0.997,
       "ul32_cpu_gb": 0.979,
       "ul32_mbps": 0.97
@@ -18,7 +18,7 @@
       "dl32_mbps": 1.237,
       "hs_cpu_ms": 0.966,
       "hs_rate": 0.967,
-      "mem1k_rss": 1.885,
+      "mem1k_rss": 1.465,
       "ul1_mbps": 1.513,
       "ul32_cpu_gb": 1.6,
       "ul32_mbps": 1.602
@@ -29,7 +29,7 @@
       "dl32_mbps": 1.087,
       "hs_cpu_ms": 1.021,
       "hs_rate": 1.024,
-      "mem1k_rss": 1.182,
+      "mem1k_rss": 1.177,
       "ul1_mbps": 1.544,
       "ul32_cpu_gb": 1.601,
       "ul32_mbps": 1.602
@@ -40,7 +40,7 @@
       "dl32_mbps": 1.171,
       "hs_cpu_ms": 0.997,
       "hs_rate": 1,
-      "mem1k_rss": 1.795,
+      "mem1k_rss": 1.532,
       "ul1_mbps": 1.47,
       "ul32_cpu_gb": 1.584,
       "ul32_mbps": 1.584
