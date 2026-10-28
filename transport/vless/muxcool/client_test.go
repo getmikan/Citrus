@@ -261,3 +261,48 @@ func TestStreamDeadlineDoesNotFailSiblings(t *testing.T) {
 		t.Fatalf("sibling read: %q %v", got, err)
 	}
 }
+
+func TestStalledWriteFailsSession(t *testing.T) {
+	defer func(d time.Duration) { writeTimeout = d }(writeTimeout)
+	writeTimeout = 100 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conns := make(chan *gatedConn, 2)
+	c := newGatedClient(ctx, conns)
+	defer c.Close()
+	s1, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s1.Close()
+	gc := <-conns
+	defer gc.release()
+
+	gc.hold()
+	written := make(chan error, 1)
+	go func() { _, err := s1.Write([]byte("a")); written <- err }()
+	select {
+	case err := <-written:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("write on a stalled session: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stalled session not failed")
+	}
+	// The next dial must not queue behind the dead conn.
+	s2, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if len(conns) != 1 {
+		t.Fatal("no new session dialed")
+	}
+	s2.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := s2.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(s2, make([]byte, 4)); err != nil {
+		t.Fatal(err)
+	}
+}

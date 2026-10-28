@@ -29,6 +29,15 @@ const (
 // A Client reads it once, in NewClient.
 var idleTimeout = 16 * time.Second
 
+// writeTimeout fails a session whose conn takes this long to accept one
+// frame (a black-holed peer, stalled XDrive storage). A stream's own
+// deadline only fails that stream, so without it new dials would keep
+// queueing behind the dead conn.
+// A Client reads it once, in NewClient.
+var writeTimeout = 30 * time.Second
+
+var errWriteStalled = errors.New("Mux.Cool session write stalled")
+
 type Client struct {
 	dial     func(context.Context) (net.Conn, error)
 	mu       sync.Mutex
@@ -37,11 +46,12 @@ type Client struct {
 	closed   bool
 	notify   chan struct{}
 
-	idleTimeout time.Duration
+	idleTimeout  time.Duration
+	writeTimeout time.Duration
 }
 
 func NewClient(dial func(context.Context) (net.Conn, error)) *Client {
-	return &Client{dial: dial, notify: make(chan struct{}), idleTimeout: idleTimeout}
+	return &Client{dial: dial, notify: make(chan struct{}), idleTimeout: idleTimeout, writeTimeout: writeTimeout}
 }
 func (c *Client) wakeLocked() { close(c.notify); c.notify = make(chan struct{}) }
 func (c *Client) DialContext(ctx context.Context, addr string) (net.Conn, error) {
@@ -216,6 +226,9 @@ func (s *session) send(ctx context.Context, data []byte, d *deadline.PipeDeadlin
 	}
 }
 func (s *session) writeLoop() {
+	stall := time.AfterFunc(s.client.writeTimeout, func() { s.fail(errWriteStalled) })
+	stall.Stop()
+	defer stall.Stop()
 	for {
 		select {
 		case <-s.done:
@@ -223,6 +236,7 @@ func (s *session) writeLoop() {
 		case req := <-s.writes:
 			p := req.data
 			var err error
+			stall.Reset(s.client.writeTimeout)
 			for len(p) > 0 {
 				var n int
 				n, err = s.conn.Write(p)
@@ -237,6 +251,7 @@ func (s *session) writeLoop() {
 					break
 				}
 			}
+			stall.Stop()
 			req.done <- err
 			if err != nil {
 				s.fail(err)
