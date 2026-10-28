@@ -1,0 +1,75 @@
+---
+title: VLESS and Trojan fallbacks
+description: Send traffic that is not VLESS or Trojan on port 443 to a web server by SNI, ALPN and path, as Xray fallbacks do.
+---
+
+A VLESS or Trojan inbound on the plain TCP transport can share its port with a website. After TLS, the listener reads the first bytes of the stream. If they are not a request from one of its users, the stream goes to a local server, such as nginx, together with the bytes already read. A browser or a scanner that opens the address gets that site instead of a closed connection.
+
+This is the `fallbacks` option of Xray-core, with the same fields: `name`, `alpn`, `path`, `dest` and `xver`.
+
+```yaml
+listeners:
+  - name: vless-in
+    type: vless
+    port: 443
+    listen: 0.0.0.0
+    users:
+      - { username: alice, uuid: 9d0cb9d0-964f-4ef6-897d-6c6b3ccf9e68, flow: xtls-rprx-vision }
+    certificate: /etc/citrus-server/fullchain.pem
+    private-key: /etc/citrus-server/privkey.pem
+    fallbacks:
+      - dest: 8080                      # everything else: 127.0.0.1:8080
+      - path: /api                      # GET /api?x HTTP/1.1
+        dest: 127.0.0.1:8081
+        xver: 1                         # PROXY protocol v1 header first
+      - alpn: h2                        # browsers that negotiated HTTP/2
+        dest: /run/nginx/h2.sock
+      - name: blog.example.com          # by SNI
+        dest: 127.0.0.1:8082
+```
+
+Trojan takes the same list.
+
+## Which streams fall back
+
+- **VLESS:** the first byte is not version 0, or the UUID that follows is not a user's.
+- **Trojan:** the first 56 bytes are not lowercase hex followed by CRLF, or the key is not a user's.
+
+An unknown UUID or key is also reported as a failed login in the [auth events](/Citrus/en/start/events/), as without fallbacks. A stream whose start could still be the protocol's but stops before the header is complete is closed at the handshake deadline, after 15 seconds, and does not fall back.
+
+The listener reads as little as it needs: one byte for most web traffic, 17 bytes for VLESS and 58 bytes for Trojan. When some fallback has a `path`, it reads on to the end of the path, within the first 256 bytes. The header may arrive in several writes, as long as it arrives before the handshake deadline.
+
+## Matching
+
+| Field | Matches | Empty |
+| --- | --- | --- |
+| `name` | TLS SNI: the name itself, else the longest `name` the SNI contains, as in Xray. `example.com` also takes `www.example.com` (and `notexample.com`). Case-insensitive, without wildcards. | any name, and no TLS |
+| `alpn` | the negotiated ALPN, such as `h2` or `http/1.1` | any |
+| `path` | the path of an HTTP/1.x request line: `/api` in `GET /api?x HTTP/1.1`. It must start with `/`. HTTP/2 has no request line, so a `path` never matches h2 | any |
+
+The order of the list does not matter. The fallback is chosen as in Xray: first the `name`, then within it the `alpn`, then the `path`, each falling back to the empty value when nothing matches. A fallback with a `name` inherits the `alpn` and `path` entries of the fallbacks without a `name`, unless it sets the same pair itself. So with `{path: /ws, dest: 10001}` and `{name: blog.example.com, dest: 8082}`, `GET /ws` with the SNI blog.example.com goes to 10001, and the rest of the blog's traffic goes to 8082. Likewise, a fallback with an `alpn` inherits the paths of the fallbacks without an `alpn` under the same `name`. Two fallbacks with the same `name`, `alpn` and `path` are a config error. A stream that matches none is closed. Add a fallback with only `dest` as the default.
+
+With an `alpn` in any fallback, the TLS layer offers the listed values and `http/1.1`. Without one, no ALPN is negotiated, as before. A client that offers only ALPNs outside that list fails the handshake. A client that offers `http/1.1` or no ALPN at all connects. The Trojan default `h2, http/1.1` also works.
+
+## Destination
+
+- `dest`: `8080` (a port on 127.0.0.1), `host:port`, or a unix socket: `/run/web.sock`, `@name` (abstract, Linux), or `unix:C:\web.sock`.
+- `xver: 1` or `2`: send a PROXY protocol header of that version first, with the client's address and port and the listener's address. With [`proxy-protocol`](/Citrus/en/start/configuration/) on the inbound, it carries the address taken from the front end's header. A client address that is not IP, as on a unix socket listener, goes as `UNKNOWN` (v1) or an unspecified address (v2). nginx reads the header with `listen ... proxy_protocol`.
+
+The connection to `dest` is made directly, not through the rules, and is expected to be local. The connect times out after 5 seconds.
+
+## Limits
+
+As in Xray, fallback relays have no limit on their number and no idle timeout. They carry a website and the inbounds chained behind a `path`, such as a ws inbound, and those sessions can stay quiet for a long time. Set the limits on the server at `dest`, for example with nginx's `limit_conn` and `keepalive_timeout`. Closing the listener closes its relays.
+
+When `dest` cannot be reached, the first failure is logged as a warning, then at most one warning per minute. The other failures go to the debug log, since any client can cause one.
+
+## Where it works
+
+- Only the plain TCP transport: `fallbacks` together with `ws-path`, `grpc-service-name` or `xhttp-config` is a config error. On those HTTP transports, [`fallback-page`](#fallback-page) serves requests that are not the inbound's own.
+- On any security layer: TLS (`certificate`), REALITY, ShadowTLS, JLS, ResTLS, or none with `allow-insecure`. `name` needs TLS or REALITY, `alpn` needs TLS: REALITY negotiates no ALPN, so behind it only an empty `alpn` matches. Behind the other layers both are empty and match only empty values.
+- Not with VLESS `decryption` or Trojan `ss-option`: the header is encrypted there, and a fallback would get ciphertext. Both combinations are config errors.
+
+## fallback-page
+
+`fallback-page` is a static HTML page for ws, grpc and xhttp. It serves requests that are not the inbound's own over the same HTTP server. It and `fallbacks` never serve the same connection. With `fallbacks` set, the transport is plain TCP, where `fallback-page` has no effect. The listener logs a warning when both are set.

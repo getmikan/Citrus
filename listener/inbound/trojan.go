@@ -15,6 +15,7 @@ type TrojanOption struct {
 	WsPath             string         `inbound:"ws-path,omitempty"`
 	GrpcServiceName    string         `inbound:"grpc-service-name,omitempty"`
 	FallbackPage       string         `inbound:"fallback-page,omitempty"`
+	Fallbacks          []Fallback     `inbound:"fallbacks,omitempty"`
 	Certificate        string         `inbound:"certificate,omitempty"`
 	PrivateKey         string         `inbound:"private-key,omitempty"`
 	ClientAuthType     string         `inbound:"client-auth-type,omitempty"`
@@ -76,6 +77,7 @@ func NewTrojan(options *TrojanOption) (*Trojan, error) {
 			WsPath:             options.WsPath,
 			GrpcServiceName:    options.GrpcServiceName,
 			FallbackPage:       options.FallbackPage,
+			Fallbacks:          buildFallbacks(options.Fallbacks),
 			Certificate:        options.Certificate,
 			PrivateKey:         options.PrivateKey,
 			ClientAuthType:     options.ClientAuthType,

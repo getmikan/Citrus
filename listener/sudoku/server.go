@@ -16,6 +16,7 @@ import (
 	"github.com/metacubex/mihomo/component/authevent"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/fallback"
 	"github.com/metacubex/mihomo/listener/sing"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/transport/socks5"
@@ -30,7 +31,7 @@ type Listener struct {
 	tunnelSrv *sudoku.HTTPMaskTunnelServer
 	fallback  string
 	handler   *sing.ListenerHandler
-	fallbacks fallbackLimiter
+	fallbacks fallback.Limiter
 }
 
 // RawAddress implements C.Listener
@@ -49,7 +50,7 @@ func (l *Listener) Address() string {
 // Close implements C.Listener
 func (l *Listener) Close() error {
 	l.closed.Store(true)
-	l.fallbacks.close()
+	l.fallbacks.Close()
 	if l.listener != nil {
 		return l.listener.Close()
 	}
