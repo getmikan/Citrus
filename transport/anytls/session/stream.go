@@ -130,9 +130,11 @@ func (s *Stream) closeWithError(err error) error {
 			s.dieHook = nil
 		}
 		return err
-	} else {
-		return s.closeErr()
 	}
+	// Closed already, by the peer's FIN or the session: the frames it left
+	// queued are not read now either, so give their budget back.
+	s.closeRecv(true)
+	return s.closeErr()
 }
 
 func (s *Stream) SetReadDeadline(t time.Time) error {

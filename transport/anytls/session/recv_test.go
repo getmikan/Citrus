@@ -171,6 +171,26 @@ func TestStreamCloseReleasesQueue(t *testing.T) {
 	}
 }
 
+// A stream that the peer closed (FIN) with frames still queued drops them
+// when it is closed locally, so the session gets their budget back.
+func TestStreamCloseAfterFINReleasesQueue(t *testing.T) {
+	conn, server, streams := rawServer(t)
+	mustWrite(t, conn, rawFrame(cmdSYN, 1, nil))
+	stream := nextStream(t, streams)
+	mustWrite(t, conn, rawFrame(cmdPSH, 1, make([]byte, 1000)))
+	mustWrite(t, conn, rawFrame(cmdFIN, 1, nil))
+	// the FIN has been handled once a frame after it is read
+	mustWrite(t, conn, rawFrame(cmdHeartResponse, 0, nil))
+	if q := server.recvQueued.Load(); q != 1000 {
+		t.Fatalf("queued %d before the close, want 1000", q)
+	}
+
+	stream.Close()
+	if q := server.recvQueued.Load(); q != 0 {
+		t.Fatalf("queued %d after the close", q)
+	}
+}
+
 // The read waiter hands over the frames themselves, in order; the batch
 // variant takes every queued frame at once.
 func TestStreamReadWaiter(t *testing.T) {
