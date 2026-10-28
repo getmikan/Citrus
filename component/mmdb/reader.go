@@ -34,7 +34,11 @@ type IPInfo struct {
 	Name string `maxminddb:"name"`
 }
 
+// LookupCode holds ipMu shared: a reader that ReplaceIP closed in the
+// meantime reports "closed database" (no match) instead of faulting.
 func (r IPReader) LookupCode(ipAddress net.IP) []string {
+	ipMu.RLock()
+	defer ipMu.RUnlock()
 	switch r.databaseType {
 	case typeMaxmind:
 		var country geoip2Country
@@ -74,7 +78,10 @@ func (r IPReader) LookupCode(ipAddress net.IP) []string {
 	}
 }
 
+// LookupASN holds asnMu shared, as LookupCode holds ipMu.
 func (r ASNReader) LookupASN(ip net.IP) (string, string) {
+	asnMu.RLock()
+	defer asnMu.RUnlock()
 	switch r.Metadata.DatabaseType {
 	case "GeoLite2-ASN", "DBIP-ASN-Lite (compat=GeoLite2-ASN)":
 		var result GeoLite2
