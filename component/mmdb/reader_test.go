@@ -19,6 +19,12 @@ func mmdbString(s string) []byte {
 // 0.0.0.0/1 has no record, 128.0.0.0/1 points at the given data (a pre-encoded value).
 func buildTestMMDB(t *testing.T, databaseType string, data []byte) *maxminddb.Reader {
 	t.Helper()
+	reader, err := maxminddb.FromBytes(buildTestMMDBBytes(databaseType, data))
+	require.NoError(t, err)
+	return reader
+}
+
+func buildTestMMDBBytes(databaseType string, data []byte) []byte {
 	var b bytes.Buffer
 	// search tree: node_count = 1, record_size = 24
 	b.Write([]byte{0x00, 0x00, 0x01}) // left: == node_count, no data
@@ -39,10 +45,7 @@ func buildTestMMDB(t *testing.T, databaseType string, data []byte) *maxminddb.Re
 	b.Write([]byte{0xA1, 2})
 	b.Write(mmdbString("binary_format_minor_version"))
 	b.Write([]byte{0xA0})
-
-	reader, err := maxminddb.FromBytes(b.Bytes())
-	require.NoError(t, err)
-	return reader
+	return b.Bytes()
 }
 
 func TestLookupASNIPInfo(t *testing.T) {

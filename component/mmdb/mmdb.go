@@ -1,6 +1,7 @@
 package mmdb
 
 import (
+	"net"
 	"sync"
 
 	mihomoOnce "github.com/metacubex/mihomo/common/once"
@@ -63,6 +64,20 @@ func Verify(path string) bool {
 func IPInstance() IPReader {
 	ipMu.RLock()
 	defer ipMu.RUnlock()
+	return ipInstance()
+}
+
+// LookupCode looks ip up in the current MMDB. Loading and the lookup share
+// one critical section, so a lookup that races ReplaceIP waits for the new
+// database instead of reading the closed one and reporting no match.
+func LookupCode(ip net.IP) []string {
+	ipMu.RLock()
+	defer ipMu.RUnlock()
+	return ipInstance().lookupCode(ip)
+}
+
+// ipInstance loads the MMDB once; the caller holds ipMu shared.
+func ipInstance() IPReader {
 	ipOnce.Do(func() {
 		mmdbPath := C.Path.MMDB()
 		log.Infoln("Load MMDB file: %s", mmdbPath)
@@ -87,6 +102,18 @@ func IPInstance() IPReader {
 func ASNInstance() ASNReader {
 	asnMu.RLock()
 	defer asnMu.RUnlock()
+	return asnInstance()
+}
+
+// LookupASN is LookupCode for the ASN database.
+func LookupASN(ip net.IP) (string, string) {
+	asnMu.RLock()
+	defer asnMu.RUnlock()
+	return asnInstance().lookupASN(ip)
+}
+
+// asnInstance loads the ASN database once; the caller holds asnMu shared.
+func asnInstance() ASNReader {
 	asnOnce.Do(func() {
 		ASNPath := C.Path.ASN()
 		log.Infoln("Load ASN file: %s", ASNPath)
