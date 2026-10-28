@@ -58,6 +58,11 @@ const (
 	checksumsFileName = "checksums.txt"
 )
 
+// loong64ABI is the LoongArch ABI ("1" or "2") of a release build, set by
+// build.yml through -ldflags -X. The two ABIs ship as separate assets
+// (citrus-linux-loong64-abi1/-abi2) and nothing in the binary tells them apart.
+var loong64ABI string
+
 // versionPattern is what version.txt may contain: a release tag ("v1.2.3")
 // or a prerelease build name ("main-abc1234"). The version becomes part of a
 // file name and a URL, so anything else (path separators, "..", URL
@@ -146,6 +151,12 @@ func (u *CoreUpdater) CoreBaseName() string {
 		}
 		// citrus-linux-amd64-v1
 		return fmt.Sprintf("citrus-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOAMD64)
+	case "loong64":
+		if loong64ABI != "" {
+			// citrus-linux-loong64-abi2
+			return fmt.Sprintf("citrus-%s-%s-abi%s", runtime.GOOS, runtime.GOARCH, loong64ABI)
+		}
+		return fmt.Sprintf("citrus-%s-%s", runtime.GOOS, runtime.GOARCH)
 	default:
 		// citrus-linux-386
 		// citrus-linux-mips64

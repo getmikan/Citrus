@@ -66,10 +66,8 @@ func main() {
 		if entry.IsDir() || (!strings.HasSuffix(name, ".gz") && !strings.HasSuffix(name, ".zip")) || !strings.HasPrefix(name, "citrus-") || !strings.Contains(name, "-"+*version) {
 			continue
 		}
-		base := strings.TrimSuffix(strings.TrimSuffix(name, ".gz"), ".zip")
-		base = strings.TrimSuffix(base, "-"+*version)
-		parts := strings.Split(base, "-")
-		if len(parts) < 3 {
+		goos, goarch, ok := assetPlatform(name, *version)
+		if !ok {
 			fatal("cannot identify platform for " + name)
 		}
 		path := filepath.Join(*dir, name)
@@ -79,7 +77,7 @@ func main() {
 		}
 		info, _ := entry.Info()
 		sum := sha256.Sum256(data)
-		artifacts = append(artifacts, artifact{Name: name, GOOS: parts[1], GOARCH: parts[2], Size: info.Size(), SHA256: hex.EncodeToString(sum[:])})
+		artifacts = append(artifacts, artifact{Name: name, GOOS: goos, GOARCH: goarch, Size: info.Size(), SHA256: hex.EncodeToString(sum[:])})
 	}
 	if len(artifacts) == 0 {
 		fatal("no core update artifacts")
@@ -109,6 +107,24 @@ func main() {
 	if err := os.WriteFile(filepath.Join(*dir, "update-manifest.sig.json"), envelopeBytes, 0o644); err != nil {
 		fatal(err.Error())
 	}
+}
+
+// assetPlatform returns the GOOS and GOARCH of a core asset named
+// citrus-<goos>-<output>-<version>.<ext>, where output is the build matrix's
+// name for the variant (amd64-v3, armv7, loong64-abi2, arm64-v8, ...). The
+// updater compares GOARCH with runtime.GOARCH, so it must be the bare value.
+func assetPlatform(name, version string) (goos, goarch string, ok bool) {
+	base := strings.TrimSuffix(strings.TrimSuffix(name, ".gz"), ".zip")
+	base = strings.TrimSuffix(base, "-"+version)
+	parts := strings.Split(base, "-")
+	if len(parts) < 3 || parts[0] != "citrus" {
+		return "", "", false
+	}
+	goarch = parts[2]
+	if strings.HasPrefix(goarch, "armv") {
+		goarch = "arm" // armv5, armv6, armv7: GOARM is in the name only
+	}
+	return parts[1], goarch, true
 }
 
 func fatal(message string) { fmt.Fprintln(os.Stderr, message); os.Exit(1) }
