@@ -17,6 +17,7 @@ type VlessOption struct {
 	Decryption         string        `inbound:"decryption,omitempty"`
 	WsPath             string        `inbound:"ws-path,omitempty"`
 	XHTTPConfig        XHTTPConfig   `inbound:"xhttp-config,omitempty"`
+	ALPN               []string      `inbound:"alpn,omitempty"`
 	GrpcServiceName    string        `inbound:"grpc-service-name,omitempty"`
 	FallbackPage       string        `inbound:"fallback-page,omitempty"`
 	Fallbacks          []Fallback    `inbound:"fallbacks,omitempty"`
@@ -128,6 +129,7 @@ func NewVless(options *VlessOption) (*Vless, error) {
 			Decryption:         options.Decryption,
 			WsPath:             options.WsPath,
 			XHTTPConfig:        options.XHTTPConfig.Build(),
+			ALPN:               options.ALPN,
 			GrpcServiceName:    options.GrpcServiceName,
 			FallbackPage:       options.FallbackPage,
 			Fallbacks:          buildFallbacks(options.Fallbacks),
