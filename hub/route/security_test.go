@@ -248,6 +248,36 @@ func TestReCreateServerAppliesSecretRotation(t *testing.T) {
 	}
 }
 
+func TestReCreateServerRetriesFailedListener(t *testing.T) {
+	t.Cleanup(func() {
+		ReCreateServer(&Config{})
+		serverMu.Lock()
+		applied = nil
+		serverMu.Unlock()
+	})
+	busy, err := stdnet.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := busy.Addr().String()
+	cfg := Config{Addr: addr, Secret: "secret"}
+
+	ReCreateServer(&cfg)
+	serverMu.Lock()
+	started := httpServer != nil
+	serverMu.Unlock()
+	if started {
+		t.Fatal("controller started on a busy port")
+	}
+
+	// The port is free now; a reload with the same settings must retry.
+	_ = busy.Close()
+	ReCreateServer(&cfg)
+	if code := tokenStatus(t, addr, "secret"); code != http.StatusOK {
+		t.Fatalf("controller after the retry: got %d", code)
+	}
+}
+
 func isTimeout(err error) bool {
 	var ne stdnet.Error
 	if e, ok := err.(stdnet.Error); ok {
