@@ -198,6 +198,7 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 	if err != nil {
 		return fmt.Errorf("check currentExePath %q: %w", currentExePath, err)
 	}
+	currentExePath = resolveExePath(currentExePath)
 
 	effectiveChannel, err := effectiveUpdateChannel(channel, C.Version)
 	if err != nil {
@@ -311,11 +312,47 @@ func (u *CoreUpdater) install(newExePath, currentExePath string) error {
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	if err := os.Rename(tmpPath, currentExePath); err != nil {
+	if err := renameRetrying(tmpPath, currentExePath); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
 	return nil
+}
+
+// resolveExePath follows symlinks in the executable path. os.Executable on
+// macOS returns the path the binary was started by (a Homebrew-style
+// bin/citrus link, say); renaming over it would replace the link with a
+// regular file and leave the real binary stale.
+func resolveExePath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
+var (
+	renameFile       = os.Rename
+	renameAttempts   = 1
+	renameRetryDelay = 200 * time.Millisecond
+)
+
+func init() {
+	if runtime.GOOS == "windows" {
+		// An on-access scanner commonly holds a just-written executable
+		// open without FILE_SHARE_DELETE for a moment, failing the rename
+		// with a sharing violation; retry for about two seconds.
+		renameAttempts = 10
+	}
+}
+
+func renameRetrying(from, to string) error {
+	for attempt := 1; ; attempt++ {
+		err := renameFile(from, to)
+		if err == nil || attempt >= renameAttempts {
+			return err
+		}
+		time.Sleep(renameRetryDelay)
+	}
 }
 
 // restore puts the backup made by backup back at currentExePath.
@@ -324,7 +361,7 @@ func (u *CoreUpdater) restore(backupExePath, currentExePath string) error {
 		// backup renamed the executable away: rename it back (over the new
 		// binary, if one is there). Unlike a copy this cannot fail for lack
 		// of disk space.
-		return os.Rename(backupExePath, currentExePath)
+		return renameRetrying(backupExePath, currentExePath)
 	}
 	return u.install(backupExePath, currentExePath)
 }
