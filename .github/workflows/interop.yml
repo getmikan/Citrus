@@ -180,3 +180,72 @@ jobs:
           path: ${{ runner.temp }}/interop-logs
           if-no-files-found: ignore
           retention-days: 14
+
+  # sing-box release (the core inside SFA/SFI, Hiddify, NekoBox and sing-box
+  # for Desktop) -> Citrus server for every inbound those clients can reach,
+  # and Citrus client -> sing-box server for VLESS-REALITY and Hysteria2.
+  # To bump: change both values; the hash is the sha256 digest GitHub shows for
+  # sing-box-<version>-linux-amd64.tar.gz on the release page.
+  interop-singbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      CGO_ENABLED: 0
+      GOTOOLCHAIN: local
+      SINGBOX_VERSION: v1.14.4
+      SINGBOX_SHA256: 699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up Go
+        run: bash .github/scripts/setup-go.sh 1.26
+
+      - name: Verify Go installation
+        run: go version
+
+      - name: Download sing-box
+        run: |
+          set -euo pipefail
+          v=${SINGBOX_VERSION#v}
+          dir="sing-box-$v-linux-amd64"
+          file="$dir.tar.gz"
+          mkdir -p "$RUNNER_TEMP/sing-box"
+          cd "$RUNNER_TEMP/sing-box"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$file" \
+            "https://github.com/SagerNet/sing-box/releases/download/${SINGBOX_VERSION}/$file"
+          actual=$(sha256sum "$file" | cut -d' ' -f1)
+          echo "pinned: $SINGBOX_SHA256"
+          echo "actual: $actual"
+          if [ "$actual" != "$SINGBOX_SHA256" ]; then
+            echo "::error::$file SHA256 mismatch"
+            exit 1
+          fi
+          tar -xzf "$file" "$dir/sing-box"
+          mv "$dir/sing-box" sing-box
+          rmdir "$dir"
+          chmod +x sing-box
+          ./sing-box version
+          echo "SINGBOX_BIN=$RUNNER_TEMP/sing-box/sing-box" >> "$GITHUB_ENV"
+
+      - name: Build Citrus
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/citrus" .
+          echo "CITRUS_BIN=$RUNNER_TEMP/citrus" >> "$GITHUB_ENV"
+
+      - name: Interop tests
+        working-directory: test/interop
+        env:
+          INTEROP_LOG_DIR: ${{ runner.temp }}/interop-logs
+        run: go test -tags interop -v -count=1 -timeout 10m -run 'Singbox' ./...
+
+      - name: Upload logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: interop-singbox-logs
+          path: ${{ runner.temp }}/interop-logs
+          if-no-files-found: ignore
+          retention-days: 14
