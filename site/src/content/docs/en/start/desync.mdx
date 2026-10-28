@@ -1,0 +1,52 @@
+---
+title: Desync outbound
+description: A desync outbound is a DIRECT connection adapted to networks with DPI filtering. It changes how the first TLS ClientHello is sent, not what the server receives.
+---
+
+A `desync` outbound adapts direct connections to networks with DPI filtering. It dials like `DIRECT` and transforms the first TLS ClientHello of the connection before it is sent: the ClientHello is split into several TLS records or TCP writes, and on Windows a low-TTL fake prefix can go first. The server still receives the same handshake. Everything after the ClientHello, and any connection that does not start with one, passes unchanged. It is not a tunnel and needs no server. The transformations come from the [desync](https://github.com/Nemu-x/desync) library.
+
+```yaml
+proxies:
+  - name: desync-yt
+    type: desync
+    tlsrec: "1+s"            # positions, comma-separated
+    # split: "2"             # optional: separate TCP writes
+    # split-delay: 0         # ms between them, 0–1000
+    # fake: { ttl: 4, prefix: -1, timeout: 3000 } # Windows only
+    # udp: { ttl: 4, repeats: 6, packets: 3 }     # Windows only
+
+proxy-groups:
+  - name: youtube
+    type: fallback
+    proxies: [desync-yt, vpn-node]   # desync first, a proxy node as reserve
+    url: https://www.youtube.com/generate_204
+    interval: 300
+
+rules:
+  - DOMAIN-SUFFIX,youtube.com,youtube
+  - DOMAIN-SUFFIX,googlevideo.com,youtube
+  - MATCH,DIRECT
+```
+
+## Options
+
+| Key | Meaning |
+| --- | --- |
+| `tlsrec` | Where to split the ClientHello into TLS records. `3` is byte 3 of the TLS input (counted from the first record header), `1+s` one byte after the start of the server name. |
+| `split` | Where to split it into separate TCP writes, same notation. TCP segmentation stays up to the operating system. |
+| `split-delay` | Pause between the writes of `split`, in milliseconds, 0–1000. Needs `split`. |
+| `fake` | Windows only. Sends an alternate prefix with a short hop limit (`ttl`), then the original bytes for retransmission. `prefix` is counted after record splitting, negative from the end (`-1` by default); `timeout` bounds the native send in milliseconds (default 3000). Cannot be combined with `split`. |
+| `udp` | Windows only. Sends `repeats` (1–16, default 6) low-TTL datagrams before each of the first `packets` (1–8, default 3) datagrams to a peer; the originals are unchanged. Without `udp` the outbound's UDP is plain DIRECT. |
+| `interface-name`, `routing-mark`, `ip-version` | As for `direct`. |
+
+At least one of `tlsrec`, `split`, `fake` or `udp` is required. `tfo`, `mptcp` and `dialer-proxy` are refused: with TFO the ClientHello would leave with the SYN, before it could be split. `fake` and `udp` on Linux, macOS or Android are a config error rather than a silent DIRECT.
+
+## Routing
+
+The outbound is routed like any other: rules and groups pick it by name, and the global `DIRECT` is not changed. Health checks and URL tests of the outbound go through the transformation, so a fallback or url-test group can switch to a proxy node when the desync route stops working and back when it recovers. It resolves names with `direct-nameserver` like DIRECT, keeps the address an IP rule was checked against, and refuses a connection that is its own coming back through a Citrus listener.
+
+TTL values such as 4 are examples, not defaults that suit every network: the fake has to expire after the filtering equipment and before the server. Whether a method helps depends on the network; a local test only shows that the bytes are sent as configured.
+
+## Controller API
+
+`GET /proxies` shows the outbound with `"type": "Desync"` and a `desync` object: the active `strategy` (`static`, the configured options), the `tcp` options and, with `udp`, its options and the counters of original and fake datagrams, fake errors and peers. The counters show that datagrams were sent, not that they helped.
