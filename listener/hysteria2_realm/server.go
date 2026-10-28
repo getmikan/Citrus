@@ -140,6 +140,9 @@ func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunn
 		srv := &http.Server{
 			Handler:           s.routes(),
 			ReadHeaderTimeout: 10 * time.Second,
+			// the wait between keep-alive requests: without it an idle
+			// connection is kept forever (no ReadTimeout, /events is long-lived)
+			IdleTimeout: 30 * time.Second,
 		}
 
 		sl.servers = append(sl.servers, srv)
