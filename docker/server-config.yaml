@@ -13,5 +13,11 @@ tun:
 dns:
   enable: false
 listeners: []
+# The users of the server inbounds cannot reach the loopback, the private
+# networks, the cloud metadata services or this host's addresses through
+# DIRECT, whatever the rules say (on by default). Allow what they must reach:
+# egress-guard:
+#   enable: true
+#   allow-ips: [10.8.0.0/24]
 rules:
   - MATCH,DIRECT

@@ -54,6 +54,11 @@ func DialContext(ctx context.Context, network, address string, options ...Option
 	if err != nil {
 		return nil, err
 	}
+	if opt.addrFilter != nil {
+		if ips, err = filterAddrs(ips, opt.addrFilter); err != nil {
+			return nil, err
+		}
+	}
 
 	tcpConcurrent := GetTcpConcurrent()
 
@@ -438,6 +443,26 @@ func parseAddr(ctx context.Context, network, address string, preferResolver reso
 		}
 	}
 	return ips, port, nil
+}
+
+// filterAddrs keeps the addresses filter accepts, or returns its first error
+// when it accepts none.
+func filterAddrs(ips []netip.Addr, filter AddrFilter) ([]netip.Addr, error) {
+	var firstErr error
+	kept := make([]netip.Addr, 0, len(ips))
+	for _, ip := range ips {
+		if err := filter.CheckAddr(ip); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		kept = append(kept, ip)
+	}
+	if len(kept) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return kept, nil
 }
 
 func listenAddressIsLoopback(address string) bool {

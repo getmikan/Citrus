@@ -45,6 +45,17 @@ const (
 	INNER
 )
 
+// EgressGuard is a listener's override of the egress guard, which keeps the
+// connections of authenticated server users away from the private, local
+// and metadata addresses of the server (component/egress).
+type EgressGuard uint8
+
+const (
+	EgressGuardDefault EgressGuard = iota // the global setting for the inbound type
+	EgressGuardOn
+	EgressGuardOff
+)
+
 type AddrType byte
 
 func (a AddrType) String() string {
@@ -214,6 +225,10 @@ type Metadata struct {
 	// (Next to DSCP: the padding after it holds it, which keeps Metadata in
 	// the 416-byte size class.)
 	DstIPChecked bool `json:"-"`
+	// EgressGuard is the egress-guard choice of the listener the connection
+	// came from (component/egress); EgressGuardDefault leaves it to the
+	// global setting for the inbound type. (In the same padding as above.)
+	EgressGuard EgressGuard `json:"-"`
 
 	RawSrcAddr net.Addr `json:"-"`
 	RawDstAddr net.Addr `json:"-"`

@@ -402,6 +402,9 @@ func clashServer(m *material, proto string) obj {
 		"find-process-mode": "off",
 		"listeners":         []obj{l},
 		"rules":             []string{"MATCH,DIRECT"},
+		// the sinks are on the bench LAN, which the egress guard refuses to
+		// the users of a server inbound by default
+		"egress-guard": obj{"allow-ips": []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}},
 	}
 }
 

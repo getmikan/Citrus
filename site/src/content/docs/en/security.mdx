@@ -40,6 +40,7 @@ Fixes from core/fork reviews and static audits are listed in the [changelog](/Ci
 - Changing a user's password or removing the user closes its sessions; empty user names are refused.
 - UDP sessions are keyed by inbound and user, so one user's rules and limits never apply to another.
 - A client address from proxy headers is accepted only from the listed `trusted-proxies`.
+- The users of the server inbounds cannot reach the loopback, the private networks, the cloud metadata services or this host through `DIRECT`, whatever the rules say: the [egress guard](/Citrus/en/start/server-profile/#egress-guard).
 
 ### Pre-authentication resources
 

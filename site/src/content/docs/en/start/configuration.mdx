@@ -20,6 +20,7 @@ The config format is shared with mihomo, so the [mihomo documentation](https://w
 | `user-stats` | Per-user traffic accounting for inbounds (on by default), see [User traffic](/Citrus/en/start/user-stats/). |
 | `user-limits` | Limits of inbound users: speed, connections, addresses, quota, expiry, see [User limits](/Citrus/en/start/user-limits/). |
 | `metrics`, `health-without-auth` | Prometheus metrics (`GET /metrics`) and the `/healthz`, `/readyz` probes, see [Metrics and health](/Citrus/en/start/metrics/). |
+| `egress-guard` | Keeps the users of the server inbounds away from the private, local and cloud metadata addresses through `DIRECT` (on by default), see [Server without root](/Citrus/en/start/server-profile/#egress-guard). |
 | `tun` | The TUN device and network stack. |
 | `dns`, `hosts` | DNS servers (DNSCrypt v2 `sdns://` stamps included), fake IP, policies for DNS queries. |
 | `dns.serve-expired`, `dns.serve-expired-ttl`, `dns.serve-expired-client-timeout` | Serving expired cache entries while they refresh (RFC 8767). By default an expired entry is answered at once and refreshed in the background, as before; a TTL and client timeout give RFC 8767 behaviour. |

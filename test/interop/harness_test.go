@@ -604,6 +604,9 @@ func citrusServer(listener obj) obj {
 		"ipv6":      false,
 		"listeners": []obj{listener},
 		"rules":     []string{"MATCH,DIRECT"},
+		// the targets run on the loopback, which the egress guard keeps
+		// the users of a server inbound away from
+		"egress-guard": obj{"allow-ips": []string{"127.0.0.0/8"}},
 	}
 }
 

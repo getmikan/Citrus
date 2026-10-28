@@ -58,6 +58,39 @@ docker run -d --name citrus-server --restart unless-stopped \
 
 Here the inbound listens on 10443 inside the container and Docker publishes host port 443; the process needs zero capabilities. Publish only the TCP/UDP ports your protocol uses. Use absolute TLS-key paths under `/etc/citrus` and writable paths under `/var/lib/citrus`. A new named volume inherits UID 65532 from the image. Set an existing volume or a bind-mounted data directory to owner 65532 and mode `0700` beforehand; the image does not chown files at startup. Geodata updates, when required by the config, are downloaded into the data directory at runtime.
 
+## Egress guard
+
+Through `DIRECT`, the authenticated users of the server inbounds (`vless`, `trojan`, `shadowsocks`, `snell`, `tuic`, `hysteria2`, `anytls`, `mieru`, `sudoku`, `trusttunnel`, `shadowquic`) cannot reach the server's own network. This is on by default. The guard refuses:
+
+- loopback, private, link-local, CGNAT (`100.64.0.0/10`), ULA, multicast, unspecified and reserved addresses;
+- the cloud metadata services: `169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`, `192.0.0.192`;
+- the addresses of this host's interfaces, where the controller, the inbounds and every other local service listen.
+
+The guard checks IP literals and the addresses a domain resolves to, right before the connect, so a domain cannot rebind into the LAN after the rules. It covers TCP and UDP. A UDP datagram to a blocked address is dropped, and so is a datagram that comes from one. The check runs inside `DIRECT` after the rules, so a rule like `IP-CIDR,10.0.0.0/8,DIRECT` does not open it. Proxies other than `DIRECT` are not checked, because their server dials the destination.
+
+A blocked dial is logged as a warning:
+
+```text
+[TCP] dial DIRECT (match Match/) 198.51.100.7:40000 --> 127.0.0.1:9090 error: egress guard blocked 127.0.0.1: private, loopback, link-local, reserved or cloud metadata address, not reachable from inbound vless-in (user alice) (allow it with egress-guard.allow-ips, or egress-guard: false on the listener)
+```
+
+To let the users reach what they need, such as a database on the LAN, list it in `allow-ips`. Each entry is a CIDR or a single address:
+
+```yaml
+egress-guard:
+  enable: true # the default
+  allow-ips: [10.8.0.0/24, 192.168.1.10]
+```
+
+Every listener takes its own `egress-guard`, which overrides `enable` for that listener:
+
+- `false` lets the users of a trusted server listener reach the LAN and this host;
+- `true` guards a client listener too, for example a `socks` server for remote users.
+
+The local client inbounds (`http`, `socks`, `mixed`, `redir`, `tproxy`, `tun`, `tunnel`) are not guarded by default, so a client config behaves as before.
+
+The guard does not know a public address of this host that sits behind NAT and is not on an interface. Keep the controller on `127.0.0.1` or on a unix socket anyway.
+
 ## Validation
 
 CI runs the real binary in both profiles. The systemd check verifies UID, effective capabilities, no privilege escalation, writable state and no TUN. Docker is tested with a read-only root filesystem, zero capabilities, a writable volume and a real HTTP proxy request: authenticated traffic succeeds and anonymous traffic gets 407. Repeat the Docker check locally with `bash .github/scripts/test-server-profile.sh /path/to/linux-amd64-citrus`.

@@ -181,6 +181,10 @@ var variants = []variant{
 	{"stats-on+limit", true, true},
 }
 
+// benchAllowIPs are the private ranges the bench sinks live in, which the
+// egress guard refuses to the users of a server inbound by default.
+var benchAllowIPs = []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+
 func serverConfig(s *scenario, m *material, port int, dest string, v variant) obj {
 	cfg := obj{
 		"mode":       "rule",
@@ -190,6 +194,9 @@ func serverConfig(s *scenario, m *material, port int, dest string, v variant) ob
 		"profile":    obj{"store-selected": false, "store-fake-ip": false},
 		"listeners":  []obj{s.listener(m, port, dest)},
 		"rules":      []string{"MATCH,DIRECT"},
+		// the sinks are on the loopback or the bench LAN: allowed, the
+		// guard still checks every dial
+		"egress-guard": obj{"allow-ips": benchAllowIPs},
 	}
 	if v.limit {
 		// Limits that never bind: the cost of enforcing them, not of throttling.
