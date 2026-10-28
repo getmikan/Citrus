@@ -73,6 +73,28 @@ func TestConcurrentStreamsAgainstSingMuxServer(t *testing.T) {
 		t.Fatalf("opened %d sessions", n)
 	}
 }
+func TestWriteReportsBytesWritten(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c := NewClient(func(context.Context) (net.Conn, error) {
+		a, b := net.Pipe()
+		go func() { defer b.Close(); _ = vmess.HandleMuxConnection(ctx, b, M.Metadata{}, echoHandler{}) }()
+		return a, nil
+	})
+	defer c.Close()
+	conn, err := c.DialContext(ctx, "echo.test:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	want := bytes.Repeat([]byte{7}, 3*chunkSize+1)
+	go io.Copy(io.Discard, conn)
+	// io.Copy rejects a writer that reports more than it was given.
+	if n, err := conn.Write(want); err != nil || n != len(want) {
+		t.Fatalf("Write = %d, %v; want %d, nil", n, err, len(want))
+	}
+}
 func TestPendingReadDeadlineAndClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

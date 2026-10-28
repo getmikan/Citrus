@@ -407,7 +407,6 @@ func (s *stream) Write(p []byte) (int, error) {
 		if err != nil {
 			return total, err
 		}
-		total += n
 		p = p[n:]
 	}
 	return total, nil
