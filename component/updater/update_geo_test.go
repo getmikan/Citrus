@@ -42,3 +42,15 @@ func TestGeoUpdaterKeepsTickingAfterStartupFailure(t *testing.T) {
 		t.Fatalf("fresh database updated %d times at start", calls)
 	}
 }
+
+func TestUpdateGeoDatabasesSkipsWhileUpdating(t *testing.T) {
+	// The ticker and POST /configs/geo or /upgrade/geo can race; the one
+	// that loses must skip rather than run a second update.
+	if !updatingGeo.CompareAndSwap(false, true) {
+		t.Fatal("an update is already marked as running")
+	}
+	t.Cleanup(func() { updatingGeo.Store(false) })
+	if err := UpdateGeoDatabases(); !errors.Is(err, ErrGetDatabaseUpdateSkip) {
+		t.Fatalf("second update: %v", err)
+	}
+}
