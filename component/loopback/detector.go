@@ -134,8 +134,18 @@ func (l *Detector) CheckConn(metadata *C.Metadata) error {
 // CheckPacketConn reports a loop when the incoming UDP session comes from a
 // local address that a live DIRECT UDP socket is bound to, either exactly or
 // through the wildcard address of its family.
+//
+// The inbounds that carry UDP inside a TCP connection only (VLESS, Trojan,
+// AnyTLS, Snell) are skipped: the source there is the client's TCP socket,
+// which a DIRECT UDP socket cannot be, and the TCP and UDP port spaces are
+// separate, so a local client's TCP port may well have the number of a
+// wildcard-bound DIRECT UDP socket.
 func (l *Detector) CheckPacketConn(metadata *C.Metadata) error {
 	if l == nil {
+		return nil
+	}
+	switch metadata.Type {
+	case C.VLESS, C.TROJAN, C.ANYTLS, C.SNELL:
 		return nil
 	}
 	connAddr := metadata.SourceAddrPort()

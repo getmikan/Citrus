@@ -147,7 +147,7 @@ func TestDetectorMappedAddresses(t *testing.T) {
 func TestDetectorPacketConn(t *testing.T) {
 	l := newTestDetector(t)
 	udpMetadata := func(src string) *C.Metadata {
-		m := &C.Metadata{NetWork: C.UDP}
+		m := &C.Metadata{NetWork: C.UDP, Type: C.SOCKS5}
 		s := netip.MustParseAddrPort(src)
 		m.SrcIP, m.SrcPort = s.Addr(), s.Port()
 		return m
@@ -165,4 +165,24 @@ func TestDetectorPacketConn(t *testing.T) {
 	l.NewPacketConn(&fakePacketConn{local: udpAddr("127.0.0.2:50002")})
 	assert.True(t, errors.Is(l.CheckPacketConn(udpMetadata("127.0.0.2:50002")), ErrReject))
 	assert.NoError(t, l.CheckPacketConn(udpMetadata("127.0.0.1:50002")))
+}
+
+// TestDetectorPacketConnOverTCPAllowed: a UDP session relayed inside a TCP
+// connection (VLESS, Trojan, AnyTLS, Snell) has the client's TCP socket as
+// its source. Its port may have the number of a wildcard-bound DIRECT UDP
+// socket, the port spaces being separate, and that is not a loop. The UDP
+// inbounds are still checked.
+func TestDetectorPacketConnOverTCPAllowed(t *testing.T) {
+	l := newTestDetector(t)
+	l.NewPacketConn(&fakePacketConn{local: udpAddr("[::]:41234")})
+
+	src := netip.MustParseAddrPort("127.0.0.1:41234")
+	for _, typ := range []C.Type{C.VLESS, C.TROJAN, C.ANYTLS, C.SNELL} {
+		m := &C.Metadata{NetWork: C.UDP, Type: typ, SrcIP: src.Addr(), SrcPort: src.Port()}
+		assert.NoError(t, l.CheckPacketConn(m), "%s", typ)
+	}
+	for _, typ := range []C.Type{C.SOCKS5, C.SHADOWSOCKS, C.TUNNEL, C.TUN, C.TPROXY, C.TUIC} {
+		m := &C.Metadata{NetWork: C.UDP, Type: typ, SrcIP: src.Addr(), SrcPort: src.Port()}
+		assert.True(t, errors.Is(l.CheckPacketConn(m), ErrReject), "%s", typ)
+	}
 }
