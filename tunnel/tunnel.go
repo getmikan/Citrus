@@ -368,6 +368,9 @@ func preHandleMetadata(metadata *C.Metadata) error {
 	return nil
 }
 
+// findProcessName is replaced in tests
+var findProcessName = process.FindProcessName
+
 func resolveMetadata(metadata *C.Metadata) (proxy C.Proxy, rule C.Rule, err error) {
 	if metadata.SpecialProxy != "" {
 		var exist bool
@@ -378,8 +381,9 @@ func resolveMetadata(metadata *C.Metadata) (proxy C.Proxy, rule C.Rule, err erro
 		return
 	}
 	var (
-		resolved             bool
-		attemptProcessLookup = metadata.Type != C.INNER
+		resolved bool
+		// a process already on the metadata was found for this socket before
+		attemptProcessLookup = metadata.Type != C.INNER && metadata.Process == "" && metadata.ProcessPath == ""
 	)
 
 	if node, ok := resolver.DefaultHosts.Search(metadata.Host, false); ok {
@@ -408,7 +412,7 @@ func resolveMetadata(metadata *C.Metadata) (proxy C.Proxy, rule C.Rule, err erro
 				attemptProcessLookup = false
 				if !features.CMFA {
 					// normal check for process
-					uid, path, err := process.FindProcessName(metadata.NetWork.String(), metadata.SrcIP, int(metadata.SrcPort))
+					uid, path, err := findProcessName(metadata.NetWork.String(), metadata.SrcIP, int(metadata.SrcPort))
 					if err != nil {
 						log.Debugln("[Process] find process error for %s: %v", metadata.String(), err)
 					} else {
@@ -496,7 +500,7 @@ func handleUDPConn(packet C.PacketAdapter) {
 	sender, loaded := natTable.GetOrCreate(key, func() C.PacketSender {
 		sender := newPacketSender()
 		if sniffingEnable && snifferDispatcher.Enable() {
-			return snifferDispatcher.UDPSniff(packet, sender, protocolVerdict)
+			return snifferDispatcher.UDPSniff(packet, sender, newProtocolVerdict())
 		}
 		return sender
 	})
@@ -560,6 +564,29 @@ func handleUDPConn(packet C.PacketAdapter) {
 		}()
 	}
 	sender.Send(packet) // nonblocking
+}
+
+// newProtocolVerdict returns the protocolVerdict of one UDP session. All its
+// packets come from one socket, so the process found for the first re-matched
+// destination is reused for the rest: a swarm opens hundreds of destinations a
+// second, and every lookup scans the system's socket table on the UDP worker.
+func newProtocolVerdict() func(metadata *C.Metadata) bool {
+	var (
+		mu    sync.Mutex
+		known *C.Metadata // holds the process fields once a lookup found them
+	)
+	return func(metadata *C.Metadata) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if known != nil {
+			metadata.Process, metadata.ProcessPath, metadata.Uid = known.Process, known.ProcessPath, known.Uid
+		}
+		drop := protocolVerdict(metadata)
+		if known == nil && (metadata.Process != "" || metadata.ProcessPath != "") {
+			known = &C.Metadata{Process: metadata.Process, ProcessPath: metadata.ProcessPath, Uid: metadata.Uid}
+		}
+		return drop
+	}
 }
 
 // protocolVerdict matches the metadata of a packet in an established UDP
