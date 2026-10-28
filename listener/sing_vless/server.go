@@ -119,6 +119,14 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		}()
 	}
 
+	xhttpOn := config.XHTTPConfig.Path != "" || config.XHTTPConfig.Host != "" || config.XHTTPConfig.Mode != ""
+	if len(config.ALPN) != 0 && !xhttpOn {
+		// configs from before alpn existed may carry one (copied from an
+		// outbound or a hysteria2 inbound), which was ignored then
+		log.Warnln("[VLESS] alpn %v is ignored: it is only supported with xhttp-config", config.ALPN)
+		config.ALPN = nil
+	}
+
 	if config.XDriveConfig != nil {
 		if sl.decryption == nil {
 			return nil, errors.New("xdrive requires VLESS decryption")
@@ -131,7 +139,7 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		if strings.Contains(config.Listen, ",") {
 			return nil, errors.New("xdrive requires exactly one listener address")
 		}
-		if config.WsPath != "" || config.GrpcServiceName != "" || config.XHTTPConfig != (LC.XHTTPConfig{}) || len(config.ALPN) != 0 || config.Certificate != "" || config.PrivateKey != "" || config.RealityConfig.PrivateKey != "" || config.ShadowTLS.Password != "" || config.ResTLS.Password != "" || config.JLSConfig.Enable {
+		if config.WsPath != "" || config.GrpcServiceName != "" || config.XHTTPConfig != (LC.XHTTPConfig{}) || config.Certificate != "" || config.PrivateKey != "" || config.RealityConfig.PrivateKey != "" || config.ShadowTLS.Password != "" || config.ResTLS.Password != "" || config.JLSConfig.Enable {
 			return nil, errors.New("xdrive cannot be combined with TCP transport or server TLS settings")
 		}
 		storageListener, err := xdrive.Listen(*config.XDriveConfig, nil)
@@ -238,8 +246,7 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 			return nil, err
 		}
 	}
-	xhttpOn := config.XHTTPConfig.Path != "" || config.XHTTPConfig.Host != "" || config.XHTTPConfig.Mode != ""
-	serveTCP, serveH3, err := xhttpALPN(config.ALPN, xhttpOn)
+	serveTCP, serveH3, err := xhttpALPN(config.ALPN)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +254,10 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		if err = h3SecurityError(securityModes); err != nil {
 			return nil, err
 		}
+	}
+	if !serveTCP && (config.WsPath != "" || config.GrpcServiceName != "") {
+		// ws and gRPC do not run over HTTP/3, and nothing would listen on TCP
+		return nil, errors.New("ws-path and grpc-service-name need TCP: add h2 or http/1.1 to alpn next to h3")
 	}
 	// fallback-page: what a request that is not the inbound's own gets on an HTTP transport.
 	// Only with one: a handler makes the listener serve HTTP, which plain VLESS does not.

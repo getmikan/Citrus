@@ -2591,6 +2591,9 @@ listeners:
     #   All modes work over h3. Needs certificate/private-key: REALITY, shadow-tls, res-tls and jls
     #   work on a TCP TLS handshake and are rejected with h3; a unix socket listen is rejected too.
     #   server-max-header-bytes also applies to h3. Clients connect with `alpn: [h3]`.
+    #   proxy-protocol is rejected with h3 (QUIC carries no PROXY header, the UDP port would be open
+    #   to every peer). ws-path and grpc-service-name do not run over h3: [h3] alone rejects them.
+    #   Without xhttp-config alpn is ignored with a warning.
     # -------------------------
     # vless encryption服务端配置：
     # （原生外观 / 只 XOR 公钥 / 全随机数。1-RTT 每次下发随机 300 到 600 秒的 ticket 以便 0-RTT 复用 / 只允许 1-RTT）

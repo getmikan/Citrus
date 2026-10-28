@@ -7,6 +7,7 @@ import (
 	"net"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/metacubex/mihomo/log"
@@ -21,12 +22,10 @@ import (
 // XHTTP over TCP (h2 and http/1.1, negotiated as before) and over HTTP/3.
 // Unset keeps TCP only. As in Xray-core, `alpn: [h3]` serves HTTP/3 only;
 // h3 together with h2 or http/1.1 serves both, TCP and UDP on the same port.
-func xhttpALPN(alpn []string, xhttpOn bool) (tcp, h3 bool, err error) {
+// New drops an alpn without xhttp-config before.
+func xhttpALPN(alpn []string) (tcp, h3 bool, err error) {
 	if len(alpn) == 0 {
 		return true, false, nil
-	}
-	if !xhttpOn {
-		return false, false, errors.New("alpn is only supported with xhttp-config")
 	}
 	for _, proto := range alpn {
 		switch proto {
@@ -84,11 +83,9 @@ const h3KeepAlivePeriod = 10 * time.Second
 
 const h3MaxIdleTimeout = 30 * time.Second
 
-// h3ShutdownTimeout is how long Close waits after the GOAWAY for requests in
-// flight (packet-up uploads) before it closes the connections. Long-lived
-// downloads never finish on their own; their clients see the connection
-// closed and dial again. A variable only so that tests can shorten it.
-var h3ShutdownTimeout = time.Second
+// h3ShutdownTimeout is how long Close waits for requests in flight before it
+// closes the connections.
+const h3ShutdownTimeout = time.Second
 
 func h3QUICConfig() *quic.Config {
 	return &quic.Config{
@@ -104,11 +101,23 @@ func h3QUICConfig() *quic.Config {
 	}
 }
 
-// h3Listener is the HTTP/3 server of one listen address.
+// h3Listener is the HTTP/3 server of one listen address. It runs its own
+// accept loops over quic-go's RawServerConn instead of http3.Server.Serve, so
+// that every request stream gets a read deadline (handshakeTimeout) until its
+// header has been parsed: http3.Server sets none, and a peer that opens
+// streams and sends no HEADERS would pin a goroutine per stream forever (the
+// server's keep-alive pings keep the QUIC connection from idling out). On TCP
+// http.Server's ReadHeaderTimeout does the same.
 type h3Listener struct {
-	server   *http3.Server
+	server   *http3.Server // the settings of the connections, never served itself
 	listener *quic.EarlyListener
 	conn     net.PacketConn
+
+	mu       sync.Mutex
+	closing  bool
+	conns    map[*quic.Conn]struct{}
+	requests sync.WaitGroup // the request streams being handled
+	done     chan struct{}  // the accept loop has returned
 }
 
 // listenH3 serves handler over HTTP/3 on conn, which it then owns.
@@ -118,34 +127,132 @@ func listenH3(conn net.PacketConn, tlsConfig *tls.Config, handler http.Handler, 
 		_ = conn.Close()
 		return nil, err
 	}
-	server := &http3.Server{
-		Handler: handler,
-		// the TCP server's IdleTimeout: a connection without requests
-		IdleTimeout:    30 * time.Second,
-		MaxHeaderBytes: maxHeaderBytes,
+	l := &h3Listener{
+		server: &http3.Server{
+			Handler: h3ClearHeaderDeadline(handler),
+			// the TCP server's IdleTimeout: a connection without requests
+			IdleTimeout:    30 * time.Second,
+			MaxHeaderBytes: maxHeaderBytes,
+		},
+		listener: ln,
+		conn:     conn,
+		conns:    make(map[*quic.Conn]struct{}),
+		done:     make(chan struct{}),
 	}
-	go func() {
-		if err := server.ServeListener(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Warnln("[VLESS] HTTP/3 server on %s stopped: %s", conn.LocalAddr(), err)
-		}
-	}()
-	return &h3Listener{server: server, listener: ln, conn: conn}, nil
+	go l.serve()
+	return l, nil
 }
 
-// Close sends GOAWAY, gives the requests in flight h3ShutdownTimeout and then
-// closes the connections with H3_NO_ERROR, so clients learn at once instead
-// of after their idle timeout. The UDP socket is closed before Close returns,
-// so a reloaded listener can bind the port again.
+// h3ClearHeaderDeadline lifts the read deadline serveConn sets on a request
+// stream once its header is parsed: the handler sets its own.
+func h3ClearHeaderDeadline(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if d, ok := w.(interface{ SetReadDeadline(time.Time) error }); ok {
+			_ = d.SetReadDeadline(time.Time{})
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+func (l *h3Listener) serve() {
+	defer close(l.done)
+	for {
+		conn, err := l.listener.Accept(context.Background())
+		if err != nil {
+			if !errors.Is(err, quic.ErrServerClosed) {
+				log.Warnln("[VLESS] HTTP/3 server on %s stopped: %s", l.conn.LocalAddr(), err)
+			}
+			return
+		}
+		l.mu.Lock()
+		if l.closing {
+			l.mu.Unlock()
+			_ = conn.CloseWithError(quic.ApplicationErrorCode(http3.ErrCodeNoError), "")
+			continue
+		}
+		l.conns[conn] = struct{}{}
+		l.mu.Unlock()
+		go l.serveConn(conn)
+	}
+}
+
+func (l *h3Listener) serveConn(conn *quic.Conn) {
+	defer func() {
+		l.mu.Lock()
+		delete(l.conns, conn)
+		l.mu.Unlock()
+	}()
+	hconn, err := l.server.NewRawServerConn(conn)
+	if err != nil {
+		_ = conn.CloseWithError(quic.ApplicationErrorCode(http3.ErrCodeInternalError), "")
+		return
+	}
+	go func() {
+		for {
+			str, err := conn.AcceptUniStream(context.Background())
+			if err != nil {
+				return
+			}
+			go hconn.HandleUnidirectionalStream(str)
+		}
+	}()
+	for {
+		str, err := conn.AcceptStream(context.Background())
+		if err != nil {
+			return // the connection is closed
+		}
+		l.mu.Lock()
+		if l.closing { // the client may retry it elsewhere
+			l.mu.Unlock()
+			str.CancelRead(quic.StreamErrorCode(http3.ErrCodeRequestRejected))
+			str.CancelWrite(quic.StreamErrorCode(http3.ErrCodeRequestRejected))
+			continue
+		}
+		l.requests.Add(1)
+		l.mu.Unlock()
+		// a stream whose header is not parsed in time is reset with
+		// H3_REQUEST_INCOMPLETE; h3ClearHeaderDeadline lifts it
+		_ = str.SetReadDeadline(time.Now().Add(handshakeTimeout.Load()))
+		go func() {
+			defer l.requests.Done()
+			hconn.HandleRequestStream(str)
+		}()
+	}
+}
+
+// Close refuses new requests, gives the requests in flight (packet-up
+// uploads) h3ShutdownTimeout and then closes the connections with
+// H3_NO_ERROR, so clients learn at once instead of after their idle timeout.
+// Long-lived downloads never finish on their own; their clients see the
+// connection closed and dial again. The UDP socket is closed before Close
+// returns, so a reloaded listener can bind the port again.
 func (l *h3Listener) Close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), h3ShutdownTimeout)
-	err := l.server.Shutdown(ctx)
-	cancel()
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, http.ErrServerClosed) {
+	l.mu.Lock()
+	l.closing = true
+	l.mu.Unlock()
+	err := l.listener.Close()
+	if errors.Is(err, quic.ErrServerClosed) {
 		err = nil
 	}
-	if cErr := l.listener.Close(); cErr != nil && !errors.Is(cErr, quic.ErrServerClosed) && err == nil {
-		err = cErr
+	<-l.done
+
+	finished := make(chan struct{})
+	go func() {
+		l.requests.Wait()
+		close(finished)
+	}()
+	timer := time.NewTimer(h3ShutdownTimeout)
+	select {
+	case <-finished:
+	case <-timer.C:
 	}
+	timer.Stop()
+
+	l.mu.Lock()
+	for conn := range l.conns {
+		_ = conn.CloseWithError(quic.ApplicationErrorCode(http3.ErrCodeNoError), "")
+	}
+	l.mu.Unlock()
 	if cErr := l.conn.Close(); cErr != nil && err == nil {
 		err = cErr
 	}

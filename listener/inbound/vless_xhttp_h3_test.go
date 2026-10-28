@@ -2,8 +2,10 @@ package inbound_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -139,8 +141,9 @@ func TestInboundVless_XHTTP_H3AndTCP(t *testing.T) {
 }
 
 // alpn [h3] opens no TCP listener; alpn [h2] (or none) no UDP one.
+// Not parallel: the parallel tests bind UDP ports of their own, one of which
+// may be the number checked here.
 func TestInboundVless_XHTTP_H3OnlyNoTCP(t *testing.T) {
-	t.Parallel()
 	tunnel := NewHttpTestTunnel()
 	defer tunnel.Close()
 
@@ -183,11 +186,18 @@ func TestInboundVless_XHTTP_H3Close(t *testing.T) {
 	require.NoError(t, in.Close())
 	assert.Less(t, time.Since(start), 5*time.Second)
 
-	// the client learns that the connection is closed
+	// the client learns at once that the connection is closed, not after a
+	// timeout of its own
+	start = time.Now()
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	_, err = conn.Read(make([]byte, 1))
 	assert.Error(t, err)
-	assert.NotErrorIs(t, err, context.DeadlineExceeded)
+	assert.NotErrorIs(t, err, os.ErrDeadlineExceeded)
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		assert.False(t, netErr.Timeout(), "read timed out: %v", err)
+	}
+	assert.Less(t, time.Since(start), 5*time.Second)
 
 	again, againAddrPort := listenVlessXHTTP(t, tunnel, strconv.Itoa(int(addrPort.Port())), []string{"h3"}, "stream-one")
 	defer again.Close()
@@ -240,9 +250,19 @@ func TestInboundVless_XHTTP_H3InvalidConfig(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "NoXHTTP",
-			options: inbound.VlessOption{Certificate: tlsCertificate, PrivateKey: tlsPrivateKey, ALPN: []string{"h3"}},
-			wantErr: "alpn is only supported with xhttp-config",
+			name:    "H3OnlyWithWs",
+			options: inbound.VlessOption{Certificate: tlsCertificate, PrivateKey: tlsPrivateKey, ALPN: []string{"h3"}, XHTTPConfig: xhttpConfig, WsPath: "/ws"},
+			wantErr: "ws-path and grpc-service-name need TCP",
+		},
+		{
+			name:    "H3OnlyWithGrpc",
+			options: inbound.VlessOption{Certificate: tlsCertificate, PrivateKey: tlsPrivateKey, ALPN: []string{"h3"}, XHTTPConfig: xhttpConfig, GrpcServiceName: "grpc"},
+			wantErr: "ws-path and grpc-service-name need TCP",
+		},
+		{
+			name:    "ProxyProtocol",
+			options: inbound.VlessOption{Certificate: tlsCertificate, PrivateKey: tlsPrivateKey, ALPN: []string{"h3", "h2"}, XHTTPConfig: xhttpConfig},
+			wantErr: "proxy-protocol cannot be combined with alpn h3",
 		},
 		{
 			name:    "UnknownALPN",
@@ -283,6 +303,9 @@ func TestInboundVless_XHTTP_H3InvalidConfig(t *testing.T) {
 			if testCase.name == "UnixSocket" {
 				options.BaseOption = inbound.BaseOption{NameStr: "vless_inbound", Listen: "unix:" + unixSocketPath(t, "vless.sock")}
 			}
+			if testCase.name == "ProxyProtocol" {
+				options.BaseOption.ProxyProtocol = true
+			}
 			options.Users = []inbound.VlessUser{{Username: "test", UUID: userUUID}}
 			in, err := inbound.NewVless(&options)
 			if err == nil {
@@ -298,4 +321,48 @@ func TestInboundVless_XHTTP_H3InvalidConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An alpn on an inbound without xhttp-config was ignored before the option
+// existed; configs that carry one still start, TCP only as before. Not
+// parallel for the reason of TestInboundVless_XHTTP_H3OnlyNoTCP.
+func TestInboundVless_ALPNWithoutXHTTPIgnored(t *testing.T) {
+	tunnel := NewHttpTestTunnel()
+	defer tunnel.Close()
+	inboundOptions := inbound.VlessOption{
+		BaseOption:  inbound.BaseOption{NameStr: "vless_inbound", Listen: "127.0.0.1", Port: "0"},
+		Users:       []inbound.VlessUser{{Username: "test", UUID: userUUID}},
+		Certificate: tlsCertificate,
+		PrivateKey:  tlsPrivateKey,
+		ALPN:        []string{"h3", "h2"},
+	}
+	in, err := inbound.NewVless(&inboundOptions)
+	require.NoError(t, err)
+	require.NoError(t, in.Listen(tunnel))
+	defer in.Close()
+	addrPort, err := netip.ParseAddrPort(in.Address())
+	require.NoError(t, err)
+
+	// no HTTP/3 server on the UDP side
+	pc, err := net.ListenPacket("udp", addrPort.String())
+	if err == nil {
+		_ = pc.Close()
+	}
+	assert.NoError(t, err)
+
+	outboundOptions := outbound.VlessOption{
+		Name:        "vless_outbound",
+		Server:      addrPort.Addr().String(),
+		Port:        int(addrPort.Port()),
+		UUID:        userUUID,
+		TLS:         true,
+		Fingerprint: tlsFingerprint,
+		ServerName:  "example.org",
+	}
+	outboundOptions.DialerForAPI = tunnel.NewDialer()
+	outboundOptions.TunnelForAPI = tunnel
+	out, err := outbound.NewVless(outboundOptions)
+	require.NoError(t, err)
+	defer out.Close()
+	tunnel.DoTest(t, out)
 }
