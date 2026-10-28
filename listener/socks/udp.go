@@ -79,7 +79,7 @@ func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.T
 		if store.Authenticator() == nil || (applyDefault && skipAuth) {
 			return "", true
 		}
-		return lookupAssociation(l.LocalAddr(), remoteAddr)
+		return lookupAssociation(store, l.LocalAddr(), remoteAddr)
 	}
 
 	conn := N.NewEnhancePacketConn(l)

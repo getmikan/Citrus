@@ -208,7 +208,7 @@ func HandleSocks5(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, addition
 	if command == socks5.CmdUDPAssociate {
 		// The association lives as long as this control connection (RFC 1928 §7);
 		// the UDP listener only relays for clients that hold one when auth is on.
-		release := addAssociation(conn.LocalAddr(), conn.RemoteAddr(), user, target.UDPAddr())
+		release := addAssociation(store, conn.LocalAddr(), conn.RemoteAddr(), user, target.UDPAddr())
 		defer release()
 		defer conn.Close()
 		io.Copy(io.Discard, conn)
