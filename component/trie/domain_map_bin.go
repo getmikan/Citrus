@@ -3,6 +3,7 @@ package trie
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -71,6 +72,9 @@ func ReadDomainMapBin[T any](reader io.Reader, readValue func(io.Reader) (T, err
 	}
 	if err = checkBinLength(length); err != nil {
 		return nil, err
+	}
+	if leaves := set.leafCount(); length != int64(leaves) {
+		return nil, fmt.Errorf("values length %d does not match %d domains", length, leaves)
 	}
 	mapping := &DomainMap[T]{values: make([]T, 0, min64(length, binPreallocLength))}
 	mapping.index.DomainSet = set

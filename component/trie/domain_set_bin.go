@@ -159,6 +159,9 @@ func ReadDomainSetBin(r io.Reader) (ds *DomainSet, err error) {
 		return nil, err
 	}
 
+	if err = ds.validate(); err != nil {
+		return nil, err
+	}
 	ds.init()
 	return ds, nil
 }
