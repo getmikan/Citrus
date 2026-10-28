@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"os"
+	"os/exec"
+	"runtime/debug"
 	"testing"
 )
 
@@ -100,8 +103,9 @@ func TestReadDomainSetBinRejectsMalformedTrie(t *testing.T) {
 }
 
 func TestReadDomainSetBinRoundTripDeepKey(t *testing.T) {
-	// A long single chain must round-trip and iterate without one stack
-	// frame per byte.
+	// A long single chain must round-trip, and the iterative walk must visit
+	// keys in the same order as before. TestDomainSetKeysBoundedStack covers
+	// the stack depth.
 	long := bytes.Repeat([]byte("abcdefghi."), 400)
 	long = append(long, "com"...)
 	var builder DomainSetBuilder
@@ -134,6 +138,38 @@ func TestReadDomainSetBinRoundTripDeepKey(t *testing.T) {
 		if !got.Has(domain) {
 			t.Errorf("Has(%q) = false", domain)
 		}
+	}
+}
+
+// TestDomainSetKeysBoundedStack walks a 40 KB key with the goroutine stack
+// capped at 1 MB. A walk with one stack frame per byte needs several times
+// that and dies with a fatal stack overflow, which no recover can catch, so
+// the walk runs in a child process.
+func TestDomainSetKeysBoundedStack(t *testing.T) {
+	const keyLen = 40000
+	if os.Getenv("TRIE_BOUNDED_STACK_CHILD") == "1" {
+		long := bytes.Repeat([]byte("abcdefghi."), keyLen/10)
+		long = append(long, "com"...)
+		var builder DomainSetBuilder
+		if err := builder.Insert(string(long)); err != nil {
+			t.Fatal(err)
+		}
+		set := builder.Build()
+		debug.SetMaxStack(1 << 20)
+		var keys []string
+		set.Foreach(func(key string) bool { keys = append(keys, key); return true })
+		if len(keys) != 1 || keys[0] != string(long) {
+			t.Fatalf("got %d keys", len(keys))
+		}
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDomainSetKeysBoundedStack$")
+	cmd.Env = append(os.Environ(), "TRIE_BOUNDED_STACK_CHILD=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		if len(out) > 2048 {
+			out = out[:2048]
+		}
+		t.Fatalf("walk with a 1 MB stack: %v\n%s", err, out)
 	}
 }
 
