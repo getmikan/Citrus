@@ -21,7 +21,7 @@ The config format is shared with mihomo, so the [mihomo documentation](https://w
 | `user-limits` | Limits of inbound users: speed, connections, addresses, quota, expiry, see [User limits](/Citrus/en/start/user-limits/). |
 | `metrics`, `health-without-auth` | Prometheus metrics (`GET /metrics`) and the `/healthz`, `/readyz` probes, see [Metrics and health](/Citrus/en/start/metrics/). |
 | `egress-guard` | Keeps the users of the server inbounds away from the private, local and cloud metadata addresses through `DIRECT` (on by default), see [Server without root](/Citrus/en/start/server-profile/#egress-guard). |
-| `tun` | The TUN device and network stack. |
+| `tun` | The TUN device and network stack. On Windows see [TUN on Windows](#tun-on-windows). |
 | `dns`, `hosts` | DNS servers (DNSCrypt v2 `sdns://` stamps included), fake IP, policies for DNS queries. |
 | `dns.serve-expired`, `dns.serve-expired-ttl`, `dns.serve-expired-client-timeout` | Serving expired cache entries while they refresh (RFC 8767). By default an expired entry is answered at once and refreshed in the background, as before; a TTL and client timeout give RFC 8767 behaviour. |
 | `sniffer` | Domain detection from traffic (TLS, HTTP, QUIC) and BitTorrent detection for the `PROTOCOL` rule; `skip-threshold` sets after how many failures a destination is no longer sniffed. |
@@ -29,6 +29,18 @@ The config format is shared with mihomo, so the [mihomo documentation](https://w
 | `rules`, `sub-rules`, `rule-providers` | Routing rules and remote rule sets. |
 | `listeners`, `tunnels` | Extra inbounds, including server protocols. TCP listeners can listen on a unix socket: `listen: unix:/path`, with the mode set by `unix-mode`. They also take `proxy-protocol: true`: every TCP connection must then start with a PROXY protocol v1 or v2 header, whose client address becomes the source address (logs, rules, per-user IP limits). Only the peers in `proxy-protocol-trusted` (loopback by default) may send it; anything else is closed. UDP is not affected. |
 | `geox-url`, `geo-auto-update` | Where and how often to update geodata. |
+
+## TUN on Windows
+
+With `auto-route` on Windows, the core's own connections go out bound to the egress interface: the default interface with `auto-detect-interface` (on by default), or the interface of `interface-name`. Windows ignores that binding when `Forwarding` or `WeakHostSend` is on for the interface, and the connections loop back into the TUN: nothing works, DNS fails and the log fills with loopback rejects. Internet Connection Sharing and Mobile Hotspot turn `Forwarding` on for the shared uplink and may leave it on after they stop.
+
+The core does not change these flags, since turning them off stops the sharing. It checks them on the egress interfaces (never on the TUN itself), for IPv4 and IPv6, on every network change and every 5 seconds, and reports when they turn on: one warning in the log, naming the interface, the flags and the family, and a `tun.forwarding` [event](/Citrus/en/start/events/) with `state: on`, so an app can offer to fix it. When the flags are off again, or the interface is no longer the egress one, it logs an info line and sends `state: cleared`. To fix it, turn both flags off as administrator:
+
+```powershell
+Set-NetIPInterface -InterfaceAlias "Wi-Fi" -Forwarding Disabled -WeakHostSend Disabled
+```
+
+Sharing that connection through Mobile Hotspot or ICS stops working until the flags are turned on again.
 
 ## Rules at runtime
 
