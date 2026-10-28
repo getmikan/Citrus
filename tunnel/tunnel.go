@@ -754,13 +754,14 @@ func dialTCPConn(connCtx C.ConnContext) (C.Conn, context.CancelFunc) {
 
 // mayNeedHandshake reports whether the outbound proxy picks for metadata may
 // return a connection with a lazy handshake (N.NeedHandshake), which sends the
-// client's first bytes with it. DIRECT and the rejecting outbounds never do.
+// client's first bytes with it. DIRECT, desync and the rejecting outbounds
+// never do.
 // A group is followed to the proxy it picks now; should it pick another one
 // for the dial, the first bytes just go after the handshake.
 func mayNeedHandshake(proxy C.Proxy, metadata *C.Metadata) bool {
 	for adapter := proxy; adapter != nil; adapter = adapter.Unwrap(metadata, false) {
 		switch adapter.Type() {
-		case C.Direct, C.Compatible, C.Reject, C.RejectDrop:
+		case C.Direct, C.Desync, C.Compatible, C.Reject, C.RejectDrop:
 			return false
 		}
 	}
