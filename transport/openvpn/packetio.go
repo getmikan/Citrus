@@ -56,6 +56,7 @@ type streamPacketIO struct {
 type datagramPacketIO struct {
 	conn           connIO
 	recoverableUDP bool
+	scratch        []byte // ReadPacket's, which has a single caller (PacketMux.Run)
 }
 
 func NewDatagramPacketIO(conn connIO) PacketIO {
@@ -63,10 +64,20 @@ func NewDatagramPacketIO(conn connIO) PacketIO {
 	return &datagramPacketIO{conn: conn, recoverableUDP: recoverableUDP}
 }
 
+// ReadPacket reads a datagram into a reused buffer and returns a copy of
+// its size: the packet is queued and must stay valid, and a 64 KiB buffer
+// for each one would be retained by every small packet in the queues.
 func (d *datagramPacketIO) ReadPacket() ([]byte, error) {
-	buf := make([]byte, 64*1024)
-	n, err := d.conn.Read(buf)
-	return buf[:n], err
+	if d.scratch == nil {
+		d.scratch = make([]byte, 64*1024)
+	}
+	n, err := d.conn.Read(d.scratch)
+	if n <= 0 {
+		return nil, err
+	}
+	packet := make([]byte, n)
+	copy(packet, d.scratch)
+	return packet, err
 }
 
 func (d *datagramPacketIO) WritePacket(packet []byte) error {
