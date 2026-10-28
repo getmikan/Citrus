@@ -198,6 +198,10 @@ vet:
 lint:
 	golangci-lint run ./...
 
+# refresh the embedded Mozilla root bundle, then review and commit component/ca/ca-certificates.crt
+ca-bundle:
+	sh component/ca/update-ca-bundle.sh
+
 clean:
 	rm $(BINDIR)/*
 

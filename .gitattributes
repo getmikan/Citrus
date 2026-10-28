@@ -1,3 +1,5 @@
 # Shell scripts and Dockerfiles run inside Linux containers; CRLF breaks them.
 *.sh text eol=lf
 Dockerfile text eol=lf
+# The embedded root bundle stays byte for byte what curl.se published, its SHA-256 included.
+component/ca/ca-certificates.crt -text
