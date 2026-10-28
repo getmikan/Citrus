@@ -204,3 +204,39 @@ func TestKCPTunSessionLimitRejectsAnotherPeer(t *testing.T) {
 	default:
 	}
 }
+
+// Close closes the sessions the client opened, and the client opens no new
+// ones after it.
+func TestKCPTunClientCloseClosesSessions(t *testing.T) {
+	cfg := Config{Key: "kcptun-close-test-key", Mode: "fast3", SmuxVer: 2, Conn: 2}
+	_, addr := startTestServer(t, cfg, func(conn net.Conn) { defer conn.Close(); _, _ = io.Copy(conn, conn) })
+	dial := func(context.Context) (net.PacketConn, net.Addr, error) {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			return nil, nil, err
+		}
+		return pc, net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addr)), nil
+	}
+	c := NewClient(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var sessions []*smux.Session
+	for n := 0; n < 2; n++ {
+		stream, err := c.OpenStream(ctx, dial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		sessions = append(sessions, c.muxes[n].session)
+	}
+
+	c.Close()
+	for n, session := range sessions {
+		if !session.IsClosed() {
+			t.Fatalf("session %d open after Close", n)
+		}
+	}
+	if _, err := c.OpenStream(ctx, dial); err == nil {
+		t.Fatal("OpenStream succeeded after Close")
+	}
+}

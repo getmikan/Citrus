@@ -29,6 +29,7 @@ type Client struct {
 	muxes   []timedSession
 	rr      uint16
 	connMu  sync.Mutex
+	closed  bool // under connMu
 
 	chScavenger chan timedSession
 }
@@ -47,7 +48,20 @@ func NewClient(config Config) *Client {
 	}
 }
 
+// Close closes the sessions the client holds and the ones it creates later
+// fail to open. The scavenger closes the expired sessions it tracks.
 func (c *Client) Close() error {
+	c.connMu.Lock()
+	c.closed = true
+	for i := range c.muxes {
+		if c.muxes[i].session != nil {
+			_ = c.muxes[i].session.Close()
+			c.muxes[i].session = nil
+		}
+	}
+	c.connMu.Unlock()
+	// after closed is set: OpenStream sends to the scavenger no more, so it
+	// cannot wait on a scavenger that has exited
 	c.cancel()
 	return nil
 }
@@ -113,6 +127,10 @@ func (c *Client) OpenStream(ctx context.Context, dial DialFn) (*smux.Stream, err
 	})
 
 	c.connMu.Lock()
+	if c.closed {
+		c.connMu.Unlock()
+		return nil, net.ErrClosed
+	}
 	idx := c.rr % c.numconn
 
 	// do auto expiration && reconnection
@@ -169,7 +187,17 @@ func scavenger(ctx context.Context, ch chan timedSession, config *Config) {
 			}
 			sessionList = newList
 		case <-ctx.Done():
-			return
+			for _, s := range sessionList {
+				_ = s.session.Close()
+			}
+			for {
+				select {
+				case item := <-ch:
+					_ = item.session.Close()
+				default:
+					return
+				}
+			}
 		}
 	}
 }
