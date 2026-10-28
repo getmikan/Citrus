@@ -8,7 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"io"
+	mrand "math/rand/v2"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -238,16 +240,21 @@ func newFakeDNSCryptServer(t *testing.T) *fakeDNSCryptServer {
 		keys:         map[[8]byte]*fakeServerKey{},
 	}
 	for i := 0; ; i++ {
-		// Pick UDP first: Windows may assign a free TCP port from a range
-		// reserved for UDP, causing every nearby retry to fail with WSAEACCES.
-		s.udp, err = net.ListenPacket("udp", "127.0.0.1:0")
-		require.NoError(t, err)
-		s.addr = s.udp.LocalAddr().String()
+		// The port must be free on both UDP and TCP. Ports the system hands
+		// out for :0 come in sequence, and on Windows a whole run of them can
+		// sit in a range reserved for TCP (Hyper-V on CI runners), so every
+		// retry failed with WSAEACCES. Random ports spread over the dynamic
+		// range step out of such a block.
+		require.Less(t, i, 200, "no free port pair: %v", err)
+		port := 20000 + mrand.IntN(40000)
+		s.addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+		if s.udp, err = net.ListenPacket("udp", s.addr); err != nil {
+			continue
+		}
 		if s.tcp, err = net.Listen("tcp", s.addr); err == nil {
 			break
 		}
 		s.udp.Close()
-		require.Less(t, i, 100, "no free port pair: %v", err)
 	}
 	t.Cleanup(func() { s.udp.Close(); s.tcp.Close() })
 	go s.serveUDP()
