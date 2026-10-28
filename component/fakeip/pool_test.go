@@ -308,3 +308,44 @@ func TestPool_FlushMemoryCache(t *testing.T) {
 	assert.NotEqual(t, bar, next)
 	assert.Equal(t, baz, nero)
 }
+
+// FlushFakeIP and StoreState touch offset and cycle, which Lookup changes
+// under p.mux, so they must wait for the pool lock too.
+func TestPool_FlushAndStoreStateTakeLock(t *testing.T) {
+	pools, tempfile, err := createPools(Options{
+		IPNet: netip.MustParsePrefix("192.168.0.1/28"),
+		Size:  10,
+	})
+	assert.Nil(t, err)
+	defer os.Remove(tempfile)
+
+	for _, pool := range pools {
+		pool.Lookup("foo.com")
+
+		pool.mux.Lock()
+		done := make(chan struct{}, 2)
+		go func() {
+			_ = pool.FlushFakeIP()
+			done <- struct{}{}
+		}()
+		go func() {
+			pool.StoreState()
+			done <- struct{}{}
+		}()
+
+		select {
+		case <-done:
+			t.Fatal("ran without holding the pool lock")
+		case <-time.After(50 * time.Millisecond):
+		}
+		pool.mux.Unlock()
+
+		for range 2 {
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("did not finish after the lock was released")
+			}
+		}
+	}
+}
