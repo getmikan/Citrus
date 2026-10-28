@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 
+	"github.com/metacubex/mihomo/listener/fallback"
 	"github.com/metacubex/mihomo/listener/reality"
 	"github.com/metacubex/mihomo/listener/sing"
 )
@@ -18,7 +19,8 @@ type TrojanServer struct {
 	Users              []TrojanUser
 	WsPath             string
 	GrpcServiceName    string
-	FallbackPage       string // an HTML page for the requests not the inbound's own on an HTTP transport (listener/fallback)
+	FallbackPage       string            // an HTML page for the requests not the inbound's own on an HTTP transport (listener/fallback)
+	Fallbacks          []fallback.Target // where the plain TCP transport sends a stream that is not the inbound's own (listener/fallback)
 	Certificate        string
 	PrivateKey         string
 	ClientAuthType     string

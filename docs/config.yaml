@@ -2498,6 +2498,19 @@ listeners:
     # fallback-page: ./page.html # 有 websocket/grpc/xhttp 传输层时，不属于该入站的请求在 "/" 得到此 HTML 页面，其他路径为 404
     #   A request that is not the inbound's own gets this HTML page at "/" (404 elsewhere)
     #   instead of a bare 404; only with an HTTP transport (ws/grpc/xhttp)
+    # fallbacks: # Xray-core fallbacks: only the plain TCP transport (no ws/grpc/xhttp, no decryption)
+    #   A stream that is not VLESS with a known UUID goes, after TLS (or REALITY, ShadowTLS...), to
+    #   the dest of the most specific match, with the bytes already read: name, then alpn, then path.
+    #   No match closes it. fallback-page stays for ws/grpc/xhttp; with fallbacks it has no effect.
+    #   - dest: 8080 # a port on 127.0.0.1, a host:port, or a unix socket: /run/web.sock, @abstract, unix:C:\web.sock
+    #   - path: /app # the path of an HTTP/1.x request line ("GET /app?x HTTP/1.1"); no h2
+    #     dest: 127.0.0.1:8081
+    #     xver: 1 # send a PROXY protocol v1 (or 2) header first; 0 (default) none
+    #   - alpn: h2 # the negotiated ALPN; the listener then offers the alpn values listed and http/1.1
+    #     dest: /run/nginx-h2.sock
+    #   - name: blog.example.com # the SNI: a name, *.example.com (its subdomains), "" any
+    #     dest: 127.0.0.1:8082
+    #   At most 256 relays per listener and 64 per source address (IPv6 /64), each closed after 60s idle.
     # xhttp-config: # 如果不为空则开启 xhttp 传输层
     #   path: "/"
     #   host: ""
@@ -2721,6 +2734,19 @@ listeners:
     # ws-path: "/" # 如果不为空则开启 websocket 传输层
     # grpc-service-name: "GunService" # 如果不为空则开启 grpc 传输层
     # fallback-page: ./page.html # 有 websocket/grpc 传输层时，不属于该入站的请求在 "/" 得到此 HTML 页面，其他路径为 404
+    # fallbacks: # Xray-core fallbacks: only the plain TCP transport (no ws/grpc, no ss-option)
+    #   A stream that is not Trojan with the key of a user goes, after TLS (or REALITY, ShadowTLS...), to
+    #   the dest of the most specific match, with the bytes already read: name, then alpn, then path.
+    #   No match closes it. fallback-page stays for ws/grpc; with fallbacks it has no effect.
+    #   - dest: 8080 # a port on 127.0.0.1, a host:port, or a unix socket: /run/web.sock, @abstract, unix:C:\web.sock
+    #   - path: /app # the path of an HTTP/1.x request line ("GET /app?x HTTP/1.1"); no h2
+    #     dest: 127.0.0.1:8081
+    #     xver: 1 # send a PROXY protocol v1 (or 2) header first; 0 (default) none
+    #   - alpn: h2 # the negotiated ALPN; the listener then offers the alpn values listed and http/1.1
+    #     dest: /run/nginx-h2.sock
+    #   - name: blog.example.com # the SNI: a name, *.example.com (its subdomains), "" any
+    #     dest: 127.0.0.1:8082
+    #   At most 256 relays per listener and 64 per source address (IPv6 /64), each closed after 60s idle.
     # 下面两项如果填写则开启 tls（需要同时填写）
     certificate: ./server.crt # 证书 PEM 格式，或者 证书的路径
     private-key: ./server.key # 证书对应的私钥 PEM 格式，或者私钥路径

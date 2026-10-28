@@ -9,6 +9,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/httputils"
+	"github.com/metacubex/mihomo/component/authevent"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
@@ -24,6 +25,7 @@ import (
 	"github.com/metacubex/mihomo/ntp"
 	"github.com/metacubex/mihomo/transport/gun"
 	"github.com/metacubex/mihomo/transport/v2ray"
+	"github.com/metacubex/mihomo/transport/vless"
 	"github.com/metacubex/mihomo/transport/vless/encryption"
 	"github.com/metacubex/mihomo/transport/xdrive"
 	"github.com/metacubex/mihomo/transport/xhttp"
@@ -42,6 +44,7 @@ type Listener struct {
 	service    *Service
 	decryption *encryption.ServerInstance
 	realIP     httputils.RealIP
+	fallbacks  *fallback.Streams // nil: none
 }
 
 func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (sl *Listener, err error) {
@@ -84,6 +87,26 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		defer func() { // decryption must be closed to avoid the goroutine leak
 			if err != nil {
 				_ = decryption.Close()
+			}
+		}()
+	}
+
+	if len(config.Fallbacks) > 0 {
+		if sl.decryption != nil {
+			return nil, errors.New("fallbacks cannot be combined with decryption: they read the VLESS header in the clear")
+		}
+		if config.WsPath != "" || config.GrpcServiceName != "" || config.XHTTPConfig.Path != "" || config.XHTTPConfig.Host != "" || config.XHTTPConfig.Mode != "" {
+			return nil, errors.New("fallbacks work on the plain TCP transport only; ws, grpc and xhttp take fallback-page")
+		}
+		if sl.fallbacks, err = fallback.NewStreams("VLESS", config.Fallbacks); err != nil {
+			return nil, err
+		}
+		if config.FallbackPage != "" {
+			log.Warnln("[VLESS] %s: fallback-page is for ws, grpc and xhttp; fallbacks serve the plain TCP transport", config.Listen)
+		}
+		defer func() {
+			if err != nil {
+				sl.fallbacks.Close()
 			}
 		}()
 	}
@@ -165,6 +188,8 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	if tlsConfig.ClientAuth != tls.NoClientCert && tlsConfig.GetCertificate == nil {
 		return nil, errors.New("client-auth requires certificate")
 	}
+	// fallbacks matched by ALPN need it negotiated
+	tlsConfig.NextProtos = fallback.NextProtos(config.Fallbacks)
 	securityModes := make([]string, 0, 5)
 	if tlsConfig.GetCertificate != nil {
 		securityModes = append(securityModes, "certificate")
@@ -357,7 +382,7 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 					continue
 				}
 
-				go sl.HandleConn(c, tunnel)
+				go sl.acceptConn(c, tunnel)
 			}
 		}()
 	}
@@ -392,6 +417,9 @@ func (l *Listener) Close() error {
 	if l.decryption != nil {
 		_ = l.decryption.Close()
 	}
+	if l.fallbacks != nil {
+		l.fallbacks.Close()
+	}
 	return retErr
 }
 
@@ -410,25 +438,55 @@ func (l *Listener) HandleHTTPConn(r *http.Request, conn net.Conn, tunnel C.Tunne
 	onAuthenticated := xhttp.OnAuthenticated(r)
 	if ap := l.realIP.ClientAddrPort(r); ap.IsValid() {
 		additions = append(slices.Clip(additions), inbound.WithSrcAddrPort(ap))
-		l.serveConnAuth(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), onAuthenticated, tunnel, additions...)
+		l.serveConnAuth(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), onAuthenticated, false, tunnel, additions...)
 		return
 	}
-	l.serveConnAuth(conn, nil, onAuthenticated, tunnel, additions...)
+	l.serveConnAuth(conn, nil, onAuthenticated, false, tunnel, additions...)
 }
 
 func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
 	l.serveConn(conn, nil, tunnel, additions...)
 }
 
+// acceptConn serves a conn of the plain TCP transport, through the fallbacks
+// if there are any: a stream that does not start with VLESS version 0 and a
+// known UUID goes to one of them, with the bytes read from it.
+func (l *Listener) acceptConn(conn net.Conn, tunnel C.Tunnel) {
+	if l.fallbacks == nil {
+		l.HandleConn(conn, tunnel)
+		return
+	}
+	// the window of the whole header, the sniffed bytes included: cleared by
+	// NewConnection, or by the fallback once the stream is classified
+	setHandshakeDeadline(conn)
+	conn, ok := l.fallbacks.Sniff(conn, 1+16, func(b []byte) fallback.Verdict {
+		if b[0] != vless.Version {
+			return fallback.Other
+		}
+		if len(b) < 1+16 {
+			return fallback.More
+		}
+		if !l.service.known([16]byte(b[1:17])) {
+			authevent.EmitAddr("vless", authevent.ReasonWrongCredentials, conn.LocalAddr(), conn.RemoteAddr())
+			return fallback.Other
+		}
+		return fallback.Own
+	})
+	if ok {
+		l.serveConnAuth(conn, nil, nil, true, tunnel)
+	}
+}
+
 // serveConn serves a vless connection; client is the address of the client
 // behind a trusted reverse proxy, nil when the TCP peer is the client.
 func (l *Listener) serveConn(conn net.Conn, client net.Addr, tunnel C.Tunnel, additions ...inbound.Addition) {
-	l.serveConnAuth(conn, client, nil, tunnel, additions...)
+	l.serveConnAuth(conn, client, nil, false, tunnel, additions...)
 }
 
 // serveConnAuth is serveConn with onAuthenticated, called (if not nil) once
-// the user is authenticated.
-func (l *Listener) serveConnAuth(conn net.Conn, client net.Addr, onAuthenticated func(), tunnel C.Tunnel, additions ...inbound.Addition) {
+// the user is authenticated; armed is true when the caller has set the
+// handshake deadline already.
+func (l *Listener) serveConnAuth(conn net.Conn, client net.Addr, onAuthenticated func(), armed bool, tunnel C.Tunnel, additions ...inbound.Addition) {
 	ctx := sing.WithAdditions(context.TODO(), additions...)
 	if client != nil {
 		ctx = withClientAddr(ctx, client)
@@ -436,9 +494,11 @@ func (l *Listener) serveConnAuth(conn net.Conn, client net.Addr, onAuthenticated
 	if onAuthenticated != nil {
 		ctx = withOnAuthenticated(ctx, onAuthenticated)
 	}
-	// cleared by NewConnection once the request header is read and the user
-	// is authenticated
-	setHandshakeDeadline(conn)
+	if !armed {
+		// cleared by NewConnection once the request header is read and the
+		// user is authenticated
+		setHandshakeDeadline(conn)
+	}
 	if l.decryption != nil {
 		c, err := l.decryption.Handshake(conn, nil)
 		if err != nil {

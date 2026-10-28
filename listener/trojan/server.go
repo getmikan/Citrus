@@ -47,6 +47,7 @@ type Listener struct {
 	pickCipher core.Cipher
 	handler    *sing.ListenerHandler
 	realIP     httputils.RealIP
+	fallbacks  *fallback.Streams // nil: none
 }
 
 func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (sl *Listener, err error) {
@@ -91,7 +92,27 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		log.Warnln("[Trojan] %s: trusted-proxy-header %q is ignored until trusted-proxies lists the reverse proxies", config.Listen, realIP.Header)
 	}
 
-	sl = &Listener{false, config, nil, users, pickCipher, h, realIP}
+	sl = &Listener{false, config, nil, users, pickCipher, h, realIP, nil}
+
+	if len(config.Fallbacks) > 0 {
+		if pickCipher != nil {
+			return nil, errors.New("fallbacks cannot be combined with ss-option: they read the Trojan header in the clear")
+		}
+		if config.WsPath != "" || config.GrpcServiceName != "" {
+			return nil, errors.New("fallbacks work on the plain TCP transport only; ws and grpc take fallback-page")
+		}
+		if sl.fallbacks, err = fallback.NewStreams("Trojan", config.Fallbacks); err != nil {
+			return nil, err
+		}
+		if config.FallbackPage != "" {
+			log.Warnln("[Trojan] %s: fallback-page is for ws and grpc; fallbacks serve the plain TCP transport", config.Listen)
+		}
+		defer func() {
+			if err != nil {
+				sl.fallbacks.Close()
+			}
+		}()
+	}
 
 	httpServer := http.Server{
 		IdleTimeout: 30 * time.Second,
@@ -138,6 +159,8 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 	if tlsConfig.ClientAuth != tls.NoClientCert && tlsConfig.GetCertificate == nil {
 		return nil, errors.New("client-auth requires certificate")
 	}
+	// fallbacks matched by ALPN need it negotiated
+	tlsConfig.NextProtos = fallback.NextProtos(config.Fallbacks)
 	securityModes := make([]string, 0, 5)
 	if tlsConfig.GetCertificate != nil {
 		securityModes = append(securityModes, "certificate")
@@ -259,7 +282,7 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 					continue
 				}
 
-				go sl.HandleConn(c, tunnel, additions...)
+				go sl.acceptConn(c, tunnel, additions...)
 			}
 		}()
 	}
@@ -275,6 +298,9 @@ func (l *Listener) Close() error {
 		if err != nil {
 			retErr = err
 		}
+	}
+	if l.fallbacks != nil {
+		l.fallbacks.Close()
 	}
 	return retErr
 }
@@ -310,22 +336,57 @@ func (l *Listener) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, erro
 func (l *Listener) HandleHTTPConn(r *http.Request, conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
 	if ap := l.realIP.ClientAddrPort(r); ap.IsValid() {
 		additions = append(slices.Clip(additions), inbound.WithSrcAddrPort(ap))
-		l.serveConn(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), tunnel, additions...)
+		l.serveConn(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), false, tunnel, additions...)
 		return
 	}
 	l.HandleConn(conn, tunnel, additions...)
 }
 
 func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
-	l.serveConn(conn, nil, tunnel, additions...)
+	l.serveConn(conn, nil, false, tunnel, additions...)
+}
+
+// acceptConn serves a conn of the plain TCP transport, through the fallbacks
+// if there are any: a stream that does not start with the key of a user and
+// a CRLF goes to one of them, with the bytes read from it.
+func (l *Listener) acceptConn(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
+	if l.fallbacks == nil {
+		l.HandleConn(conn, tunnel, additions...)
+		return
+	}
+	// the window of the whole header, the sniffed bytes included: cleared by
+	// handleConn, or by the fallback once the stream is classified
+	setHandshakeDeadline(conn)
+	conn, ok := l.fallbacks.Sniff(conn, trojan.KeyLength+2, func(b []byte) fallback.Verdict {
+		for _, c := range b[:min(len(b), trojan.KeyLength)] {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+				return fallback.Other // the key is lowercase hex
+			}
+		}
+		if len(b) < trojan.KeyLength+2 {
+			return fallback.More
+		}
+		if b[trojan.KeyLength] != '\r' || b[trojan.KeyLength+1] != '\n' {
+			return fallback.Other
+		}
+		if _, ok := l.users.Lookup([trojan.KeyLength]byte(b[:trojan.KeyLength])); !ok {
+			authevent.EmitAddr("trojan", authevent.ReasonWrongCredentials, conn.LocalAddr(), conn.RemoteAddr())
+			return fallback.Other
+		}
+		return fallback.Own
+	})
+	if ok {
+		l.serveConn(conn, nil, true, tunnel, additions...)
+	}
 }
 
 // serveConn serves a trojan connection; client is the address of the client
-// behind a trusted reverse proxy, nil when the TCP peer is the client.
-func (l *Listener) serveConn(conn net.Conn, client net.Addr, tunnel C.Tunnel, additions ...inbound.Addition) {
+// behind a trusted reverse proxy, nil when the TCP peer is the client; armed
+// is true when the caller has set the handshake deadline already.
+func (l *Listener) serveConn(conn net.Conn, client net.Addr, armed bool, tunnel C.Tunnel, additions ...inbound.Addition) {
 	defer conn.Close()
 
-	conn, additions, release, ok := l.authenticate(conn, client, additions)
+	conn, additions, release, ok := l.authenticate(conn, client, armed, additions)
 	if !ok {
 		return
 	}
@@ -343,9 +404,11 @@ func (l *Listener) serveConn(conn net.Conn, client net.Addr, tunnel C.Tunnel, ad
 // tunnel.dialTCPConn).
 //
 //go:noinline
-func (l *Listener) authenticate(conn net.Conn, client net.Addr, additions []inbound.Addition) (net.Conn, []inbound.Addition, func(), bool) {
-	// cleared by handleConn once the request header is read
-	setHandshakeDeadline(conn)
+func (l *Listener) authenticate(conn net.Conn, client net.Addr, armed bool, additions []inbound.Addition) (net.Conn, []inbound.Addition, func(), bool) {
+	if !armed {
+		// cleared by handleConn once the request header is read
+		setHandshakeDeadline(conn)
+	}
 	if l.pickCipher != nil {
 		conn = l.pickCipher.StreamConn(conn)
 	}

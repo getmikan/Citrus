@@ -65,6 +65,12 @@ func (s *Service) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, error
 	return s.users.Replace(users)
 }
 
+// known reports whether id is the VLESS id of a current user.
+func (s *Service) known(id [16]byte) bool {
+	_, ok := s.users.Lookup(id)
+	return ok
+}
+
 var _ N.TCPConnectionHandler = (*Service)(nil)
 
 func (s *Service) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
