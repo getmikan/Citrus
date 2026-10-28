@@ -54,7 +54,7 @@ func providerDoc(n int) []byte {
 }
 
 func TestProviderProxyCap(t *testing.T) {
-	parse, err := NewProxiesParser("test", nil, "", "", "", "", overrideSchema{}, "")
+	parse, err := NewProxiesParser("test", nil, "", "", "", "", overrideSchema{}, "", true)
 	require.NoError(t, err)
 
 	proxies, err := parse(providerDoc(10))
@@ -68,7 +68,7 @@ func TestProviderProxyCap(t *testing.T) {
 	require.ErrorContains(t, err, "more than")
 
 	// Filtered out entries do not count against the adapter cap.
-	parse, err = NewProxiesParser("test", nil, "^p1$", "", "", "", overrideSchema{}, "")
+	parse, err = NewProxiesParser("test", nil, "^p1$", "", "", "", overrideSchema{}, "", true)
 	require.NoError(t, err)
 	proxies, err = parse(providerDoc(maxProviderProxies + 1))
 	require.NoError(t, err)

@@ -30,6 +30,7 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
 		DialerForAPI: opt.DialerForAPI,
 		TunnelForAPI: opt.TunnelForAPI,
 		ProviderName: opt.ProviderName,
+		RemoteSource: opt.RemoteSource,
 	}
 
 	var (
@@ -257,6 +258,7 @@ type proxyOption struct {
 	DialerForAPI C.Dialer
 	TunnelForAPI C.Tunnel
 	ProviderName string
+	RemoteSource bool
 }
 
 func applyProxyOptions(options ...ProxyOption) proxyOption {
@@ -284,5 +286,13 @@ func WithTunnelForAPI(tunnel C.Tunnel) ProxyOption {
 func WithProviderName(name string) ProxyOption {
 	return func(opt *proxyOption) {
 		opt.ProviderName = name
+	}
+}
+
+// WithRemoteSource marks the mapping as fetched from a remote subscription
+// rather than written by the user.
+func WithRemoteSource() ProxyOption {
+	return func(opt *proxyOption) {
+		opt.RemoteSource = true
 	}
 }
