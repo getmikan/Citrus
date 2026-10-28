@@ -25,6 +25,7 @@ const (
 	PassRule
 	Rematch
 	Dns
+	Desync
 
 	Relay
 	Selector
@@ -194,6 +195,8 @@ func (at AdapterType) String() string {
 		return "Rematch"
 	case Dns:
 		return "Dns"
+	case Desync:
+		return "Desync"
 	case Shadowsocks:
 		return "Shadowsocks"
 	case Snell:

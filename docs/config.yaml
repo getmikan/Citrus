@@ -1820,6 +1820,24 @@ proxies: # socks5
     type: direct
     interface-name: en1
     routing-mark: 6667
+
+  # desync: a DIRECT connection adapted to networks with DPI filtering. Only
+  # the first TLS ClientHello is transformed, before it is sent; the server
+  # receives the same handshake, everything after it and any non-TLS traffic
+  # pass unchanged. Routed like DIRECT (rules, groups; put it first in a
+  # fallback group with a proxy node as reserve). It is not a tunnel.
+  # Positions: "3" is byte 3 of the TLS input, "1+s" one byte after the start
+  # of the server name; several are comma-separated.
+  # - name: desync-yt
+  #   type: desync
+  #   tlsrec: "1+s"              # split the ClientHello into TLS records here
+  #   split: "2"                 # optional: send it in separate TCP writes
+  #   split-delay: 0             # ms between those writes, 0-1000
+  #   fake: { ttl: 4, prefix: -1, timeout: 3000 } # Windows only: low-TTL fake prefix; cannot be combined with split
+  #   udp: { ttl: 4, repeats: 6, packets: 3 }      # Windows only: low-TTL datagrams before the first ones to each peer; without it UDP is plain DIRECT
+  #   # interface-name, routing-mark and ip-version work as for direct.
+  #   # tfo, mptcp and dialer-proxy are refused. fake and udp are a config
+  #   # error on other systems. A suitable TTL depends on the network.
 proxy-groups:
   # url-test 将按照 url 测试结果使用延迟最低节点
   - name: "auto"
