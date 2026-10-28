@@ -121,6 +121,30 @@ func TestDetectorProxyTargetSharedSourceAllowed(t *testing.T) {
 	}
 }
 
+// TestDetectorTunSniffedLoopRejected: with the sing-tun system/mixed stack the
+// inbound address is the stack's internal listener, and once the sniffer
+// overrides the destination DstIP is empty, so only the source identifies the
+// looped DIRECT connection.
+func TestDetectorTunSniffedLoopRejected(t *testing.T) {
+	l := newTestDetector(t)
+	first := l.NewConn(&fakeConn{local: tcpAddr("198.18.0.1:40000"), remote: tcpAddr("93.184.216.34:443")})
+	second := l.NewConn(&fakeConn{local: tcpAddr("198.18.0.1:40000"), remote: tcpAddr("1.1.1.1:443")})
+
+	m := inboundMetadata("198.18.0.1:40000", "198.18.0.1:7893", "")
+	m.Type = C.TUN
+	assert.True(t, errors.Is(l.CheckConn(m), ErrReject), "a sniffed TUN loop must be rejected")
+
+	// The same flow from a non-TUN inbound keeps the 4-tuple rule.
+	m.Type = C.SOCKS5
+	assert.NoError(t, l.CheckConn(m))
+
+	m.Type = C.TUN
+	require.NoError(t, first.Close())
+	assert.True(t, errors.Is(l.CheckConn(m), ErrReject), "one DIRECT connection from that address is still live")
+	require.NoError(t, second.Close())
+	assert.NoError(t, l.CheckConn(m), "closed DIRECT connections must not reject anything")
+}
+
 // TestDetectorSharedSourcePortAllowed: the kernel reuses an ephemeral port for
 // connections towards different destinations. A local client whose source
 // address matches a live DIRECT connection's, but which connects elsewhere,

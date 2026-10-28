@@ -39,6 +39,10 @@ type Detector struct {
 	// ephemeral port to connections towards different destinations, so a
 	// legitimate local client may share it with a DIRECT connection.
 	connMap xsync.Map[connKey, struct{}]
+	// localMap counts the live DIRECT TCP connections per local address. It
+	// backs the TUN check in CheckConn, where the original destination of a
+	// looped connection may no longer be known.
+	localMap xsync.Map[netip.AddrPort, int]
 	// packetConnMap holds the bound local addresses of the live DIRECT UDP
 	// sockets. They are unconnected (one socket talks to any destination),
 	// so there is no remote half; the bound address, including its IP when
@@ -70,8 +74,17 @@ func (l *Detector) NewConn(conn C.Conn) C.Conn {
 		return conn
 	}
 	l.connMap.Store(key, struct{}{})
+	l.localMap.Compute(key.local, func(n int, _ bool) (int, xsync.ComputeOp) {
+		return n + 1, xsync.UpdateOp
+	})
 	return callback.NewCloseCallbackConn(conn, func() {
 		l.connMap.Delete(key)
+		l.localMap.Compute(key.local, func(n int, loaded bool) (int, xsync.ComputeOp) {
+			if !loaded || n <= 1 {
+				return 0, xsync.DeleteOp
+			}
+			return n - 1, xsync.UpdateOp
+		})
 	})
 }
 
@@ -104,6 +117,12 @@ func (l *Detector) NewPacketConn(conn C.PacketConn) C.PacketConn {
 // many relays (AnyTLS, mux), whose ephemeral port the kernel may hand to a
 // DIRECT connection towards another destination. A local client of either
 // kind asking for the target such a DIRECT connection goes to is not a loop.
+//
+// For TUN the source alone is enough. The system and mixed stacks report their
+// internal listener as InIP:InPort, and the sniffer may have replaced DstIP, so
+// neither candidate has to equal DIRECT's remote. A TUN source equal to the
+// local address of a live DIRECT connection is that connection coming back:
+// when DIRECT is bound out, its local address is not one the TUN sees.
 func (l *Detector) CheckConn(metadata *C.Metadata) error {
 	if l == nil {
 		return nil
@@ -125,6 +144,11 @@ func (l *Detector) CheckConn(metadata *C.Metadata) error {
 			continue
 		}
 		if _, ok := l.connMap.Load(connKey{local: src, remote: dst}); ok {
+			return fmt.Errorf("%w to: %s", ErrReject, metadata.RemoteAddress())
+		}
+	}
+	if metadata.Type == C.TUN {
+		if _, ok := l.localMap.Load(src); ok {
 			return fmt.Errorf("%w to: %s", ErrReject, metadata.RemoteAddress())
 		}
 	}
