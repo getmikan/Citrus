@@ -458,3 +458,30 @@ func TestDispatcherMultipleSniffers(t *testing.T) {
 		assert.Equal(t, []string{"tls", "http", "quic"}, protocols)
 	})
 }
+
+func TestDispatcherNormalizesSniffedHost(t *testing.T) {
+	stub := &stubSniffer{reply: func([]byte) (string, error) {
+		return "WWW.Blocked.COM.", nil
+	}}
+	var skipped []string
+	sd, err := NewDispatcher(&Config{Enable: true, ParsePureIp: true})
+	assert.NoError(t, err)
+	sd.skipDomain = []C.DomainMatcher{domainMatcherFunc(func(domain string) bool {
+		skipped = append(skipped, domain)
+		return false
+	})}
+	sd.sniffers = []configuredSniffer{{Sniffer: stub, config: SnifferConfig{OverrideDest: true}}}
+	raw := &chunkedConn{t: t, chunks: [][]byte{[]byte("0123456789")}}
+	t.Cleanup(raw.stopTimer)
+	metadata := &C.Metadata{
+		NetWork: C.TCP,
+		DstIP:   netip.MustParseAddr("192.0.2.1"),
+		DstPort: 443,
+	}
+
+	assert.True(t, sd.TCPSniff(N.NewBufferedConn(raw), metadata))
+	assert.Equal(t, "www.blocked.com", metadata.SniffHost)
+	assert.Equal(t, "www.blocked.com", metadata.Host)
+	assert.Equal(t, "www.blocked.com", metadata.RuleHost())
+	assert.Equal(t, []string{"www.blocked.com"}, skipped, "skip-domain saw the raw spelling")
+}

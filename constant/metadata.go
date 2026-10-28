@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 )
 
 // SOCKS address types as defined in RFC 1928 section 5.
@@ -294,6 +295,18 @@ func (m *Metadata) AddrType() AddrType {
 
 func (m *Metadata) Resolved() bool {
 	return m.DstIP.IsValid()
+}
+
+// NormalizeHost lowercases a client-supplied host and drops one trailing dot.
+// DNS treats "WWW.Example.COM." and "www.example.com" as the same name, and
+// the DOMAIN* rule payloads are stored lowercased without the root dot, so
+// every writer of Host or SniffHost passes the name through here; otherwise a
+// client could pick a spelling that skips those rules.
+func NormalizeHost(host string) string {
+	if len(host) > 1 && host[len(host)-1] == '.' {
+		host = host[:len(host)-1]
+	}
+	return strings.ToLower(host)
 }
 
 func (m *Metadata) RuleHost() string {
