@@ -23,6 +23,12 @@ const (
 	chunkSize   = 8 * 1024
 )
 
+// idleTimeout closes a session that has had no streams for this long, as
+// Xray's mux client does; an idle XDrive session would otherwise keep
+// polling storage for the life of the proxy.
+// A Client reads it once, in NewClient.
+var idleTimeout = 16 * time.Second
+
 type Client struct {
 	dial     func(context.Context) (net.Conn, error)
 	mu       sync.Mutex
@@ -30,10 +36,12 @@ type Client struct {
 	dialing  int
 	closed   bool
 	notify   chan struct{}
+
+	idleTimeout time.Duration
 }
 
 func NewClient(dial func(context.Context) (net.Conn, error)) *Client {
-	return &Client{dial: dial, notify: make(chan struct{})}
+	return &Client{dial: dial, notify: make(chan struct{}), idleTimeout: idleTimeout}
 }
 func (c *Client) wakeLocked() { close(c.notify); c.notify = make(chan struct{}) }
 func (c *Client) DialContext(ctx context.Context, addr string) (net.Conn, error) {
@@ -64,6 +72,7 @@ func (c *Client) DialContext(ctx context.Context, addr string) (net.Conn, error)
 				continue
 			}
 			s.nextID++
+			s.disarmIdleLocked()
 			st := &stream{session: s, id: s.nextID, data: make(chan []byte, 16), done: make(chan struct{}), readDeadline: deadline.MakePipeDeadline(), writeDeadline: deadline.MakePipeDeadline()}
 			s.streams[st.id] = st
 			c.mu.Unlock()
@@ -88,6 +97,7 @@ func (c *Client) DialContext(ctx context.Context, addr string) (net.Conn, error)
 			if err == nil && !closed {
 				s := &session{client: c, conn: conn, streams: make(map[uint16]*stream), done: make(chan struct{}), writes: make(chan writeRequest, 16)}
 				c.sessions = append(c.sessions, s)
+				s.armIdleLocked()
 				go s.readLoop()
 				go s.writeLoop()
 			}
@@ -141,6 +151,42 @@ type session struct {
 	writes  chan writeRequest
 	done    chan struct{}
 	once    sync.Once
+	idle    *time.Timer // guarded by client.mu
+	idleSeq uint64      // guarded by client.mu; bumped on every arm and disarm
+}
+
+func (s *session) armIdleLocked() {
+	s.disarmIdleLocked()
+	seq := s.idleSeq
+	s.idle = time.AfterFunc(s.client.idleTimeout, func() { s.closeIfIdle(seq) })
+}
+func (s *session) disarmIdleLocked() {
+	s.idleSeq++
+	if s.idle != nil {
+		s.idle.Stop()
+		s.idle = nil
+	}
+}
+
+// closeIfIdle fails the session if it stayed idle since the timer that
+// called it was armed. It drops the session from client.sessions under
+// client.mu first, so no DialContext can add a stream to it meanwhile.
+func (s *session) closeIfIdle(seq uint64) {
+	c := s.client
+	c.mu.Lock()
+	if seq != s.idleSeq || len(s.streams) != 0 {
+		c.mu.Unlock()
+		return
+	}
+	s.idle = nil
+	for i, other := range c.sessions {
+		if other == s {
+			c.sessions = append(c.sessions[:i], c.sessions[i+1:]...)
+			break
+		}
+	}
+	c.mu.Unlock()
+	s.fail(io.EOF)
 }
 
 // send queues data for writeLoop and waits for it to be written. queued
@@ -263,6 +309,7 @@ func (s *session) fail(err error) {
 	s.once.Do(func() {
 		close(s.done)
 		s.client.mu.Lock()
+		s.disarmIdleLocked()
 		streams := make([]*stream, 0, len(s.streams))
 		for _, st := range s.streams {
 			streams = append(streams, st)
@@ -297,6 +344,13 @@ func (s *stream) finish(err error) {
 		delete(s.session.streams, s.id)
 		s.session.client.wakeLocked()
 		exhausted := s.session.nextID == 65535 && len(s.session.streams) == 0
+		if len(s.session.streams) == 0 && !exhausted {
+			select {
+			case <-s.session.done:
+			default:
+				s.session.armIdleLocked()
+			}
+		}
 		s.session.client.mu.Unlock()
 		if exhausted {
 			go s.session.fail(io.EOF)

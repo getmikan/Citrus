@@ -108,6 +108,55 @@ func TestPendingReadDeadlineAndClose(t *testing.T) {
 	}
 }
 
+func TestIdleSessionCloses(t *testing.T) {
+	defer func(d time.Duration) { idleTimeout = d }(idleTimeout)
+	idleTimeout = 100 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conns := make(chan *gatedConn, 2)
+	c := newGatedClient(ctx, conns)
+	defer c.Close()
+
+	conn, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-conns
+	// A live stream keeps the session open past the idle timeout.
+	time.Sleep(3 * idleTimeout)
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := conn.Write([]byte("x")); err != nil {
+		t.Fatalf("busy session closed: %v", err)
+	}
+	if _, err := io.ReadFull(conn, make([]byte, 1)); err != nil {
+		t.Fatalf("busy session closed: %v", err)
+	}
+	c.mu.Lock()
+	s := c.sessions[0]
+	c.mu.Unlock()
+	conn.Close()
+	select {
+	case <-s.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("idle session not closed")
+	}
+	c.mu.Lock()
+	n := len(c.sessions)
+	c.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("idle session still listed: %d", n)
+	}
+	// The next dial opens a fresh session.
+	conn, err = c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if len(conns) != 1 {
+		t.Fatal("no new session dialed")
+	}
+}
+
 // gatedConn blocks writes while held, like a slow uplink.
 type gatedConn struct {
 	net.Conn
