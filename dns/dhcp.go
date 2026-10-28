@@ -74,6 +74,7 @@ func (d *dhcpClient) resolve(ctx context.Context) ([]dnsClient, error) {
 		done := make(chan struct{})
 
 		d.done = done
+		fetchAddr := d.ifaceAddr
 
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), DHCPTimeout)
@@ -102,6 +103,16 @@ func (d *dhcpClient) resolve(ctx context.Context) ([]dnsClient, error) {
 			d.done = nil
 			d.clients = res
 			d.err = err
+
+			if d.ifaceAddr != fetchAddr {
+				// The interface address changed while this fetch was running,
+				// so the result belongs to the previous network: refetch on
+				// the next interface check.
+				d.dnsInvalidate = time.Time{}
+			} else if err != nil {
+				// Do not cache a failed discovery for the whole DHCPTTL.
+				d.dnsInvalidate = time.Now().Add(IfaceTTL)
+			}
 		}()
 	}
 
