@@ -306,3 +306,61 @@ func TestStalledWriteFailsSession(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// endHandler echoes like echoHandler and reports each stream the server
+// saw end.
+type endHandler struct{ ended chan struct{} }
+
+func (h endHandler) NewConnection(ctx context.Context, c net.Conn, m M.Metadata) error {
+	defer func() { h.ended <- struct{}{} }()
+	return echoHandler{}.NewConnection(ctx, c, m)
+}
+func (endHandler) NewPacketConnection(context.Context, N.PacketConn, M.Metadata) error {
+	return errors.New("UDP not used")
+}
+func (endHandler) NewError(context.Context, error) {}
+
+func TestDialCancelledAfterQueueEndsStream(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	h := endHandler{ended: make(chan struct{}, 4)}
+	var gc *gatedConn
+	c := NewClient(func(context.Context) (net.Conn, error) {
+		a, b := net.Pipe()
+		go func() { defer b.Close(); _ = vmess.HandleMuxConnection(ctx, b, M.Metadata{}, h) }()
+		gc = &gatedConn{Conn: a}
+		return gc, nil
+	})
+	defer c.Close()
+	s1, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s1.Close()
+
+	// The New frame is queued but the conn does not take it before the
+	// dial ctx ends.
+	gc.hold()
+	dialCtx, dialCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer dialCancel()
+	if _, err := c.DialContext(dialCtx, "echo.test:80"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("dial: %v", err)
+	}
+	gc.release()
+
+	// The server got End for the abandoned stream ...
+	select {
+	case <-h.ended:
+	case <-time.After(2 * time.Second):
+		t.Fatal("abandoned stream never ended on the server")
+	}
+	// ... and the cancelled dial did not take the session down.
+	s1.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := s1.Write([]byte("ping")); err != nil {
+		t.Fatalf("sibling write: %v", err)
+	}
+	got := make([]byte, 4)
+	if _, err := io.ReadFull(s1, got); err != nil || string(got) != "ping" {
+		t.Fatalf("sibling read: %q %v", got, err)
+	}
+}
