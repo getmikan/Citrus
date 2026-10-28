@@ -56,6 +56,15 @@ func waitDHCPFetch(t *testing.T, d *dhcpClient) {
 	}
 }
 
+// expireDHCPChecks makes the next resolve recheck the interface and refetch
+// as if both TTLs had passed.
+func expireDHCPChecks(d *dhcpClient) {
+	d.lock.Lock()
+	d.ifaceInvalidate = time.Time{}
+	d.dnsInvalidate = time.Time{}
+	d.lock.Unlock()
+}
+
 func TestDHCPClientClearsStaleIfaceError(t *testing.T) {
 	name, addr := loopbackIface(t)
 	stubDHCPFetch(t, func(context.Context, string) ([]netip.Addr, error) {
@@ -90,23 +99,75 @@ func TestDHCPClientReportsIfaceError(t *testing.T) {
 	assert.ErrorIs(t, err, iface.ErrIfaceNotFound)
 }
 
-func TestDHCPClientRetryAfterFailedFetch(t *testing.T) {
+func TestDHCPClientRetryBackoff(t *testing.T) {
 	name, _ := loopbackIface(t)
 	fetchErr := errors.New("no DHCP answer")
+	var result []netip.Addr
+	var resultErr error
+	fetches := 0
 	stubDHCPFetch(t, func(context.Context, string) ([]netip.Addr, error) {
-		return nil, fetchErr
+		fetches++
+		return result, resultErr
 	})
 
 	d := newDHCPClient(name)
-	before := time.Now()
-	_, err := d.resolve(context.Background())
-	assert.ErrorIs(t, err, fetchErr)
-	waitDHCPFetch(t, d)
+	resultErr = fetchErr
 
-	// A failed discovery is retried soon instead of cached for DHCPTTL.
+	want := []time.Duration{IfaceTTL, 2 * IfaceTTL, 4 * IfaceTTL}
+	for i, delay := range want {
+		before := time.Now()
+		_, err := d.resolve(context.Background())
+		waitDHCPFetch(t, d)
+		if i == 0 {
+			// The first call waits for the fetch and gets its error.
+			assert.ErrorIs(t, err, fetchErr)
+		}
+		d.lock.Lock()
+		assert.Equal(t, delay, d.retryDelay)
+		assert.WithinRange(t, d.dnsInvalidate, before.Add(delay), time.Now().Add(delay))
+		d.lock.Unlock()
+		expireDHCPChecks(d)
+	}
+	assert.Equal(t, len(want), fetches)
+
+	// The backoff is capped at DHCPTTL.
+	assert.Equal(t, DHCPTTL, nextDHCPRetryDelay(DHCPTTL/2+time.Second))
+	assert.Equal(t, DHCPTTL, nextDHCPRetryDelay(DHCPTTL))
+
+	// A successful fetch resets the backoff and caches for DHCPTTL.
+	result, resultErr = []netip.Addr{netip.MustParseAddr("192.0.2.53")}, nil
+	before := time.Now()
+	_, _ = d.resolve(context.Background())
+	waitDHCPFetch(t, d)
+	clients, err := d.resolve(context.Background())
+	require.NoError(t, err)
+	require.Len(t, clients, 1)
+	assert.Equal(t, "udp://192.0.2.53:53", clients[0].Address())
 	d.lock.Lock()
-	assert.WithinRange(t, d.dnsInvalidate, before.Add(IfaceTTL), time.Now().Add(IfaceTTL))
+	assert.Zero(t, d.retryDelay)
+	assert.False(t, d.dnsInvalidate.Before(before.Add(DHCPTTL)))
 	d.lock.Unlock()
+}
+
+func TestDHCPClientRetryBackoffResetOnAddrChange(t *testing.T) {
+	name, addr := loopbackIface(t)
+	stubDHCPFetch(t, func(context.Context, string) ([]netip.Addr, error) {
+		t.Error("no fetch expected while backing off")
+		return nil, errors.New("unexpected fetch")
+	})
+
+	d := newDHCPClient(name)
+	d.ifaceAddr = netip.MustParsePrefix("198.51.100.1/24") // previous network
+	d.dnsInvalidate = time.Now().Add(time.Hour)
+	d.retryDelay = 8 * IfaceTTL
+	d.err = errors.New("no DHCP answer")
+
+	d.lock.Lock()
+	_, err := d.invalidate()
+	d.lock.Unlock()
+	require.NoError(t, err)
+	assert.Zero(t, d.retryDelay)
+	assert.Equal(t, addr, d.ifaceAddr)
 }
 
 func TestDHCPClientRefetchAfterAddrChangeDuringFetch(t *testing.T) {

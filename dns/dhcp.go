@@ -34,6 +34,11 @@ type dhcpClient struct {
 	clients   []dnsClient
 	err       error // result of the last DHCP fetch
 
+	// retryDelay is the backoff before the next fetch after a failed one.
+	// It doubles from IfaceTTL up to DHCPTTL and is reset by a successful
+	// fetch or an interface address change.
+	retryDelay time.Duration
+
 	// ifaceErr is the last interface lookup error. It is kept apart from
 	// err so that it is cleared as soon as the interface resolves again,
 	// even when no new DHCP fetch is needed.
@@ -112,9 +117,15 @@ func (d *dhcpClient) resolve(ctx context.Context) ([]dnsClient, error) {
 				// so the result belongs to the previous network: refetch on
 				// the next interface check.
 				d.dnsInvalidate = time.Time{}
+				d.retryDelay = 0
 			} else if err != nil {
-				// Do not cache a failed discovery for the whole DHCPTTL.
-				d.dnsInvalidate = time.Now().Add(IfaceTTL)
+				// Do not cache a failed discovery for the whole DHCPTTL, but
+				// back off so an interface without a DHCP server is not
+				// probed every IfaceTTL forever.
+				d.retryDelay = nextDHCPRetryDelay(d.retryDelay)
+				d.dnsInvalidate = time.Now().Add(d.retryDelay)
+			} else {
+				d.retryDelay = 0
 			}
 		}()
 	}
@@ -169,10 +180,21 @@ func (d *dhcpClient) invalidate() (bool, error) {
 		return false, nil
 	}
 
+	if d.ifaceAddr != addr {
+		d.retryDelay = 0
+	}
+
 	d.dnsInvalidate = time.Now().Add(DHCPTTL)
 	d.ifaceAddr = addr
 
 	return d.done == nil, nil
+}
+
+func nextDHCPRetryDelay(prev time.Duration) time.Duration {
+	if prev <= 0 {
+		return IfaceTTL
+	}
+	return min(prev*2, DHCPTTL)
 }
 
 func newDHCPClient(ifaceName string) *dhcpClient {
