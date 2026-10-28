@@ -46,7 +46,18 @@ func setStorage(w http.ResponseWriter, r *http.Request) {
 		render.JSON(w, r, ErrBadRequest)
 		return
 	}
-	cachefile.Cache().SetStorage(key, data)
+	if err := cachefile.Cache().SetStorage(key, data); err != nil {
+		switch {
+		case errors.Is(err, cachefile.ErrStorageKeyTooLong):
+			render.Status(r, http.StatusBadRequest)
+		case errors.Is(err, cachefile.ErrStorageTooLarge):
+			render.Status(r, http.StatusRequestEntityTooLarge)
+		default:
+			render.Status(r, http.StatusInternalServerError)
+		}
+		render.JSON(w, r, newError(err.Error()))
+		return
+	}
 	render.NoContent(w, r)
 }
 
