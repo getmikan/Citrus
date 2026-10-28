@@ -118,40 +118,46 @@ func TestUserFromConnThroughWrappers(t *testing.T) {
 }
 
 func TestV3UnauthenticatedConnectionFallsBack(t *testing.T) {
-	camouflageAddr := startCamouflageServer(t, false)
-	serverConfig := newTestServerConfig(t, 3, camouflageAddr)
-	frontendAddr, result := startServer(t, serverConfig)
+	// Without SNI the hello must still reach the handshake server, as the
+	// real server would answer it.
+	for _, serverName := range []string{testServerName, ""} {
+		t.Run("sni="+serverName, func(t *testing.T) {
+			camouflageAddr := startCamouflageServer(t, false)
+			serverConfig := newTestServerConfig(t, 3, camouflageAddr)
+			frontendAddr, result := startServer(t, serverConfig)
 
-	rawClient, err := net.Dial("tcp", frontendAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	setTestDeadline(t, rawClient)
-	client := tls.Client(rawClient, &tls.Config{
-		ServerName:         testServerName,
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS12,
-	})
-	if err = client.HandshakeContext(context.Background()); err != nil {
-		t.Fatalf("fallback TLS handshake: %v", err)
-	}
-	payload := []byte("ordinary TLS connection")
-	if _, err = client.Write(payload); err != nil {
-		t.Fatalf("fallback write: %v", err)
-	}
-	response := make([]byte, len(payload))
-	if _, err = io.ReadFull(client, response); err != nil {
-		t.Fatalf("fallback read: %v", err)
-	}
-	if !bytes.Equal(response, payload) {
-		t.Fatalf("fallback response = %q, want %q", response, payload)
-	}
-	if err = client.Close(); err != nil {
-		t.Fatal(err)
-	}
-	serverResult := receiveServerResult(t, result)
-	if !errors.Is(serverResult.err, ErrFallbackCompleted) {
-		t.Fatalf("server error = %v, want %v", serverResult.err, ErrFallbackCompleted)
+			rawClient, err := net.Dial("tcp", frontendAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			setTestDeadline(t, rawClient)
+			client := tls.Client(rawClient, &tls.Config{
+				ServerName:         serverName,
+				InsecureSkipVerify: true,
+				MinVersion:         tls.VersionTLS12,
+			})
+			if err = client.HandshakeContext(context.Background()); err != nil {
+				t.Fatalf("fallback TLS handshake: %v", err)
+			}
+			payload := []byte("ordinary TLS connection")
+			if _, err = client.Write(payload); err != nil {
+				t.Fatalf("fallback write: %v", err)
+			}
+			response := make([]byte, len(payload))
+			if _, err = io.ReadFull(client, response); err != nil {
+				t.Fatalf("fallback read: %v", err)
+			}
+			if !bytes.Equal(response, payload) {
+				t.Fatalf("fallback response = %q, want %q", response, payload)
+			}
+			if err = client.Close(); err != nil {
+				t.Fatal(err)
+			}
+			serverResult := receiveServerResult(t, result)
+			if !errors.Is(serverResult.err, ErrFallbackCompleted) {
+				t.Fatalf("server error = %v, want %v", serverResult.err, ErrFallbackCompleted)
+			}
+		})
 	}
 }
 
