@@ -47,8 +47,8 @@ type option struct {
 // AddrFilter vets the addresses a host name resolved to (or an IP literal)
 // right before DialContext connects to them.
 type AddrFilter interface {
-	// CheckAddr returns an error for an address that must not be dialed.
-	CheckAddr(addr netip.Addr) error
+	// CheckAddrPort returns an error for a destination that must not be dialed.
+	CheckAddrPort(ap netip.AddrPort) error
 }
 
 type Option func(opt *option)

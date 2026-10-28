@@ -48,18 +48,14 @@ func (d *Direct) ListenPacketContext(ctx context.Context, metadata *C.Metadata) 
 	if err := d.ResolveUDP(ctx, metadata); err != nil {
 		return nil, err
 	}
-	guard := egress.For(metadata)
-	if guard != nil && metadata.DstIP.IsValid() {
-		if err := guard.CheckAddr(metadata.DstIP); err != nil {
-			return nil, err
-		}
-	}
 	pc, err := dialer.NewDialer(d.DialOptions()...).ListenPacket(ctx, "udp", "", metadata.AddrPort())
 	if err != nil {
 		return nil, err
 	}
-	if guard != nil {
-		// the later datagrams of the session go to other addresses
+	if guard := egress.For(metadata); guard != nil {
+		// checks every datagram, the first one too: a blocked destination is
+		// dropped like REJECT drops it, and the session lives on for the others
+		// instead of being dialed again for each packet
 		pc = egress.NewPacketConn(pc, guard)
 	}
 	return d.loopBack.NewPacketConn(NewPacketConn(pc, d)), nil

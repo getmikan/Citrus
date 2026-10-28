@@ -147,20 +147,59 @@ func TestDirectEgressGuardDisabled(t *testing.T) {
 	assert.NoError(t, dialDirect(t, &C.Metadata{NetWork: C.TCP, Type: C.VLESS, DstIP: target.Addr(), DstPort: target.Port()}))
 }
 
-func TestDirectEgressGuardUDP(t *testing.T) {
-	withEgressOptions(t, egress.Options{Enable: true})
-	withDirectResolver(t, &listResolver{ips: []netip.Addr{netip.MustParseAddr("127.0.0.1")}})
+// A session whose first datagram goes to a blocked address is not refused:
+// like REJECT, the datagram is dropped and the session stays, so a client
+// that keeps sending to the LAN (mDNS, SSDP) is not dialed and logged again
+// for every packet, and its datagrams to the allowed addresses still go out.
+func TestDirectEgressGuardUDPBlockedFirst(t *testing.T) {
+	withEgressOptions(t, egress.Options{Enable: true, AllowIPs: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}})
+	withDirectResolver(t, &listResolver{ips: []netip.Addr{netip.MustParseAddr("127.0.0.2")}})
+
+	allowed, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	defer allowed.Close()
+	blocked, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2)})
+	if err != nil {
+		t.Skipf("cannot listen on 127.0.0.2: %v", err)
+	}
+	defer blocked.Close()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	blockedAddr := blocked.LocalAddr().(*net.UDPAddr).AddrPort()
+	for _, metadata := range []*C.Metadata{
+		{NetWork: C.UDP, Type: C.TUIC, DstIP: blockedAddr.Addr(), DstPort: blockedAddr.Port()},
+		{NetWork: C.UDP, Type: C.HYSTERIA2, Host: "rebind.example", DstPort: blockedAddr.Port()}, // resolves to 127.0.0.2
+	} {
+		pc, err := NewDirect().ListenPacketContext(ctx, metadata)
+		require.NoError(t, err, "%s: the session is opened", metadata.Type)
 
-	_, err := NewDirect().ListenPacketContext(ctx, &C.Metadata{NetWork: C.UDP, Type: C.TUIC, DstIP: netip.MustParseAddr("127.0.0.1"), DstPort: 53})
-	assert.ErrorIs(t, err, egress.ErrBlocked, "first datagram to an IP literal of the loopback")
-	_, err = NewDirect().ListenPacketContext(ctx, &C.Metadata{NetWork: C.UDP, Type: C.HYSTERIA2, Host: "rebind.example", DstPort: 53})
-	assert.ErrorIs(t, err, egress.ErrBlocked, "first datagram to a domain that resolves to the loopback")
+		_, err = pc.WriteTo([]byte("to-blocked"), blocked.LocalAddr())
+		require.NoError(t, err, "dropped like a lost datagram")
+		_, err = pc.WriteTo([]byte("to-allowed"), allowed.LocalAddr())
+		require.NoError(t, err)
 
-	pc, err := NewDirect().ListenPacketContext(ctx, &C.Metadata{NetWork: C.UDP, Type: C.SOCKS5, DstIP: netip.MustParseAddr("127.0.0.1"), DstPort: 53})
+		buf := make([]byte, 64)
+		_ = allowed.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, _, err := allowed.ReadFromUDP(buf)
+		require.NoError(t, err)
+		assert.Equal(t, "to-allowed", string(buf[:n]))
+		_ = blocked.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		_, _, err = blocked.ReadFromUDP(buf)
+		assert.Error(t, err, "nothing may reach the blocked address")
+		_ = pc.Close()
+	}
+
+	pc, err := NewDirect().ListenPacketContext(ctx, &C.Metadata{NetWork: C.UDP, Type: C.SOCKS5, DstIP: blockedAddr.Addr(), DstPort: blockedAddr.Port()})
 	require.NoError(t, err, "client inbounds are untouched")
-	_ = pc.Close()
+	defer pc.Close()
+	_, err = pc.WriteTo([]byte("from-client"), blocked.LocalAddr())
+	require.NoError(t, err)
+	buf := make([]byte, 64)
+	_ = blocked.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _, err := blocked.ReadFromUDP(buf)
+	require.NoError(t, err)
+	assert.Equal(t, "from-client", string(buf[:n]))
 }
 
 // The later datagrams of a guarded session: a blocked destination is dropped

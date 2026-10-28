@@ -200,12 +200,14 @@ external-controller-routing-mark: 0
 # inbound and the user. On by default; the local client inbounds (http, socks, mixed, redir,
 # tproxy, tun, tunnel) are not guarded, so a client config behaves as before.
 # allow-ips: CIDRs or single addresses exempt from the guard, e.g. a database on the LAN that the
-# users must reach. A listener's own egress-guard: true/false (see listeners) overrides enable for
-# that listener. A public address of this host behind NAT (not on an interface) is not known to the
-# guard; keep the controller on 127.0.0.1 or a unix socket.
+# users must reach, or address:port to exempt one port only, e.g. a website on this host's public
+# address while the controller and the other ports of the host stay blocked. A listener's own
+# egress-guard: true/false (see listeners) overrides enable for that listener. A reload applies to
+# the open UDP sessions too. A public address of this host behind NAT (not on an interface) is not
+# known to the guard; keep the controller on 127.0.0.1 or a unix socket.
 # egress-guard:
 #   enable: true
-#   allow-ips: [10.8.0.0/24, 192.168.1.10]
+#   allow-ips: [10.8.0.0/24, 192.168.1.10, 203.0.113.10:443]
 
 # TCP 出站连接建立总期限（毫秒），包含代理握手及重试，默认 5000，取值范围 100-600000。
 # 仅影响新连接，不影响已建立连接的读写、UDP 或健康检查。

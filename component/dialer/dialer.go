@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -55,7 +56,7 @@ func DialContext(ctx context.Context, network, address string, options ...Option
 		return nil, err
 	}
 	if opt.addrFilter != nil {
-		if ips, err = filterAddrs(ips, opt.addrFilter); err != nil {
+		if ips, err = filterAddrs(ips, port, opt.addrFilter); err != nil {
 			return nil, err
 		}
 	}
@@ -446,12 +447,15 @@ func parseAddr(ctx context.Context, network, address string, preferResolver reso
 }
 
 // filterAddrs keeps the addresses filter accepts, or returns its first error
-// when it accepts none.
-func filterAddrs(ips []netip.Addr, filter AddrFilter) ([]netip.Addr, error) {
+// when it accepts none. The filter sees the address and port dialContext will
+// connect to, after the IP4P conversion.
+func filterAddrs(ips []netip.Addr, port string, filter AddrFilter) ([]netip.Addr, error) {
 	var firstErr error
 	kept := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
-		if err := filter.CheckAddr(ip); err != nil {
+		dst, dstPort := resolver.LookupIP4P(ip, port)
+		p, _ := strconv.ParseUint(dstPort, 10, 16) // a bad port fails the dial anyway
+		if err := filter.CheckAddrPort(netip.AddrPortFrom(dst, uint16(p))); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}

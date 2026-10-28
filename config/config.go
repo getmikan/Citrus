@@ -275,13 +275,26 @@ func parseEgressGuard(rawCfg *RawConfig) (*egress.Options, error) {
 	raw := rawCfg.EgressGuard
 	options := &egress.Options{Enable: raw.Enable}
 	for _, s := range raw.AllowIPs {
+		if ap, err := netip.ParseAddrPort(s); err == nil {
+			// one port of an address, e.g. a website on this host
+			options.AllowAddrPorts = append(options.AllowAddrPorts, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
+			continue
+		}
 		prefix, err := netip.ParsePrefix(s)
 		if err != nil {
 			addr, addrErr := netip.ParseAddr(s)
 			if addrErr != nil {
-				return nil, fmt.Errorf("egress-guard.allow-ips: %q is neither a CIDR nor an IP address", s)
+				return nil, fmt.Errorf("egress-guard.allow-ips: %q is neither a CIDR, an IP address nor an address:port", s)
 			}
 			prefix = netip.PrefixFrom(addr.Unmap(), addr.Unmap().BitLen())
+		}
+		if prefix.Addr().Is4In6() {
+			// the guard checks the unmapped destination, so an IPv4-mapped
+			// CIDR has to become the IPv4 one to ever match
+			if prefix.Bits() < 96 {
+				return nil, fmt.Errorf("egress-guard.allow-ips: %q covers more than the IPv4-mapped range, write the IPv4 CIDR", s)
+			}
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
 		}
 		options.AllowIPs = append(options.AllowIPs, prefix.Masked())
 	}

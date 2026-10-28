@@ -27,12 +27,17 @@ var ErrBlocked = errors.New("egress guard")
 // BlockedError is the refusal of one destination address.
 type BlockedError struct {
 	Addr    netip.Addr
+	Target  string // the destination when it is not an IP (Addr is invalid)
 	Reason  string
 	Inbound string
 }
 
 func (e *BlockedError) Error() string {
-	return fmt.Sprintf("egress guard blocked %s: %s, not reachable from inbound %s (allow it with egress-guard.allow-ips, or egress-guard: false on the listener)", e.Addr, e.Reason, e.Inbound)
+	target := e.Target
+	if e.Addr.IsValid() {
+		target = e.Addr.String()
+	}
+	return fmt.Sprintf("egress guard blocked %s: %s, not reachable from inbound %s (allow it with egress-guard.allow-ips, or egress-guard: false on the listener)", target, e.Reason, e.Inbound)
 }
 
 func (e *BlockedError) Is(target error) bool {
@@ -46,6 +51,9 @@ type Options struct {
 	Enable bool
 	// AllowIPs are exempt from the guard.
 	AllowIPs []netip.Prefix
+	// AllowAddrPorts exempt one port of an address, e.g. a website on this
+	// host's public address, while its other ports stay blocked.
+	AllowAddrPorts []netip.AddrPort
 }
 
 var current atomic.Pointer[Options]
@@ -54,11 +62,16 @@ func init() {
 	current.Store(&Options{Enable: true})
 }
 
-// SetOptions publishes a new config; the connections dialed afterwards use it.
+// SetOptions publishes a new config. Every check reads the published one, so
+// it applies at once to the UDP sessions already open as well.
 func SetOptions(o Options) {
 	o.AllowIPs = slices.Clone(o.AllowIPs)
 	for i, prefix := range o.AllowIPs {
 		o.AllowIPs[i] = prefix.Masked()
+	}
+	o.AllowAddrPorts = slices.Clone(o.AllowAddrPorts)
+	for i, ap := range o.AllowAddrPorts {
+		o.AllowAddrPorts[i] = netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
 	}
 	current.Store(&o)
 }
@@ -67,6 +80,7 @@ func SetOptions(o Options) {
 func CurrentOptions() Options {
 	o := *current.Load()
 	o.AllowIPs = slices.Clone(o.AllowIPs)
+	o.AllowAddrPorts = slices.Clone(o.AllowAddrPorts)
 	return o
 }
 
@@ -90,22 +104,24 @@ func IsServerInbound(t C.Type) bool {
 	return false
 }
 
-// Guard checks the destinations of one connection or UDP session.
+// Guard checks the destinations of one connection or UDP session against the
+// published config.
 type Guard struct {
-	allow   []netip.Prefix
+	on      bool // the listener's egress-guard: true, guarded whatever enable says
 	inbound string
 }
 
 // For returns the guard of the connection described by metadata, or nil when
-// the connection is not guarded.
+// the connection is never guarded. A server inbound gets a guard while
+// egress-guard.enable is false too: a reload that turns it on reaches the UDP
+// sessions already open.
 func For(metadata *C.Metadata) *Guard {
-	o := current.Load()
 	switch metadata.EgressGuard {
 	case C.EgressGuardOff:
 		return nil
 	case C.EgressGuardOn:
 	default:
-		if !o.Enable || !IsServerInbound(metadata.Type) {
+		if !IsServerInbound(metadata.Type) {
 			return nil
 		}
 	}
@@ -116,18 +132,37 @@ func For(metadata *C.Metadata) *Guard {
 	if metadata.InUser != "" {
 		inbound += " (user " + metadata.InUser + ")"
 	}
-	return &Guard{allow: o.AllowIPs, inbound: inbound}
+	return &Guard{on: metadata.EgressGuard == C.EgressGuardOn, inbound: inbound}
 }
 
-// CheckAddr returns a *BlockedError when addr must not be reached. It
-// implements dialer.AddrFilter.
-func (g *Guard) CheckAddr(addr netip.Addr) error {
-	addr = addr.Unmap()
-	if !addr.IsValid() {
-		return nil // nothing to connect to, the dial fails on its own
+// options returns the published config, or nil when it leaves g unguarded.
+func (g *Guard) options() *Options {
+	o := current.Load()
+	if !g.on && !o.Enable {
+		return nil
 	}
-	for _, prefix := range g.allow {
+	return o
+}
+
+// CheckAddrPort returns a *BlockedError when ap must not be reached. It
+// implements dialer.AddrFilter.
+func (g *Guard) CheckAddrPort(ap netip.AddrPort) error {
+	o := g.options()
+	if o == nil {
+		return nil
+	}
+	addr := ap.Addr().Unmap()
+	if !addr.IsValid() {
+		// a socket sends to the unspecified address, this host, in its place
+		return &BlockedError{Target: "an invalid address", Reason: "not an IP address", Inbound: g.inbound}
+	}
+	for _, prefix := range o.AllowIPs {
 		if prefix.Contains(addr) {
+			return nil
+		}
+	}
+	for _, allowed := range o.AllowAddrPorts {
+		if allowed.Addr() == addr && allowed.Port() == ap.Port() {
 			return nil
 		}
 	}
@@ -140,25 +175,26 @@ func (g *Guard) CheckAddr(addr netip.Addr) error {
 	return nil
 }
 
-// checkNetAddr is CheckAddr for the address of a UDP datagram. An address that
-// is not an IP (which a UDP socket cannot send to anyway) is let through.
+// checkNetAddr is CheckAddrPort for the address of a UDP datagram. An address
+// that is not an IP and port (a domain, a nil address) cannot be checked and
+// is refused.
 func (g *Guard) checkNetAddr(addr net.Addr) error {
 	var ap netip.AddrPort
 	switch addr := addr.(type) {
 	case *net.UDPAddr:
-		if addr == nil {
-			return nil
+		if addr != nil {
+			ap = addr.AddrPort()
 		}
-		ap = addr.AddrPort()
+	case nil:
 	default:
-		if addr == nil {
-			return nil
-		}
 		parsed, err := netip.ParseAddrPort(addr.String())
 		if err != nil {
-			return nil
+			if g.options() == nil {
+				return nil
+			}
+			return &BlockedError{Target: addr.String(), Reason: "not an IP address", Inbound: g.inbound}
 		}
 		ap = parsed
 	}
-	return g.CheckAddr(ap.Addr())
+	return g.CheckAddrPort(ap)
 }

@@ -74,13 +74,15 @@ A blocked dial is logged as a warning:
 [TCP] dial DIRECT (match Match/) 198.51.100.7:40000 --> 127.0.0.1:9090 error: egress guard blocked 127.0.0.1: private, loopback, link-local, reserved or cloud metadata address, not reachable from inbound vless-in (user alice) (allow it with egress-guard.allow-ips, or egress-guard: false on the listener)
 ```
 
-To let the users reach what they need, such as a database on the LAN, list it in `allow-ips`. Each entry is a CIDR or a single address:
+To let the users reach what they need, such as a database on the LAN, list it in `allow-ips`. Each entry is a CIDR, a single address or an `address:port`. An entry with a port opens that port only, for example a website on this host's public address, while the controller and the other ports of the host stay closed:
 
 ```yaml
 egress-guard:
   enable: true # the default
-  allow-ips: [10.8.0.0/24, 192.168.1.10]
+  allow-ips: [10.8.0.0/24, 192.168.1.10, 203.0.113.10:443]
 ```
+
+A config reload applies to the UDP sessions that are already open as well.
 
 Every listener takes its own `egress-guard`, which overrides `enable` for that listener:
 

@@ -74,13 +74,15 @@ docker run -d --name citrus-server --restart unless-stopped \
 [TCP] dial DIRECT (match Match/) 198.51.100.7:40000 --> 127.0.0.1:9090 error: egress guard blocked 127.0.0.1: private, loopback, link-local, reserved or cloud metadata address, not reachable from inbound vless-in (user alice) (allow it with egress-guard.allow-ips, or egress-guard: false on the listener)
 ```
 
-Если пользователям нужен доступ к чему-то конкретному, например к базе данных в LAN, добавьте это в `allow-ips`. Каждая запись — CIDR или одиночный адрес:
+Если пользователям нужен доступ к чему-то конкретному, например к базе данных в LAN, добавьте это в `allow-ips`. Каждая запись — CIDR, одиночный адрес или `адрес:порт`. Запись с портом открывает только этот порт. Так можно открыть сайт на публичном адресе этого хоста, а контроллер и остальные порты хоста останутся закрытыми:
 
 ```yaml
 egress-guard:
   enable: true # по умолчанию
-  allow-ips: [10.8.0.0/24, 192.168.1.10]
+  allow-ips: [10.8.0.0/24, 192.168.1.10, 203.0.113.10:443]
 ```
+
+После перезагрузки конфига новые настройки сразу действуют и на уже открытые UDP-сессии.
 
 У каждого listener есть свой `egress-guard`, он переопределяет `enable` для этого listener:
 

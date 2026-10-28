@@ -7,6 +7,8 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/metacubex/mihomo/component/resolver"
 )
 
 // refuseFilter refuses the addresses of its set.
@@ -14,8 +16,8 @@ type refuseFilter map[netip.Addr]bool
 
 var errRefused = errors.New("refused")
 
-func (f refuseFilter) CheckAddr(addr netip.Addr) error {
-	if f[addr] {
+func (f refuseFilter) CheckAddrPort(ap netip.AddrPort) error {
+	if f[ap.Addr()] {
 		return errRefused
 	}
 	return nil
@@ -25,7 +27,7 @@ func TestFilterAddrs(t *testing.T) {
 	a, b, c := netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("10.0.0.2")
 	ips := []netip.Addr{a, b, c}
 
-	kept, err := filterAddrs(ips, refuseFilter{a: true, c: true})
+	kept, err := filterAddrs(ips, "443", refuseFilter{a: true, c: true})
 	if err != nil || len(kept) != 1 || kept[0] != b {
 		t.Fatalf("filterAddrs = %v, %v; want [%s]", kept, err, b)
 	}
@@ -33,8 +35,35 @@ func TestFilterAddrs(t *testing.T) {
 		t.Fatalf("filterAddrs modified its input: %v", ips)
 	}
 
-	if _, err := filterAddrs(ips, refuseFilter{a: true, b: true, c: true}); !errors.Is(err, errRefused) {
+	if _, err := filterAddrs(ips, "443", refuseFilter{a: true, b: true, c: true}); !errors.Is(err, errRefused) {
 		t.Fatalf("all refused: err = %v, want the filter's error", err)
+	}
+}
+
+// portFilter records the destinations it is asked about.
+type portFilter struct{ seen []netip.AddrPort }
+
+func (f *portFilter) CheckAddrPort(ap netip.AddrPort) error {
+	f.seen = append(f.seen, ap)
+	return nil
+}
+
+// The filter sees the port, and for an IP4P address the IPv4 address and port
+// the dial goes to, not the IPv6 form it is encoded in.
+func TestFilterAddrsIP4P(t *testing.T) {
+	old := resolver.GetIP4PEnable()
+	resolver.SetIP4PEnable(true)
+	t.Cleanup(func() { resolver.SetIP4PEnable(old) })
+
+	ip4p := netip.MustParseAddr("2001::1f90:7f00:1") // 127.0.0.1:8080
+	f := &portFilter{}
+	kept, err := filterAddrs([]netip.Addr{ip4p, netip.MustParseAddr("1.1.1.1")}, "443", f)
+	if err != nil || len(kept) != 2 || kept[0] != ip4p {
+		t.Fatalf("filterAddrs = %v, %v; want both addresses as given", kept, err)
+	}
+	want := []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:8080"), netip.MustParseAddrPort("1.1.1.1:443")}
+	if len(f.seen) != 2 || f.seen[0] != want[0] || f.seen[1] != want[1] {
+		t.Fatalf("filter saw %v, want %v", f.seen, want)
 	}
 }
 
