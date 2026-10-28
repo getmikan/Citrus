@@ -18,6 +18,27 @@ import (
 	"github.com/metacubex/sing/common/network"
 )
 
+// maxDnsRelayInFlight bounds the hijacked UDP DNS queries answered at once.
+// Each one holds a goroutine and a buffer for up to DefaultDnsRelayTimeout, and
+// the packets come from any local process (or LAN client in gateway mode), so
+// queries beyond the limit are dropped and left to the client's retry.
+const maxDnsRelayInFlight = 256
+
+var dnsRelaySlots = make(chan struct{}, maxDnsRelayInFlight)
+
+func acquireDnsRelaySlot() bool {
+	select {
+	case dnsRelaySlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func releaseDnsRelaySlot() {
+	<-dnsRelaySlots
+}
+
 func (h *ListenerHandler) ShouldHijackDns(targetAddr netip.AddrPort) bool {
 	for _, addrPort := range h.DnsAddrPorts {
 		if addrPort == targetAddr || (addrPort.Addr().IsUnspecified() && targetAddr.Port() == 53) {
@@ -38,6 +59,11 @@ func (h *ListenerHandler) NewConnection(ctx context.Context, conn net.Conn, meta
 func (h *ListenerHandler) NewPacket(ctx context.Context, key netip.AddrPort, buffer *buf.Buffer, metadata M.Metadata, init func(natConn network.PacketConn) network.PacketWriter) {
 	if h.ShouldHijackDns(metadata.Destination.AddrPort()) {
 		log.Debugln("[DNS] hijack udp:%s from %s", metadata.Destination.String(), metadata.Source.String())
+		if !acquireDnsRelaySlot() {
+			log.Debugln("[DNS] hijack udp: too many queries in flight, drop packet from %s", metadata.Source.String())
+			buffer.Release()
+			return
+		}
 		writer := init(nil)
 		rwOptions := network.ReadWaitOptions{
 			FrontHeadroom: network.CalculateFrontHeadroom(writer),
@@ -96,6 +122,11 @@ func (h *ListenerHandler) NewPacketConnection(ctx context.Context, conn network.
 				}
 				return err
 			}
+			if !acquireDnsRelaySlot() {
+				log.Debugln("[DNS] hijack udp: too many queries in flight, drop packet from %s", metadata.Source.String())
+				readBuff.Release()
+				continue
+			}
 			go relayDnsPacket(ctx, readBuff, rwOptions, dest, &mutex, &writer)
 		}
 		return nil
@@ -103,7 +134,10 @@ func (h *ListenerHandler) NewPacketConnection(ctx context.Context, conn network.
 	return h.ListenerHandler.NewPacketConnection(ctx, conn, metadata)
 }
 
+// relayDnsPacket answers one hijacked query; the caller must have acquired a
+// relay slot, which is released when it returns.
 func relayDnsPacket(ctx context.Context, readBuff *buf.Buffer, rwOptions network.ReadWaitOptions, dest M.Socksaddr, mutex *sync.Mutex, writer *network.PacketWriter) {
+	defer releaseDnsRelaySlot()
 	ctx, cancel := context.WithTimeout(ctx, resolver.DefaultDnsRelayTimeout)
 	defer cancel()
 	inData := readBuff.Bytes()
