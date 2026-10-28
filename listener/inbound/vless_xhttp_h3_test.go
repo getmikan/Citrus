@@ -3,6 +3,7 @@ package inbound_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -140,29 +141,51 @@ func TestInboundVless_XHTTP_H3AndTCP(t *testing.T) {
 	}
 }
 
+// portFreeOn reports whether nothing listens on addr for network, binding it
+// for a moment.
+func portFreeOn(network, addr string) bool {
+	if network == "tcp" {
+		ln, err := net.Listen(network, addr)
+		if err == nil {
+			_ = ln.Close()
+		}
+		return err == nil
+	}
+	pc, err := net.ListenPacket(network, addr)
+	if err == nil {
+		_ = pc.Close()
+	}
+	return err == nil
+}
+
+// requireOtherSideFree asserts that an inbound from start leaves its port
+// free on network. Other tests of the package bind random ports too and may
+// hold that number on the other protocol by chance, so a taken port is
+// retried on a fresh inbound; an inbound that does open the other side fails
+// every attempt.
+func requireOtherSideFree(t *testing.T, network string, start func() (io.Closer, netip.AddrPort)) {
+	for range 5 {
+		in, addrPort := start()
+		free := portFreeOn(network, addrPort.String())
+		_ = in.Close()
+		if free {
+			return
+		}
+	}
+	t.Fatalf("the inbound listens on %s too", network)
+}
+
 // alpn [h3] opens no TCP listener; alpn [h2] (or none) no UDP one.
-// Not parallel: the parallel tests bind UDP ports of their own, one of which
-// may be the number checked here.
 func TestInboundVless_XHTTP_H3OnlyNoTCP(t *testing.T) {
 	tunnel := NewHttpTestTunnel()
 	defer tunnel.Close()
 
-	in, addrPort := listenVlessXHTTP(t, tunnel, "0", []string{"h3"}, "auto")
-	defer in.Close()
-	// the port is free on TCP: nothing listens there
-	ln, err := net.Listen("tcp", addrPort.String())
-	if err == nil {
-		_ = ln.Close()
-	}
-	assert.NoError(t, err)
-
-	tcpIn, tcpAddrPort := listenVlessXHTTP(t, tunnel, "0", []string{"h2"}, "auto")
-	defer tcpIn.Close()
-	pc, err := net.ListenPacket("udp", tcpAddrPort.String())
-	if err == nil {
-		_ = pc.Close()
-	}
-	assert.NoError(t, err)
+	requireOtherSideFree(t, "tcp", func() (io.Closer, netip.AddrPort) {
+		return listenVlessXHTTP(t, tunnel, "0", []string{"h3"}, "auto")
+	})
+	requireOtherSideFree(t, "udp", func() (io.Closer, netip.AddrPort) {
+		return listenVlessXHTTP(t, tunnel, "0", []string{"h2"}, "auto")
+	})
 }
 
 // Close ends the open HTTP/3 tunnels in time and frees the UDP port, so a
@@ -324,31 +347,31 @@ func TestInboundVless_XHTTP_H3InvalidConfig(t *testing.T) {
 }
 
 // An alpn on an inbound without xhttp-config was ignored before the option
-// existed; configs that carry one still start, TCP only as before. Not
-// parallel for the reason of TestInboundVless_XHTTP_H3OnlyNoTCP.
+// existed; configs that carry one still start, TCP only as before.
 func TestInboundVless_ALPNWithoutXHTTPIgnored(t *testing.T) {
 	tunnel := NewHttpTestTunnel()
 	defer tunnel.Close()
-	inboundOptions := inbound.VlessOption{
-		BaseOption:  inbound.BaseOption{NameStr: "vless_inbound", Listen: "127.0.0.1", Port: "0"},
-		Users:       []inbound.VlessUser{{Username: "test", UUID: userUUID}},
-		Certificate: tlsCertificate,
-		PrivateKey:  tlsPrivateKey,
-		ALPN:        []string{"h3", "h2"},
+	start := func() (*inbound.Vless, netip.AddrPort) {
+		inboundOptions := inbound.VlessOption{
+			BaseOption:  inbound.BaseOption{NameStr: "vless_inbound", Listen: "127.0.0.1", Port: "0"},
+			Users:       []inbound.VlessUser{{Username: "test", UUID: userUUID}},
+			Certificate: tlsCertificate,
+			PrivateKey:  tlsPrivateKey,
+			ALPN:        []string{"h3", "h2"},
+		}
+		in, err := inbound.NewVless(&inboundOptions)
+		require.NoError(t, err)
+		require.NoError(t, in.Listen(tunnel))
+		addrPort, err := netip.ParseAddrPort(in.Address())
+		require.NoError(t, err)
+		return in, addrPort
 	}
-	in, err := inbound.NewVless(&inboundOptions)
-	require.NoError(t, err)
-	require.NoError(t, in.Listen(tunnel))
-	defer in.Close()
-	addrPort, err := netip.ParseAddrPort(in.Address())
-	require.NoError(t, err)
 
 	// no HTTP/3 server on the UDP side
-	pc, err := net.ListenPacket("udp", addrPort.String())
-	if err == nil {
-		_ = pc.Close()
-	}
-	assert.NoError(t, err)
+	requireOtherSideFree(t, "udp", func() (io.Closer, netip.AddrPort) { return start() })
+
+	in, addrPort := start()
+	defer in.Close()
 
 	outboundOptions := outbound.VlessOption{
 		Name:        "vless_outbound",
