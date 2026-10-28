@@ -90,7 +90,8 @@ func HttpRequest(ctx context.Context, url, method string, header map[string][]st
 			}
 			// A validated redirect target still enters the tunnel by name, so
 			// domain rules match it and a proxy resolves it remotely; only
-			// DIRECT is held to the validated address.
+			// DIRECT is held to the validated address (see checkRedirect for
+			// what that leaves to the proxy server).
 			var conn net.Conn
 			if pinned {
 				conn, err = inner.HandleTcpResolved(inner.GetTunnel(), address, approved[0], opt.specialProxy)

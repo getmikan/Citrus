@@ -154,6 +154,14 @@ func (p *redirectPolicy) approvedFor(network, address string) (addrs []netip.Add
 // dashboard) from redirecting Citrus to loopback, link-local or private
 // addresses. A resource whose configured URL is itself on such an address
 // (a provider served from the LAN, say) may still redirect anywhere.
+//
+// The check uses the local resolver and pins its answer for DIRECT and for a
+// custom dialer only. A download routed through a proxy hands the proxy the
+// host name, which it resolves again on its side: there the check does not
+// stop a rebinding name from reaching the proxy host's own private network
+// (its cloud metadata address, its LAN). Guarding that is the proxy server's
+// job, as for any client traffic; pinning the IP for proxies too would break
+// remote resolution, which downloads blocked by local DNS depend on.
 func (p *redirectPolicy) checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxRedirects {
 		return fmt.Errorf("stopped after %d redirects", maxRedirects)
