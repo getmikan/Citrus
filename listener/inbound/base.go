@@ -169,6 +169,12 @@ type BaseOption struct {
 	// "private") that may send the header, loopback when empty. A connection
 	// from any other peer is closed.
 	ProxyProtocolTrusted []string `inbound:"proxy-protocol-trusted,omitempty"`
+	// EgressGuard overrides the egress guard (the egress-guard section) for
+	// this listener: true keeps its users away from the private, local and
+	// metadata addresses even on a client listener, false lets the users of
+	// a server listener reach them. Unset follows egress-guard.enable for the
+	// server listeners and leaves the client listeners unguarded.
+	EgressGuard *bool `inbound:"egress-guard,omitempty"`
 
 	//
 	// The following parameters are used internally, assign value by the structure decoder are disallowed
@@ -185,11 +191,19 @@ func (o BaseOption) Equal(config C.InboundConfig) bool {
 }
 
 func (o BaseOption) Additions() []inbound.Addition {
-	return []inbound.Addition{
+	additions := []inbound.Addition{
 		inbound.WithInName(o.NameStr),
 		inbound.WithSpecialRules(o.SpecialRules),
 		inbound.WithSpecialProxy(o.SpecialProxy),
 	}
+	if o.EgressGuard != nil {
+		guard := C.EgressGuardOff
+		if *o.EgressGuard {
+			guard = C.EgressGuardOn
+		}
+		additions = append(additions, inbound.WithEgressGuard(guard))
+	}
+	return additions
 }
 
 func (o BaseOption) ListenConfig() C.InboundListenConfig {

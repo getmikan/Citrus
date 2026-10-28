@@ -19,6 +19,7 @@ import (
 	"github.com/metacubex/mihomo/component/auth"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/egress"
 	"github.com/metacubex/mihomo/component/eventbus"
 	"github.com/metacubex/mihomo/component/geodata"
 	mihomoHttp "github.com/metacubex/mihomo/component/http"
@@ -99,6 +100,7 @@ func ApplyConfig(cfg *config.Config, force bool) {
 
 	updateExperimental(cfg.Experimental)
 	updateMetrics(cfg.Metrics)
+	updateEgressGuard(cfg.EgressGuard)
 	updateUsers(cfg.Users)
 	updateProxies(cfg.Proxies, cfg.Providers)
 	updateRules(cfg.Rules, cfg.SubRules, cfg.RuleProviders)
@@ -279,6 +281,13 @@ func updateMetrics(c *config.Metrics) {
 		c = &config.Metrics{}
 	}
 	metrics.SetOptions(metrics.Options{Enable: c.Enable, PerUser: c.PerUser, HealthWithoutAuth: c.HealthWithoutAuth})
+}
+
+func updateEgressGuard(o *egress.Options) {
+	if o == nil {
+		o = &egress.Options{Enable: true}
+	}
+	egress.SetOptions(*o)
 }
 
 func updateTun(general *config.General) {

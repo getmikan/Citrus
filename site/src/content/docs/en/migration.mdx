@@ -62,6 +62,7 @@ Details are on the [Controller security](/Citrus/en/start/controller/) page.
 - **The Hysteria2 HTTPS masquerade** verifies the upstream certificate. For a self-signed local site set `masquerade-skip-cert-verify: true`, otherwise the answer is 502.
 - **REALITY: `max-time-difference` is in milliseconds**, like Xray's `maxTimeDiff` (it used to be microseconds).
 - **The same address on different inbounds or as different users** gets separate UDP sessions, each with its own rules and limits.
+- **The users of the server inbounds cannot reach the server's network through `DIRECT`.** This covers VLESS, Trojan, Shadowsocks, Snell, TUIC, Hysteria2, AnyTLS, Mieru, Sudoku, TrustTunnel and ShadowQUIC. They cannot reach loopback, private, link-local, CGNAT and ULA addresses, the cloud metadata services or this host's addresses, whatever the rules say. If they must reach something there, list it in `egress-guard.allow-ips`, or set `egress-guard: false` on the listener. Client inbounds are not affected. See the [egress guard](/Citrus/en/start/server-profile/#egress-guard).
 
 - **TUIC and TrustTunnel (HTTP/3):** server `zero-rtt` is disabled by default. `zero-rtt: true` explicitly enables replayable QUIC early data. ShadowQUIC already uses the same opt-in default.
 - **KCPTun:** omitting `key` preserves the known shared legacy key for compatibility and now emits a warning. Set a unique random key; `max-sessions` and `max-streams` bound server sessions and streams per session (256/256 by default).

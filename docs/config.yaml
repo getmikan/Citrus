@@ -195,6 +195,33 @@ external-controller-routing-mark: 0
 # (they reveal nothing but the state). The rest of the API keeps the secret.
 # health-without-auth: false
 
+# 出口防护：服务端入站（vless、trojan、shadowsocks、snell、tuic、hysteria2、anytls、mieru、sudoku、
+# trusttunnel、shadowquic）的已认证用户经 DIRECT 无法访问本机、私有、链路本地、CGNAT、ULA、组播、
+# 保留地址、云元数据服务（169.254.169.254、fd00:ec2::254、100.100.100.200 等）以及本机网卡地址。
+# 对 IP 和域名解析结果（防 DNS rebinding）、TCP 与 UDP（含来自这些地址的 UDP 回包）都生效，规则无法绕过。
+# 默认开启；本地客户端入站（http、socks、mixed、redir、tproxy、tun、tunnel）不受影响。
+# Egress guard: the authenticated users of the server inbounds (vless, trojan, shadowsocks, snell,
+# tuic, hysteria2, anytls, mieru, sudoku, trusttunnel, shadowquic) cannot reach through DIRECT the
+# loopback, private, link-local, CGNAT, ULA, multicast, unspecified and reserved ranges, the cloud
+# metadata services (169.254.169.254, fd00:ec2::254, 100.100.100.200, 192.0.0.192, ...) or the
+# addresses of this host's interfaces (the controller, the inbounds and every other local service
+# listen on them). It checks IP literals and the addresses a domain resolves to, right before the
+# connect (no DNS rebinding), TCP and UDP; a UDP datagram to a blocked address is dropped, and so is
+# one from it. It is the last check of DIRECT, after the rules: a rule such as
+# IP-CIDR,10.0.0.0/8,DIRECT does not open it. Proxies other than DIRECT are not checked (their
+# server dials the destination). A blocked dial is logged as a warning naming the address, the
+# inbound and the user. On by default; the local client inbounds (http, socks, mixed, redir,
+# tproxy, tun, tunnel) are not guarded, so a client config behaves as before.
+# allow-ips: CIDRs or single addresses exempt from the guard, e.g. a database on the LAN that the
+# users must reach, or address:port to exempt one port only, e.g. a website on this host's public
+# address while the controller and the other ports of the host stay blocked. A listener's own
+# egress-guard: true/false (see listeners) overrides enable for that listener. A reload applies to
+# the open UDP sessions too. A public address of this host behind NAT (not on an interface) is not
+# known to the guard; keep the controller on 127.0.0.1 or a unix socket.
+# egress-guard:
+#   enable: true
+#   allow-ips: [10.8.0.0/24, 192.168.1.10, 203.0.113.10:443]
+
 # TCP 出站连接建立总期限（毫秒），包含代理握手及重试，默认 5000，取值范围 100-600000。
 # 仅影响新连接，不影响已建立连接的读写、UDP 或健康检查。
 # 代理适配器内部更短的独立超时仍可能先到期。
@@ -2172,6 +2199,11 @@ sub-rules:
 # as it is); the listeners without TCP streams (hysteria2, tuic, shadowquic, mieru, tun, redir, tproxy)
 # refuse the option.
 # REALITY keeps falling back to its dest for other clients: the header is consumed before the handshake.
+# egress-guard（所有 listeners）：true 让该入站的用户也受出口防护（见上文 egress-guard），false 让服务端入站的用户
+# 可访问私有及本机地址；不填写时服务端入站跟随 egress-guard.enable，客户端入站不受防护。
+# egress-guard (every listener): true guards the users of this listener too (see egress-guard above),
+# false lets the users of a server listener reach the private and local addresses; unset, a server
+# listener follows egress-guard.enable and a client listener is not guarded.
 listeners:
   # - name: vless-unix
   #   type: vless
@@ -2185,6 +2217,7 @@ listeners:
   #   allow-insecure: true # TLS is terminated by the reverse proxy
   #   trusted-proxy-header: X-Forwarded-For
   #   trusted-proxies: [loopback]
+  #   egress-guard: false # only for a trusted user list: lets them reach the LAN and this host
 
   # - name: vless-reality-behind-sni-router
   #   type: vless
@@ -2209,6 +2242,7 @@ listeners:
     # rule: sub-rule-name1 # 默认使用 rules，如果未找到 sub-rule 则直接使用 rules
     # proxy: proxy # 如果不为空则直接将该入站流量交由指定 proxy 处理
     # udp: false # 默认 true
+    # egress-guard: true # a socks server for remote users: keep them off the LAN and this host
     # users: # 如果不填写users项，则遵从全局authentication设置，如果填写会忽略全局设置, 如想跳过该入站的验证可填写 users: []
     #   - username: aaa
     #     password: aaa
