@@ -60,6 +60,7 @@ Fixes from core/fork reviews and static audits are listed in the [changelog](/Ci
 - The forks [getmikan/tls](https://github.com/getmikan/tls) and [getmikan/utls](https://github.com/getmikan/utls) carry the crypto/tls security fixes from Go 1.26 (ECH outer extension validation, CVE-2026-97031, and a KeyUpdate bound).
 - Self-update requires an Ed25519-signed, expiring manifest bound to the channel, build sequence, platform, file name, size and SHA-256. Two embedded release keys support overlap rotation; revoked IDs are rejected and per-channel sequence state prevents rollback.
 - Remote GEO databases can be pinned per type with `geox-sha256`: a database with another SHA-256 is rejected. Without a pin the database is accepted as is, since its publishers sign none.
+- The Mozilla root bundle is committed to the repository instead of being copied from the CI runner, and state interception CAs are never trusted by default; see [Root certificates](#root-certificates).
 
 ### Build and CI
 
@@ -67,6 +68,23 @@ Fixes from core/fork reviews and static audits are listed in the [changelog](/Ci
 - CI tokens get the least privilege: read-only for the build, only the needed scopes for publishing releases and images.
 - CodeQL, govulncheck, dependency review, `go vet` and a `go mod tidy` check run on every PR.
 - The Xray and mihomo binaries used by the interop tests are checked against a pinned SHA-256.
+
+## Root certificates
+
+This covers the core's own TLS clients: TLS, WebSocket and gRPC transports of VLESS and Trojan, HTTP and SOCKS over TLS, Hysteria2, TUIC, DoH, DoT and DoQ, and provider and geodata downloads.
+
+- **Bundle.** The binary embeds Mozilla's root store as extracted by curl (`component/ca/ca-certificates.crt`, from [curl.se/ca/cacert.pem](https://curl.se/docs/caextract.html)); the date of the Mozilla data is in the file's header. `make ca-bundle` refreshes it and checks the SHA-256 that curl publishes.
+- **Sources.** `tls.ca-roots` chooses where trusted roots come from: `both` (the default) is the system pool plus the bundle, `bundle` uses only the bundle so CAs installed on the device are ignored, `system` uses only the system pool. The `DISABLE_SYSTEM_CA` and `DISABLE_EMBED_CA` environment variables still narrow `both`.
+- **Denylist.** Some state CAs exist to intercept TLS, and once installed on a device they would let their operator read proxied traffic. The core never trusts them, whether they come from the system or from the bundle: the Russian Trusted Root CA and Russian Trusted Sub CA (the 2022 and 2024 keys), and Kazakhstan's Qaznet Trust Network and Information Security Certification Authority (2019-2021). Entries are matched by the SHA-256 of the public key, so a re-issued certificate with the same key is caught too. A chain through such a CA fails with `certificate chain goes through the distrusted CA`. The list and its sources are in `component/ca/denylist.go`.
+- **Opting out.** `tls.ca-denylist: false` trusts these CAs again. To trust only one of them, add it to `tls.custom-certifactes`: chains anchored at a custom certificate are exempt from the denylist.
+- **Pinning.** `fingerprint` and `skip-cert-verify` are explicit choices for a single proxy, the denylist does not apply to them.
+- **Exception.** The Tailscale control client adds these roots to the system pool itself, so `bundle` does not narrow it and the denylist does not apply there.
+
+```yaml
+tls:
+  ca-roots: bundle   # both | bundle | system
+  ca-denylist: true  # false trusts the denylisted state CAs again
+```
 
 ## Controller WebSockets
 

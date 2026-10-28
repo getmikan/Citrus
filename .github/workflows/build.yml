@@ -152,12 +152,6 @@ jobs:
         echo "---test with_gvisor---"
         go test ./... -tags "with_gvisor" -count=1
 
-    - name: Update CA
-      run: |
-        sudo apt-get update && sudo apt-get install ca-certificates
-        sudo update-ca-certificates
-        cp -f /etc/ssl/certs/ca-certificates.crt component/ca/ca-certificates.crt
-
     - name: Build core
       env:
         GOOS: ${{matrix.jobs.goos}}

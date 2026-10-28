@@ -89,6 +89,19 @@ tls:
       -----BEGIN CERTIFICATE-----
       format/pem...
       -----END CERTIFICATE-----
+  # Roots the core's own TLS clients trust (proxies, DoH/DoT/DoQ, provider and geodata downloads):
+  #   both   - the system pool plus the embedded Mozilla bundle (default)
+  #   bundle - only the embedded Mozilla bundle, CAs installed on the device are ignored
+  #   system - only the system pool
+  # custom-certifactes are added on top in every mode.
+  # ca-roots: both
+  # State interception CAs (Russian Trusted Root/Sub CA, Kazakhstan's Qaznet and ISCA roots, see
+  # component/ca/denylist.go) are never trusted, whether the system or the bundle has them. false
+  # trusts them again; a certificate listed in custom-certifactes is trusted regardless.
+  # fingerprint pinning and skip-cert-verify are not affected. The exception is the Tailscale control
+  # client: it adds these roots to the system pool, so bundle does not narrow it and the denylist does
+  # not apply there.
+  # ca-denylist: true
 
 external-controller: 0.0.0.0:9093 # RESTful API 监听地址
 external-controller-tls: 0.0.0.0:9443 # RESTful API HTTPS 监听地址，需要配置 tls 部分配置文件

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/metacubex/mihomo/component/ca"
+
 	"github.com/metacubex/tls"
 	"net"
 )
@@ -120,7 +122,12 @@ func NewHTTPClient(dial, dialTLS func(context.Context, string, string) (net.Conn
 				raw.Close()
 				return nil, err
 			}
-			conn := tls.Client(raw, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}})
+			config, err := ca.GetTLSConfig(ca.Option{TLSConfig: &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}}})
+			if err != nil {
+				raw.Close()
+				return nil, err
+			}
+			conn := tls.Client(raw, config)
 			handshakeCtx, cancel := context.WithTimeout(ctx, driveTimeout)
 			defer cancel()
 			if err := conn.HandshakeContext(handshakeCtx); err != nil {

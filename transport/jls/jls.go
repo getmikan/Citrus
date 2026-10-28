@@ -104,6 +104,9 @@ func NewClient(ctx context.Context, conn net.Conn, config *ClientConfig) (net.Co
 		NextProtos: append([]string(nil), alpn...),
 		RootCAs:    ca.GetCertPool(),
 		Time:       ntp.Now,
+		VerifyConnection: func(state tls.ConnectionState) error {
+			return ca.CheckChains(state.VerifiedChains)
+		},
 		JLSConfig: &tls.JLSConfig{
 			Enable: true,
 			User:   config.User,

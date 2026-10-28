@@ -23,6 +23,7 @@ import (
 	"github.com/metacubex/mihomo/common/yaml"
 	"github.com/metacubex/mihomo/component/age"
 	"github.com/metacubex/mihomo/component/auth"
+	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/cidr"
 	"github.com/metacubex/mihomo/component/fakeip"
 	"github.com/metacubex/mihomo/component/geodata"
@@ -215,6 +216,9 @@ type TLS struct {
 	ClientAuthCert  string
 	EchKey          string
 	CustomTrustCert []string
+	RootPolicy      ca.RootPolicy
+	// Roots is the pool of RootPolicy and CustomTrustCert, installed while the config is parsed.
+	Roots *ca.Roots
 }
 
 // Config is mihomo config manager
@@ -463,6 +467,8 @@ type RawTLS struct {
 	ClientAuthCert  string   `yaml:"client-auth-cert" json:"client-auth-cert"`
 	EchKey          string   `yaml:"ech-key" json:"ech-key"`
 	CustomTrustCert []string `yaml:"custom-certifactes" json:"custom-certifactes"`
+	CARoots         string   `yaml:"ca-roots" json:"ca-roots"`
+	CADenylist      bool     `yaml:"ca-denylist" json:"ca-denylist"`
 }
 
 type RawConfig struct {
@@ -622,6 +628,9 @@ func DefaultRawConfig() *RawConfig {
 			},
 			FakeIPFilterMode: C.FilterBlackList,
 		},
+		TLS: RawTLS{
+			CADenylist: true,
+		},
 		NTP: RawNTP{
 			Enable:        false,
 			WriteToSystem: false,
@@ -762,6 +771,16 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 	config.TLS = tlsCfg
+	// Most proxies keep the root pool they are built with, so the one of this config is installed
+	// before they are parsed. ApplyConfig installs it again, a config that fails to parse puts the
+	// previous one back.
+	prevRoots := ca.SwapRoots(tlsCfg.Roots)
+	parsed := false
+	defer func() {
+		if !parsed {
+			ca.SwapRoots(prevRoots)
+		}
+	}()
 
 	proxies, providers, err := parseProxies(rawCfg)
 	if err != nil {
@@ -849,6 +868,7 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 	elapsedTime := time.Since(startTime) / time.Millisecond                     // duration in ms
 	log.Infoln("Initial configuration complete, total time: %dms", elapsedTime) //Segment finished in xxm
 
+	parsed = true
 	return config, nil
 }
 
@@ -1051,6 +1071,15 @@ func parseProfile(cfg *RawConfig) (*Profile, error) {
 }
 
 func parseTLS(cfg *RawConfig) (*TLS, error) {
+	source, err := ca.ParseRootSource(cfg.TLS.CARoots)
+	if err != nil {
+		return nil, fmt.Errorf("tls: %w", err)
+	}
+	policy := ca.RootPolicy{Source: source, DisableDenylist: !cfg.TLS.CADenylist}
+	roots, errs := ca.NewRoots(policy, cfg.TLS.CustomTrustCert)
+	for _, err := range errs {
+		log.Warnln("%s", err)
+	}
 	return &TLS{
 		Certificate:     cfg.TLS.Certificate,
 		PrivateKey:      cfg.TLS.PrivateKey,
@@ -1058,6 +1087,8 @@ func parseTLS(cfg *RawConfig) (*TLS, error) {
 		ClientAuthCert:  cfg.TLS.ClientAuthCert,
 		EchKey:          cfg.TLS.EchKey,
 		CustomTrustCert: cfg.TLS.CustomTrustCert,
+		RootPolicy:      policy,
+		Roots:           roots,
 	}, nil
 }
 
