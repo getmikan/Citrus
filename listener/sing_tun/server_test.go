@@ -5,9 +5,13 @@ import (
 	"testing"
 
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/dialer"
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
 	LC "github.com/metacubex/mihomo/listener/config"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeTunnel satisfies both tunnel interfaces New asserts; none of its methods
@@ -34,4 +38,26 @@ func TestNewAutoRedirectRequiresAutoRoute(t *testing.T) {
 	if l != nil {
 		t.Fatal("expected a nil listener on error")
 	}
+}
+
+func TestClaimRoutingMarkKeepsUserMark(t *testing.T) {
+	const mark = int32(0x2024)
+	old := dialer.DefaultRoutingMark.Swap(mark) // user configured the same value as the auto-redirect output mark
+	t.Cleanup(func() { dialer.DefaultRoutingMark.Store(old) })
+
+	l := &Listener{}
+	require.Error(t, l.claimRoutingMark(mark))
+	require.NoError(t, l.Close()) // what the deferred cleanup in New does
+	assert.Equal(t, mark, dialer.DefaultRoutingMark.Load())
+}
+
+func TestClaimRoutingMarkReleasedOnClose(t *testing.T) {
+	old := dialer.DefaultRoutingMark.Swap(0)
+	t.Cleanup(func() { dialer.DefaultRoutingMark.Store(old) })
+
+	l := &Listener{}
+	require.NoError(t, l.claimRoutingMark(0x2024))
+	assert.Equal(t, int32(0x2024), dialer.DefaultRoutingMark.Load())
+	require.NoError(t, l.Close())
+	assert.Equal(t, int32(0), dialer.DefaultRoutingMark.Load())
 }

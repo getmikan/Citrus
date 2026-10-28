@@ -530,9 +530,8 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 			return
 		}
 		if tunOptions.AutoRedirectMarkMode {
-			l.autoRedirectOutputMark = int32(outputMark)
-			if !dialer.DefaultRoutingMark.CompareAndSwap(0, l.autoRedirectOutputMark) {
-				err = E.New("not allowed setting global routing-mark when working with autoRedirectMarkMode")
+			err = l.claimRoutingMark(int32(outputMark))
+			if err != nil {
 				return
 			}
 			l.autoRedirect.UpdateRouteAddressSet()
@@ -550,6 +549,17 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 	l.addrStr = fmt.Sprintf("%s(%s,%s), mtu: %d, auto route: %v, auto redir: %v, ip stack: %s",
 		tunName, tunOptions.Inet4Address, tunOptions.Inet6Address, tunMTU, options.AutoRoute, options.AutoRedirect, options.Stack)
 	return
+}
+
+// claimRoutingMark takes the global routing-mark for auto-redirect mark mode.
+// l.autoRedirectOutputMark is set only once the mark is ours, otherwise Close
+// would reset a user-configured routing-mark that happens to be equal.
+func (l *Listener) claimRoutingMark(mark int32) error {
+	if !dialer.DefaultRoutingMark.CompareAndSwap(0, mark) {
+		return E.New("not allowed setting global routing-mark when working with autoRedirectMarkMode")
+	}
+	l.autoRedirectOutputMark = mark
+	return nil
 }
 
 func (l *Listener) ruleUpdateCallback(ruleProvider P.RuleProvider) {
