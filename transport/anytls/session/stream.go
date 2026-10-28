@@ -26,6 +26,7 @@ type Stream struct {
 	recvHead     int
 	recvClosed   bool          // no more frames come: reads end after the queue
 	recvWaiting  bool          // the reader waits on readable for a frame
+	recvDetached bool          // the queued frames no longer count in sess.recvQueued
 	readable     chan struct{} // a frame was queued or the stream closed
 	readDeadline pipe.PipeDeadline
 	readOptions  N.ReadWaitOptions
@@ -131,9 +132,11 @@ func (s *Stream) closeWithError(err error) error {
 		}
 		return err
 	}
-	// Closed already, by the peer's FIN or the session: the frames it left
-	// queued are not read now either, so give their budget back.
-	s.closeRecv(true)
+	// Closed already, by the peer's FIN or the session. The frames the peer
+	// left queued may still be read (the relay closes the stream when one
+	// direction ends while the other still reads), or never: they stop
+	// counting against the session's budget, so it does not wait for them.
+	s.detachRecv()
 	return s.closeErr()
 }
 
