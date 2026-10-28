@@ -1,13 +1,13 @@
 package proxyproto
 
 import (
-	"errors"
 	"net"
 	"net/netip"
 	"runtime/debug"
 	"sync"
 	"time"
 
+	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/log"
 )
 
@@ -76,28 +76,17 @@ func NewListener(l net.Listener, config Config) net.Listener {
 
 func (l *listener) loop() {
 	defer close(l.failed)
-	var delay time.Duration
+	var backoff N.AcceptBackoff
 	for {
 		conn, err := l.Listener.Accept()
 		if err != nil {
-			var temporary interface{ Temporary() bool }
-			if errors.As(err, &temporary) && temporary.Temporary() {
-				// out of file descriptors and the like: back off as net/http does
-				if delay == 0 {
-					delay = 5 * time.Millisecond
-				} else if delay *= 2; delay > time.Second {
-					delay = time.Second
-				}
-				select {
-				case <-time.After(delay):
-					continue
-				case <-l.done:
-				}
+			if backoff.Retry(err, l.done) {
+				continue
 			}
 			l.err = err
 			return
 		}
-		delay = 0
+		backoff.Reset()
 		go l.handshake(conn)
 	}
 }

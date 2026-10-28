@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -207,5 +208,39 @@ func TestListenerCloseUnblocksAccept(t *testing.T) {
 		assert.Error(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Accept still blocks after Close")
+	}
+}
+
+type failingListener struct {
+	net.Listener
+	failures int
+}
+
+func (l *failingListener) Accept() (net.Conn, error) {
+	if l.failures > 0 {
+		l.failures--
+		// WSAENOBUFS: socket exhaustion that Go does not report as Temporary
+		return nil, &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("socket", syscall.Errno(10055))}
+	}
+	return l.Listener.Accept()
+}
+
+func TestListenerSurvivesResourceExhaustion(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	l := NewListener(&failingListener{Listener: raw, failures: 3}, Config{})
+	t.Cleanup(func() { _ = l.Close() })
+	done := make(chan accepted, 1)
+	go func() {
+		c, err := l.Accept()
+		done <- accepted{c, err}
+	}()
+	dial(t, raw.Addr().String(), []byte("PROXY TCP4 10.0.0.1 10.0.0.2 1000 443\r\n"))
+	select {
+	case a := <-done:
+		require.NoError(t, a.err)
+		_ = a.conn.Close()
+	case <-time.After(5 * time.Second):
+		t.Fatal("listener did not recover from the accept errors")
 	}
 }
