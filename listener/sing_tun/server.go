@@ -141,13 +141,18 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 			inbound.WithSpecialRules(""),
 		}
 	}
+	if !supportRedirect {
+		options.AutoRedirect = false
+	}
+	// Validate before anything is started: the deferred cleanup below cannot
+	// undo monitors or the DefaultInterfaceFinder swap once l is nil.
+	if options.AutoRedirect && !options.AutoRoute {
+		return nil, E.New("`auto-route` is required by `auto-redirect`")
+	}
 	ctx := context.TODO()
 	rpTunnel := tunnel.(P.Tunnel)
 	if options.GSOMaxSize == 0 {
 		options.GSOMaxSize = 65536
-	}
-	if !supportRedirect {
-		options.AutoRedirect = false
 	}
 	tunName := options.Device
 	if options.FileDescriptor == 0 && (tunName == "" || !checkTunName(tunName)) {
@@ -426,9 +431,6 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		l.routeAddressMap = make(map[string]*netipx.IPSet)
 		l.routeExcludeAddressMap = make(map[string]*netipx.IPSet)
 
-		if !options.AutoRoute {
-			return nil, E.New("`auto-route` is required by `auto-redirect`")
-		}
 		disableNFTables, dErr := strconv.ParseBool(os.Getenv("DISABLE_NFTABLES"))
 		l.autoRedirect, err = tun.NewAutoRedirect(tun.AutoRedirectOptions{
 			TunOptions:             &tunOptions,
