@@ -2583,6 +2583,17 @@ listeners:
     #   sc-stream-up-server-secs: "20-80"
     #   sc-max-each-post-bytes: 1000000
     #   server-max-header-bytes: 0 # 请求头大小上限（h1 与 h2），0 为 1 MiB；Xray-core 默认 8192。数据放在 header/cookie 时需足够大
+    # alpn: [h3] # 仅与 xhttp-config 一起使用。默认（不填）只在 TCP 上提供 h2 与 http/1.1
+    #   Which HTTP versions the xhttp inbound serves. Unset: h2 and http/1.1 over TCP, as before.
+    #   [h3]: XHTTP over HTTP/3 (QUIC) on UDP only, as Xray-core's `alpn: ["h3"]`.
+    #   [h3, h2, http/1.1]: both, TCP and UDP on the same port, sharing the XHTTP sessions
+    #   (an upload over h3 and a download over h2 with download-settings work).
+    #   All modes work over h3. Needs certificate/private-key: REALITY, shadow-tls, res-tls and jls
+    #   work on a TCP TLS handshake and are rejected with h3; a unix socket listen is rejected too.
+    #   server-max-header-bytes also applies to h3. Clients connect with `alpn: [h3]`.
+    #   proxy-protocol is rejected with h3 (QUIC carries no PROXY header, the UDP port would be open
+    #   to every peer). ws-path and grpc-service-name do not run over h3: [h3] alone rejects them.
+    #   Without xhttp-config alpn is ignored with a warning.
     # -------------------------
     # vless encryption服务端配置：
     # （原生外观 / 只 XOR 公钥 / 全随机数。1-RTT 每次下发随机 300 到 600 秒的 ticket 以便 0-RTT 复用 / 只允许 1-RTT）

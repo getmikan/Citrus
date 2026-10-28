@@ -9,6 +9,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/httputils"
+	"github.com/metacubex/mihomo/common/sockopt"
 	"github.com/metacubex/mihomo/component/authevent"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
@@ -41,6 +42,7 @@ type Listener struct {
 	closed     bool
 	config     LC.VlessServer
 	listeners  []net.Listener
+	h3         []*h3Listener // XHTTP over HTTP/3 (alpn h3)
 	service    *Service
 	decryption *encryption.ServerInstance
 	realIP     httputils.RealIP
@@ -77,6 +79,12 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	}
 
 	sl = &Listener{config: config, service: service, realIP: realIP}
+	listener := sl // sl is nil once an error is returned
+	defer func() { // a listen address that fails must not leave the earlier ones open
+		if err != nil {
+			_ = listener.closeListeners()
+		}
+	}()
 
 	sl.decryption, err = encryption.NewServer(config.Decryption)
 	if err != nil {
@@ -109,6 +117,14 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 				sl.fallbacks.Close()
 			}
 		}()
+	}
+
+	xhttpOn := config.XHTTPConfig.Path != "" || config.XHTTPConfig.Host != "" || config.XHTTPConfig.Mode != ""
+	if len(config.ALPN) != 0 && !xhttpOn {
+		// configs from before alpn existed may carry one (copied from an
+		// outbound or a hysteria2 inbound), which was ignored then
+		log.Warnln("[VLESS] alpn %v is ignored: it is only supported with xhttp-config", config.ALPN)
+		config.ALPN = nil
 	}
 
 	if config.XDriveConfig != nil {
@@ -230,7 +246,19 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 			return nil, err
 		}
 	}
-	xhttpOn := config.XHTTPConfig.Path != "" || config.XHTTPConfig.Host != "" || config.XHTTPConfig.Mode != ""
+	serveTCP, serveH3, err := xhttpALPN(config.ALPN)
+	if err != nil {
+		return nil, err
+	}
+	if serveH3 {
+		if err = h3SecurityError(securityModes); err != nil {
+			return nil, err
+		}
+	}
+	if !serveTCP && (config.WsPath != "" || config.GrpcServiceName != "") {
+		// ws and gRPC do not run over HTTP/3, and nothing would listen on TCP
+		return nil, errors.New("ws-path and grpc-service-name need TCP: add h2 or http/1.1 to alpn next to h3")
+	}
 	// fallback-page: what a request that is not the inbound's own gets on an HTTP transport.
 	// Only with one: a handler makes the listener serve HTTP, which plain VLESS does not.
 	var page http.Handler
@@ -348,43 +376,68 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	for _, addr := range strings.Split(config.Listen, ",") {
 		addr := addr
 
-		//TCP
-		l, err := lc.Listen(context.Background(), "tcp", addr)
-		if err != nil {
-			return nil, err
+		if serveH3 && strings.HasPrefix(addr, inbound.UnixSocketPrefix) {
+			return nil, errors.New("xhttp over h3 cannot listen on a unix socket")
 		}
-		if shadowTLSBuilder != nil {
-			l = shadowTLSBuilder.NewListener(l)
-		} else if restlsBuilder != nil {
-			l = restlsBuilder.NewListener(l)
-		} else if jlsBuilder != nil {
-			l = jlsBuilder.NewListener(l)
-		} else if realityBuilder != nil {
-			l = realityBuilder.NewListener(l)
-		} else if tlsConfig.GetCertificate != nil {
-			l = tls.NewListener(l, tlsConfig)
-		} else if sl.decryption == nil && !config.AllowInsecure {
-			return nil, errors.New("disallow using Vless without any certificates/shadow-tls/res-tls/jls/reality/decryption/allow-insecure config")
-		}
-		sl.listeners = append(sl.listeners, l)
-
-		go func() {
-			if httpServer.Handler != nil {
-				_ = httpServer.Serve(l)
-				return
+		var tcpAddr net.Addr
+		if serveTCP {
+			//TCP
+			l, err := lc.Listen(context.Background(), "tcp", addr)
+			if err != nil {
+				return nil, err
 			}
-			for {
-				c, err := l.Accept()
-				if err != nil {
-					if sl.closed {
-						break
-					}
-					continue
+			tcpAddr = l.Addr()
+			if shadowTLSBuilder != nil {
+				l = shadowTLSBuilder.NewListener(l)
+			} else if restlsBuilder != nil {
+				l = restlsBuilder.NewListener(l)
+			} else if jlsBuilder != nil {
+				l = jlsBuilder.NewListener(l)
+			} else if realityBuilder != nil {
+				l = realityBuilder.NewListener(l)
+			} else if tlsConfig.GetCertificate != nil {
+				l = tls.NewListener(l, tlsConfig)
+			} else if sl.decryption == nil && !config.AllowInsecure {
+				_ = l.Close()
+				return nil, errors.New("disallow using Vless without any certificates/shadow-tls/res-tls/jls/reality/decryption/allow-insecure config")
+			}
+			sl.listeners = append(sl.listeners, l)
+
+			go func() {
+				if httpServer.Handler != nil {
+					_ = httpServer.Serve(l)
+					return
 				}
+				for {
+					c, err := l.Accept()
+					if err != nil {
+						if sl.closed {
+							break
+						}
+						continue
+					}
 
-				go sl.acceptConn(c, tunnel)
+					go sl.acceptConn(c, tunnel)
+				}
+			}()
+		}
+
+		//UDP: XHTTP over HTTP/3, the same handler and so the same sessions
+		if serveH3 {
+			pc, err := lc.ListenPacket(context.Background(), "udp", h3UDPAddr(addr, tcpAddr))
+			if err != nil {
+				return nil, err
 			}
-		}()
+			if err := sockopt.UDPReuseaddr(pc); err != nil {
+				log.Warnln("Failed to Reuse UDP Address: %s", err)
+			}
+			// NextProtos is complete here; ConfigureTLSConfig offers h3 alone on a clone
+			h3l, err := listenH3(pc, tlsConfig, httpServer.Handler, config.XHTTPConfig.ServerMaxHeaderBytes)
+			if err != nil {
+				return nil, err
+			}
+			sl.h3 = append(sl.h3, h3l)
+		}
 	}
 
 	return sl, nil
@@ -406,6 +459,15 @@ func (l *Listener) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, erro
 }
 
 func (l *Listener) Close() error {
+	retErr := l.closeListeners()
+	if l.decryption != nil {
+		_ = l.decryption.Close()
+	}
+	return retErr
+}
+
+// closeListeners closes the TCP listeners and the HTTP/3 servers.
+func (l *Listener) closeListeners() error {
 	l.closed = true
 	var retErr error
 	for _, lis := range l.listeners {
@@ -414,8 +476,11 @@ func (l *Listener) Close() error {
 			retErr = err
 		}
 	}
-	if l.decryption != nil {
-		_ = l.decryption.Close()
+	for _, lis := range l.h3 {
+		err := lis.Close()
+		if err != nil {
+			retErr = err
+		}
 	}
 	if l.fallbacks != nil {
 		l.fallbacks.Close()
@@ -430,6 +495,11 @@ func (l *Listener) Config() string {
 func (l *Listener) AddrList() (addrList []net.Addr) {
 	for _, lis := range l.listeners {
 		addrList = append(addrList, lis.Addr())
+	}
+	if len(l.listeners) == 0 { // HTTP/3 only; otherwise UDP shares the TCP ports
+		for _, lis := range l.h3 {
+			addrList = append(addrList, lis.conn.LocalAddr())
+		}
 	}
 	return
 }
