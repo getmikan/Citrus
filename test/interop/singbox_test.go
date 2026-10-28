@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -180,14 +182,43 @@ func TestSingboxClientCitrusServer(t *testing.T) {
 // without waiting for the server's MAX_STREAMS credit, so past 2048 concurrent
 // relays its new connections fail instead of queueing: sing-box 1.14.4 logs
 // "open connection ... using outbound/tuic[out]: too many open streams" for
-// exactly the relays above 2048 (see the roadmap, "The TUIC stream limit"). Below the limit everything has to work; the case past
-// it documents the known break and runs only when INTEROP_TUIC_OVER_LIMIT is
-// set, so that it can be reproduced and turned on once the limit is settled.
+// exactly the relays above 2048 (see the roadmap, "The TUIC stream limit").
+// Just under the limit everything has to work; the case past it documents the
+// known break and runs only when INTEROP_TUIC_OVER_LIMIT is set, so that it
+// can be reproduced and turned on once the limit is settled.
 const tuicStreamLimit = 2048
+
+// TestTUICStreamLimitMatchesServer keeps tuicStreamLimit in step with the
+// server. This module imports nothing from Citrus, so the constant is read
+// from the source of listener/tuic instead.
+func TestTUICStreamLimitMatchesServer(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "listener", "tuic", "server.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^\s*ServerMaxIncomingStreams\s*=\s*(\d+)`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("ServerMaxIncomingStreams not found in listener/tuic/server.go")
+	}
+	if got, _ := strconv.Atoi(string(m[1])); got != tuicStreamLimit {
+		t.Fatalf("listener/tuic.ServerMaxIncomingStreams is %d, tuicStreamLimit is %d", got, tuicStreamLimit)
+	}
+}
+
+// tuicUnderLimit is the number of relays of the under-limit case: 64 short of
+// the limit, so that a lower limit or a credit renewal that stalls near it
+// fails the case. Windows runs half the limit, its 16384 ephemeral ports
+// being shared with the other cases.
+func tuicUnderLimit() int {
+	if runtime.GOOS == "windows" {
+		return tuicStreamLimit / 2
+	}
+	return tuicStreamLimit - 64
+}
 
 func TestSingboxClientCitrusServerTUICStreams(t *testing.T) {
 	needSingbox(t)
-	t.Run("under-limit", func(t *testing.T) { runTUICStreams(t, tuicStreamLimit/2) })
+	t.Run("under-limit", func(t *testing.T) { runTUICStreams(t, tuicUnderLimit()) })
 	t.Run("over-limit", func(t *testing.T) {
 		if os.Getenv("INTEROP_TUIC_OVER_LIMIT") == "" {
 			t.Skipf("known issue: a sing-box TUIC client fails past %d concurrent streams; "+

@@ -40,12 +40,12 @@ const (
 )
 
 var (
-	xrayBin   string
+	xrayBin    string
 	mihomoBin  string // upstream mihomo release binary, the client of mihomo_test.go
 	singboxBin string // sing-box release binary, the peer of singbox_test.go
 	citrusBin  string
-	workDir   string
-	logDir    string
+	workDir    string
+	logDir     string
 
 	echoAddr      string // plain HTTP echo server, the destination of every request
 	udpEchoAddr   string // UDP echo server, the destination of the UDP checks

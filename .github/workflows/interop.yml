@@ -8,6 +8,8 @@ on:
       - "transport/**"
       - "component/tls/**"
       - "component/ech/**"
+      - "component/loopback/**"
+      - "constant/**"
       - "listener/**"
       - "adapter/outbound/**"
       - "hub/route/**"
