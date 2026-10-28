@@ -475,6 +475,12 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 					log.Warnln("[Provider] %s: skip proxy %d (%s): it uses a protocol or option removed from Citrus (SSR, Hysteria v1, TUIC v4, Shadowsocks stream ciphers, v2ray-plugin, VMess)", pdName, idx, name)
 					continue
 				}
+				// Log only the constant skip message: the error around it may be
+				// built from the mapping.
+				if skipErr := C.ProviderSkipError(""); errors.As(err, &skipErr) {
+					log.Warnln("[Provider] %s: skip proxy %d (%s): %s", pdName, idx, name, skipErr)
+					continue
+				}
 				if err != nil {
 					return nil, fmt.Errorf("proxy %d error: %w", idx, err)
 				}
