@@ -2,6 +2,7 @@ package net
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -101,12 +102,29 @@ func (l *handleContextListener) shutdown(err error) {
 }
 func (l *handleContextListener) init() {
 	go func() {
+		var delay time.Duration
 		for {
 			raw, err := l.Listener.Accept()
 			if err != nil {
+				var temporary interface{ Temporary() bool }
+				if errors.As(err, &temporary) && temporary.Temporary() {
+					// out of file descriptors and the like: back off as net/http does
+					if delay == 0 {
+						delay = 5 * time.Millisecond
+					} else if delay *= 2; delay > time.Second {
+						delay = time.Second
+					}
+					select {
+					case <-time.After(delay):
+						continue
+					case <-l.done:
+						return
+					}
+				}
 				l.shutdown(err)
 				return
 			}
+			delay = 0
 			select {
 			case l.slots <- struct{}{}:
 			default:
