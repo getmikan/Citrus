@@ -244,3 +244,48 @@ func TestCopyDirToRootPreservesSingleRootLayout(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ok", string(data))
 }
+
+func TestInstallUIKeepsOldUIOnFailedCopy(t *testing.T) {
+	dest := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dest, "index.html"), []byte("old"), 0o600))
+	root, err := os.OpenRoot(dest)
+	require.NoError(t, err)
+	defer root.Close()
+
+	// A staging tree that cannot be copied: missing, or holding a symlink.
+	broken := filepath.Join(t.TempDir(), "missing")
+	require.Error(t, installUI(broken, root))
+	assertOnlyFile(t, dest, "index.html", "old")
+
+	withLink := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(withLink, "index.html"), []byte("new"), 0o600))
+	if err := os.Symlink(filepath.Join(withLink, "index.html"), filepath.Join(withLink, "link.js")); err == nil {
+		require.Error(t, installUI(withLink, root))
+		assertOnlyFile(t, dest, "index.html", "old")
+	}
+
+	staging := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(staging, "assets"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(staging, "index.html"), []byte("new"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(staging, "assets", "app.js"), []byte("js"), 0o600))
+	require.NoError(t, installUI(staging, root))
+	entries, err := os.ReadDir(dest)
+	require.NoError(t, err)
+	require.Len(t, entries, 2, "the staging directory must be gone")
+	data, err := os.ReadFile(filepath.Join(dest, "assets", "app.js"))
+	require.NoError(t, err)
+	require.Equal(t, "js", string(data))
+	data, err = os.ReadFile(filepath.Join(dest, "index.html"))
+	require.NoError(t, err)
+	require.Equal(t, "new", string(data))
+}
+
+func assertOnlyFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "a failed install left files behind")
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	require.NoError(t, err)
+	require.Equal(t, content, string(data))
+}
