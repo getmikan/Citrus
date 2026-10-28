@@ -5,7 +5,7 @@ own container, under the same load:
 
 | server | binary | pin |
 |---|---|---|
-| Xray-core | release `Xray-linux-64.zip` v26.10.17 | SHA-256 `ecdd54eccd24c4c21a8f00968e7dbf7f5996da92383d2321170b560dc4a95158` (the asset digest on GitHub, also checked against the release's `.dgst`) |
+| Xray-core | release `Xray-linux-64.zip` v26.10.21 | SHA-256 `0eec3ed4163c273d8c8bf821f7d219e257921cf584aa3fb970715e458e631978` (the asset digest on GitHub, also checked against the release's `.dgst`) |
 | sing-box | release `sing-box-1.14.3-linux-amd64-musl.tar.gz` v1.14.3 (musl: the runtime image is alpine) | SHA-256 `41fc81fd041134d4d7d850a928d7d2cde17a7d6563953f406b22d32a68bfab1f` (the asset digest on GitHub; the release publishes no checksum file) |
 | mihomo | release `mihomo-linux-amd64-v1.19.32.gz` | SHA-256 `8451100836c9eda194331c2babfad490b2faf30cebc1a04b0e76fd8ac2d35d10` |
 | Citrus | built from this checkout | the flags of the linux-amd64 release build: `GOAMD64=v3 CGO_ENABLED=0 go build -tags with_gvisor -trimpath -ldflags "-extldflags --static -X ... -w -s -buildid="` in `golang:1.26.9` |
@@ -81,7 +81,7 @@ then `go tool pprof -top /tmp/prof/pprof/citrus-trojan-handshake-cpu.pb.gz`
   siblings (3, 5) are left idle. `GOMAXPROCS` is left to the runtime (it sees
   the cpuset: 2).
 - **One client per protocol, the same for every server**, driven through its
-  SOCKS5 inbound by `cmp measure` in the same container. Xray v26.10.17
+  SOCKS5 inbound by `cmp measure` in the same container. Xray v26.10.21
   wherever Xray speaks the protocol (REALITY, XHTTP, Trojan, SS2022,
   Hysteria2): it is neither sing-box nor of the mihomo family. sing-box
   v1.14.3 for TUIC and AnyTLS, which Xray lacks. Within a protocol only the
