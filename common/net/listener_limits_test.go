@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -230,6 +232,7 @@ type flakyListener struct {
 	mu       sync.Mutex
 	failures int
 	errors   int
+	err      error // temporaryError{} when nil
 }
 
 func (l *flakyListener) Accept() (net.Conn, error) {
@@ -237,19 +240,37 @@ func (l *flakyListener) Accept() (net.Conn, error) {
 	if l.failures > 0 {
 		l.failures--
 		l.errors++
+		err := l.err
 		l.mu.Unlock()
-		return nil, temporaryError{}
+		if err == nil {
+			err = temporaryError{}
+		}
+		return nil, err
 	}
 	l.mu.Unlock()
 	return l.Listener.Accept()
 }
 
 func TestListenerSurvivesTemporaryAcceptErrors(t *testing.T) {
+	testListenerSurvivesAcceptErrors(t, nil)
+}
+
+// Go's Temporary() is false for socket exhaustion on Windows (WSAENOBUFS from
+// WSASocket in accept) and for ENOBUFS / ENOMEM on Linux.
+func TestListenerSurvivesResourceExhaustionAcceptErrors(t *testing.T) {
+	err := &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("socket", syscall.Errno(10055))}
+	if err.Temporary() {
+		t.Fatal("the injected error must not be Temporary")
+	}
+	testListenerSurvivesAcceptErrors(t, err)
+}
+
+func testListenerSurvivesAcceptErrors(t *testing.T, acceptErr error) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	flaky := &flakyListener{Listener: raw, failures: 3}
+	flaky := &flakyListener{Listener: raw, failures: 3, err: acceptErr}
 	l := NewHandleContextListener(context.Background(), flaky, func(ctx context.Context, c net.Conn) (net.Conn, error) { return c, nil }, nil)
 	t.Cleanup(func() { l.Close() })
 	accepted := make(chan error, 1)
