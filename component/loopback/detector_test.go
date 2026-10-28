@@ -91,8 +91,34 @@ func TestDetectorTransparentLoopRejected(t *testing.T) {
 	l := newTestDetector(t)
 	l.NewConn(&fakeConn{local: tcpAddr("192.168.1.10:40000"), remote: tcpAddr("93.184.216.34:443")})
 
-	err := l.CheckConn(inboundMetadata("192.168.1.10:40000", "198.18.0.1:7893", "93.184.216.34:443"))
-	assert.True(t, errors.Is(err, ErrReject), "a captured DIRECT connection must be rejected, got %v", err)
+	for _, typ := range []C.Type{C.TUN, C.TPROXY, C.REDIR} {
+		m := inboundMetadata("192.168.1.10:40000", "198.18.0.1:7893", "93.184.216.34:443")
+		m.Type = typ
+		err := l.CheckConn(m)
+		assert.True(t, errors.Is(err, ErrReject), "%s: a captured DIRECT connection must be rejected, got %v", typ, err)
+	}
+}
+
+// TestDetectorProxyTargetSharedSourceAllowed: on a proxy inbound the
+// destination is the target the client asked for, not where the client's
+// socket goes. A local client whose source address equals the local address
+// of a live DIRECT connection, asking for that connection's target, is not a
+// loop: a QUIC client's UDP port may have the same number as a DIRECT TCP
+// connection's, and a multiplexing client (AnyTLS, mux) opens many relays
+// from one TCP source port, which the kernel may also give to a DIRECT
+// connection towards another destination.
+func TestDetectorProxyTargetSharedSourceAllowed(t *testing.T) {
+	l := newTestDetector(t)
+	// DIRECT: 127.0.0.1:40000 -> 127.0.0.1:8080, relaying an earlier request.
+	l.NewConn(&fakeConn{local: tcpAddr("127.0.0.1:40000"), remote: tcpAddr("127.0.0.1:8080")})
+
+	for _, typ := range []C.Type{C.TUIC, C.HYSTERIA2, C.ANYTLS, C.VLESS, C.TROJAN, C.SHADOWSOCKS} {
+		// Client: 127.0.0.1:40000 -> listener 127.0.0.1:7890, asking for the
+		// same 127.0.0.1:8080 again.
+		m := inboundMetadata("127.0.0.1:40000", "127.0.0.1:7890", "127.0.0.1:8080")
+		m.Type = typ
+		assert.NoError(t, l.CheckConn(m), "%s", typ)
+	}
 }
 
 // TestDetectorSharedSourcePortAllowed: the kernel reuses an ephemeral port for
@@ -121,7 +147,7 @@ func TestDetectorMappedAddresses(t *testing.T) {
 func TestDetectorPacketConn(t *testing.T) {
 	l := newTestDetector(t)
 	udpMetadata := func(src string) *C.Metadata {
-		m := &C.Metadata{NetWork: C.UDP}
+		m := &C.Metadata{NetWork: C.UDP, Type: C.SOCKS5}
 		s := netip.MustParseAddrPort(src)
 		m.SrcIP, m.SrcPort = s.Addr(), s.Port()
 		return m
@@ -139,4 +165,24 @@ func TestDetectorPacketConn(t *testing.T) {
 	l.NewPacketConn(&fakePacketConn{local: udpAddr("127.0.0.2:50002")})
 	assert.True(t, errors.Is(l.CheckPacketConn(udpMetadata("127.0.0.2:50002")), ErrReject))
 	assert.NoError(t, l.CheckPacketConn(udpMetadata("127.0.0.1:50002")))
+}
+
+// TestDetectorPacketConnOverTCPAllowed: a UDP session relayed inside a TCP
+// connection (VLESS, Trojan, AnyTLS, Snell) has the client's TCP socket as
+// its source. Its port may have the number of a wildcard-bound DIRECT UDP
+// socket, the port spaces being separate, and that is not a loop. The UDP
+// inbounds are still checked.
+func TestDetectorPacketConnOverTCPAllowed(t *testing.T) {
+	l := newTestDetector(t)
+	l.NewPacketConn(&fakePacketConn{local: udpAddr("[::]:41234")})
+
+	src := netip.MustParseAddrPort("127.0.0.1:41234")
+	for _, typ := range []C.Type{C.VLESS, C.TROJAN, C.ANYTLS, C.SNELL} {
+		m := &C.Metadata{NetWork: C.UDP, Type: typ, SrcIP: src.Addr(), SrcPort: src.Port()}
+		assert.NoError(t, l.CheckPacketConn(m), "%s", typ)
+	}
+	for _, typ := range []C.Type{C.SOCKS5, C.SHADOWSOCKS, C.TUNNEL, C.TUN, C.TPROXY, C.TUIC} {
+		m := &C.Metadata{NetWork: C.UDP, Type: typ, SrcIP: src.Addr(), SrcPort: src.Port()}
+		assert.True(t, errors.Is(l.CheckPacketConn(m), ErrReject), "%s", typ)
+	}
 }

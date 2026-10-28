@@ -95,7 +95,15 @@ func (l *Detector) NewPacketConn(conn C.PacketConn) C.PacketConn {
 // connection's remote address. The destination is the inbound's local address
 // (InIP:InPort) when DIRECT dialed a Citrus listener, or the original
 // destination (DstIP:DstPort) when the connection was captured transparently
-// (tun, tproxy, redir); both are tried.
+// (tun, tproxy, redir).
+//
+// The original destination is tried for transparent inbounds only. On a proxy
+// inbound it is the target the client asked for, and the source is the
+// client's own socket: a UDP one for the QUIC inbounds, whose port number a
+// DIRECT TCP connection may well have too, or one TCP connection carrying
+// many relays (AnyTLS, mux), whose ephemeral port the kernel may hand to a
+// DIRECT connection towards another destination. A local client of either
+// kind asking for the target such a DIRECT connection goes to is not a loop.
 func (l *Detector) CheckConn(metadata *C.Metadata) error {
 	if l == nil {
 		return nil
@@ -104,10 +112,15 @@ func (l *Detector) CheckConn(metadata *C.Metadata) error {
 	if !src.IsValid() {
 		return nil
 	}
-	for _, dst := range [...]netip.AddrPort{
+	dsts := [...]netip.AddrPort{
 		netip.AddrPortFrom(metadata.InIP.Unmap(), metadata.InPort),
-		metadata.AddrPort(),
-	} {
+		{},
+	}
+	switch metadata.Type {
+	case C.TUN, C.TPROXY, C.REDIR:
+		dsts[1] = metadata.AddrPort()
+	}
+	for _, dst := range dsts {
 		if !dst.IsValid() || dst.Port() == 0 {
 			continue
 		}
@@ -121,8 +134,18 @@ func (l *Detector) CheckConn(metadata *C.Metadata) error {
 // CheckPacketConn reports a loop when the incoming UDP session comes from a
 // local address that a live DIRECT UDP socket is bound to, either exactly or
 // through the wildcard address of its family.
+//
+// The inbounds that carry UDP inside a TCP connection only (VLESS, Trojan,
+// AnyTLS, Snell) are skipped: the source there is the client's TCP socket,
+// which a DIRECT UDP socket cannot be, and the TCP and UDP port spaces are
+// separate, so a local client's TCP port may well have the number of a
+// wildcard-bound DIRECT UDP socket.
 func (l *Detector) CheckPacketConn(metadata *C.Metadata) error {
 	if l == nil {
+		return nil
+	}
+	switch metadata.Type {
+	case C.VLESS, C.TROJAN, C.ANYTLS, C.SNELL:
 		return nil
 	}
 	connAddr := metadata.SourceAddrPort()

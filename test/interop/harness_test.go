@@ -40,11 +40,12 @@ const (
 )
 
 var (
-	xrayBin   string
-	mihomoBin string // upstream mihomo release binary, the client of mihomo_test.go
-	citrusBin string
-	workDir   string
-	logDir    string
+	xrayBin    string
+	mihomoBin  string // upstream mihomo release binary, the client of mihomo_test.go
+	singboxBin string // sing-box release binary, the peer of singbox_test.go
+	citrusBin  string
+	workDir    string
+	logDir     string
 
 	echoAddr      string // plain HTTP echo server, the destination of every request
 	udpEchoAddr   string // UDP echo server, the destination of the UDP checks
@@ -60,9 +61,9 @@ func TestMain(m *testing.M) {
 }
 
 func run(m *testing.M) int {
-	xrayBin, mihomoBin = os.Getenv("XRAY_BIN"), os.Getenv("MIHOMO_BIN")
-	if xrayBin == "" && mihomoBin == "" {
-		fmt.Println("neither XRAY_BIN nor MIHOMO_BIN is set: interop tests are skipped")
+	xrayBin, mihomoBin, singboxBin = os.Getenv("XRAY_BIN"), os.Getenv("MIHOMO_BIN"), os.Getenv("SINGBOX_BIN")
+	if xrayBin == "" && mihomoBin == "" && singboxBin == "" {
+		fmt.Println("none of XRAY_BIN, MIHOMO_BIN, SINGBOX_BIN is set: interop tests are skipped")
 		return m.Run()
 	}
 	var err error
@@ -100,6 +101,16 @@ func run(m *testing.M) int {
 			return fail(fmt.Errorf("mihomo -v: %v\n%s", err, out))
 		}
 		fmt.Print("client: ", firstLine(string(out)), "\n")
+	}
+	if singboxBin != "" {
+		if singboxBin, err = filepath.Abs(singboxBin); err != nil {
+			return fail(err)
+		}
+		out, err := exec.Command(singboxBin, "version").CombinedOutput()
+		if err != nil {
+			return fail(fmt.Errorf("sing-box version: %v\n%s", err, out))
+		}
+		fmt.Print(firstLine(string(out)), "\n")
 	}
 
 	citrusBin = os.Getenv("CITRUS_BIN")
