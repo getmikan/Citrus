@@ -27,6 +27,7 @@ import (
 	"github.com/metacubex/mihomo/constant/features"
 	"github.com/metacubex/mihomo/hub"
 	"github.com/metacubex/mihomo/hub/executor"
+	"github.com/metacubex/mihomo/hub/route"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/rules/provider"
 
@@ -200,6 +201,7 @@ func main() {
 			log.Fatalln("Initial configuration error: %s", err.Error())
 			return
 		}
+		route.SetRestartUnsupported("the configuration was read from stdin (-f -); use -config or a file")
 	} else {
 		if configFile != "" {
 			if !filepath.IsAbs(configFile) {

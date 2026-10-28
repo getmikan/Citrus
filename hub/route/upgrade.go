@@ -23,6 +23,10 @@ func upgradeRouter() http.Handler {
 }
 
 func upgradeCore(w http.ResponseWriter, r *http.Request) {
+	// The new binary only takes effect through a restart.
+	if refuseRestart(w, r) {
+		return
+	}
 	// modify from https://github.com/AdguardTeam/AdGuardHome/blob/595484e0b3fb4c457f9bb727a6b94faa78a66c5f/internal/home/controlupdate.go#L108
 	log.Infoln("start update")
 	execPath, err := os.Executable()
