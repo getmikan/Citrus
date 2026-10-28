@@ -29,7 +29,12 @@ type dhcpClient struct {
 	ifaceAddr netip.Prefix
 	done      chan struct{}
 	clients   []dnsClient
-	err       error
+	err       error // result of the last DHCP fetch
+
+	// ifaceErr is the last interface lookup error. It is kept apart from
+	// err so that it is cleared as soon as the interface resolves again,
+	// even when no new DHCP fetch is needed.
+	ifaceErr error
 }
 
 var _ dnsClient = (*dhcpClient)(nil)
@@ -64,7 +69,7 @@ func (d *dhcpClient) resolve(ctx context.Context) ([]dnsClient, error) {
 
 	invalidated, err := d.invalidate()
 	if err != nil {
-		d.err = err
+		d.ifaceErr = err
 	} else if invalidated {
 		done := make(chan struct{})
 
@@ -106,6 +111,9 @@ func (d *dhcpClient) resolve(ctx context.Context) ([]dnsClient, error) {
 		d.lock.Lock()
 
 		res, err, done := d.clients, d.err, d.done
+		if d.ifaceErr != nil {
+			err = d.ifaceErr
+		}
 
 		d.lock.Unlock()
 
@@ -140,6 +148,8 @@ func (d *dhcpClient) invalidate() (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
+	d.ifaceErr = nil
 
 	if time.Now().Before(d.dnsInvalidate) && d.ifaceAddr == addr {
 		return false, nil
