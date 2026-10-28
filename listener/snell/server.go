@@ -16,6 +16,7 @@ import (
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/jls"
@@ -108,12 +109,9 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		l.listeners = append(l.listeners, ln)
 		go func(ln net.Listener) {
 			for {
-				conn, err := ln.Accept()
+				conn, err := accept.Next(ln, func() bool { return l.closed })
 				if err != nil {
-					if l.closed {
-						return
-					}
-					continue
+					return
 				}
 				go l.HandleConn(conn, tunnel, additions...)
 			}

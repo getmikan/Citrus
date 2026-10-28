@@ -15,6 +15,7 @@ import (
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/component/authevent"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/fallback"
 	"github.com/metacubex/mihomo/listener/sing"
@@ -310,12 +311,9 @@ func New(config LC.SudokuServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 
 	go func() {
 		for {
-			c, err := l.Accept()
+			c, err := accept.Next(l, sl.closed.Load)
 			if err != nil {
-				if sl.closed.Load() {
-					break
-				}
-				continue
+				break
 			}
 			go sl.handleConn(c, tunnel, additions...)
 		}

@@ -6,6 +6,7 @@ import (
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/component/keepalive"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 )
 
 type Listener struct {
@@ -50,12 +51,9 @@ func New(addr string, tunnel C.Tunnel, additions ...inbound.Addition) (*Listener
 
 	go func() {
 		for {
-			c, err := l.Accept()
+			c, err := accept.Next(l, func() bool { return rl.closed })
 			if err != nil {
-				if rl.closed {
-					break
-				}
-				continue
+				break
 			}
 			go handleRedir(c, tunnel, additions...)
 		}

@@ -13,6 +13,7 @@ import (
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/reality"
@@ -128,12 +129,9 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 	}
 	go func() {
 		for {
-			c, err := l.Accept()
+			c, err := accept.Next(l, sl.closed.Load)
 			if err != nil {
-				if sl.closed.Load() {
-					break
-				}
-				continue
+				break
 			}
 			store := config.AuthStore
 			if isDefault || store == authStore.Default { // only apply on default listener

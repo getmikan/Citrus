@@ -7,6 +7,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	"github.com/metacubex/mihomo/transport/socks5"
 )
 
@@ -62,12 +63,9 @@ func New(addr, target, proxy string, lc C.InboundListenConfig, tunnel C.Tunnel, 
 
 	go func() {
 		for {
-			c, err := l.Accept()
+			c, err := accept.Next(l, func() bool { return rl.closed })
 			if err != nil {
-				if rl.closed {
-					break
-				}
-				continue
+				break
 			}
 			go rl.handleTCP(c, tunnel, additions...)
 		}

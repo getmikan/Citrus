@@ -15,6 +15,7 @@ import (
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/jls"
@@ -169,12 +170,9 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 
 		go func() {
 			for {
-				c, err := l.Accept()
+				c, err := accept.Next(l, func() bool { return sl.closed })
 				if err != nil {
-					if sl.closed {
-						break
-					}
-					continue
+					break
 				}
 				go sl.HandleConn(c, h)
 			}
