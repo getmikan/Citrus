@@ -23,6 +23,7 @@ import (
 	"github.com/metacubex/mihomo/common/yaml"
 	"github.com/metacubex/mihomo/component/age"
 	"github.com/metacubex/mihomo/component/auth"
+	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/cidr"
 	"github.com/metacubex/mihomo/component/fakeip"
 	"github.com/metacubex/mihomo/component/geodata"
@@ -215,6 +216,7 @@ type TLS struct {
 	ClientAuthCert  string
 	EchKey          string
 	CustomTrustCert []string
+	RootPolicy      ca.RootPolicy
 }
 
 // Config is mihomo config manager
@@ -463,6 +465,8 @@ type RawTLS struct {
 	ClientAuthCert  string   `yaml:"client-auth-cert" json:"client-auth-cert"`
 	EchKey          string   `yaml:"ech-key" json:"ech-key"`
 	CustomTrustCert []string `yaml:"custom-certifactes" json:"custom-certifactes"`
+	CARoots         string   `yaml:"ca-roots" json:"ca-roots"`
+	CADenylist      bool     `yaml:"ca-denylist" json:"ca-denylist"`
 }
 
 type RawConfig struct {
@@ -621,6 +625,9 @@ func DefaultRawConfig() *RawConfig {
 				"www.msftconnecttest.com",
 			},
 			FakeIPFilterMode: C.FilterBlackList,
+		},
+		TLS: RawTLS{
+			CADenylist: true,
 		},
 		NTP: RawNTP{
 			Enable:        false,
@@ -1051,6 +1058,10 @@ func parseProfile(cfg *RawConfig) (*Profile, error) {
 }
 
 func parseTLS(cfg *RawConfig) (*TLS, error) {
+	source, err := ca.ParseRootSource(cfg.TLS.CARoots)
+	if err != nil {
+		return nil, fmt.Errorf("tls: %w", err)
+	}
 	return &TLS{
 		Certificate:     cfg.TLS.Certificate,
 		PrivateKey:      cfg.TLS.PrivateKey,
@@ -1058,6 +1069,7 @@ func parseTLS(cfg *RawConfig) (*TLS, error) {
 		ClientAuthCert:  cfg.TLS.ClientAuthCert,
 		EchKey:          cfg.TLS.EchKey,
 		CustomTrustCert: cfg.TLS.CustomTrustCert,
+		RootPolicy:      ca.RootPolicy{Source: source, DisableDenylist: !cfg.TLS.CADenylist},
 	}, nil
 }
 

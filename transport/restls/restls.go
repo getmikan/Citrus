@@ -31,6 +31,10 @@ func NewRestlsConfig(serverName, password, versionHint, restlsScript, clientID s
 	}
 	config.RootCAs = ca.GetCertPool()
 	config.Time = ntp.Now
+	// SetFingerprint and SetNameCertVerify replace it.
+	config.VerifyConnection = func(state tls.ConnectionState) error {
+		return ca.CheckChains(state.VerifiedChains)
+	}
 	return config, nil
 }
 

@@ -201,8 +201,11 @@ func verifyUTLSCertificate(state utls.ConnectionState, serverName string) error 
 	for _, certificate := range certificates[1:] {
 		opts.Intermediates.AddCert(certificate)
 	}
-	_, err := certificates[0].Verify(opts)
-	return err
+	chains, err := certificates[0].Verify(opts)
+	if err != nil {
+		return err
+	}
+	return ca.CheckChains(chains)
 }
 
 // overrideUTLSALPN keeps ALPS only when h2 remains advertised.

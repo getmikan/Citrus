@@ -1,12 +1,15 @@
 package ca
 
 import (
+	"crypto/sha256"
 	"crypto/x509"
 	_ "embed"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/metacubex/mihomo/common/once"
@@ -19,10 +22,72 @@ var globalCertPool *x509.CertPool
 var mutex sync.RWMutex
 var errNotMatch = errors.New("certificate fingerprints do not match")
 
+// _CaCertificates is the Mozilla root bundle as extracted by curl (https://curl.se/docs/caextract.html),
+// committed to the repository and refreshed with update-ca-bundle.sh. The header of the file records
+// the date of the Mozilla data it was built from.
+//
 //go:embed ca-certificates.crt
 var _CaCertificates []byte
+
+// bundlePEM is what the bundled pool is built from, a variable so tests can swap it.
+var bundlePEM = _CaCertificates
+
+// DisableEmbedCa and DisableSystemCa narrow the default RootsBoth source.
 var DisableEmbedCa, _ = strconv.ParseBool(os.Getenv("DISABLE_EMBED_CA"))
 var DisableSystemCa, _ = strconv.ParseBool(os.Getenv("DISABLE_SYSTEM_CA"))
+
+// RootSource selects the pools behind the core's own TLS verification.
+type RootSource uint8
+
+const (
+	RootsBoth   RootSource = iota // the system pool plus the bundled Mozilla roots, the default
+	RootsBundle                   // only the bundled Mozilla roots, CAs installed on the device are ignored
+	RootsSystem                   // only the system pool
+)
+
+func (s RootSource) String() string {
+	switch s {
+	case RootsBundle:
+		return "bundle"
+	case RootsSystem:
+		return "system"
+	default:
+		return "both"
+	}
+}
+
+// ParseRootSource parses the tls.ca-roots option, "" is the default RootsBoth.
+func ParseRootSource(s string) (RootSource, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "both":
+		return RootsBoth, nil
+	case "bundle":
+		return RootsBundle, nil
+	case "system":
+		return RootsSystem, nil
+	}
+	return RootsBoth, fmt.Errorf("unknown ca-roots %q, expected both, bundle or system", s)
+}
+
+// RootPolicy is the root CA policy of the core's TLS clients, the zero value is the default.
+type RootPolicy struct {
+	Source RootSource
+	// DisableDenylist trusts the denylisted CAs again when the system pool or the bundle has them.
+	DisableDenylist bool
+}
+
+var rootPolicy RootPolicy
+
+// customSPKI holds the SubjectPublicKeyInfo hashes of the certificates added by AddCertificate,
+// chains anchored at them are exempt from the denylist. It is replaced, never modified in place.
+var customSPKI map[[sha256.Size]byte]struct{}
+
+// SetRootPolicy sets the policy the next ResetCertificate builds the pool with.
+func SetRootPolicy(policy RootPolicy) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	rootPolicy = policy
+}
 
 func AddCertificate(certificate string) error {
 	mutex.Lock()
@@ -36,28 +101,83 @@ func AddCertificate(certificate string) error {
 		initializeCertPool()
 	}
 
-	if globalCertPool.AppendCertsFromPEM([]byte(certificate)) {
-		return nil
-	} else if cert, err := x509.ParseCertificate([]byte(certificate)); err == nil {
-		globalCertPool.AddCert(cert)
-		return nil
-	} else {
-		return fmt.Errorf("add certificate failed")
+	certs := parseCertificates([]byte(certificate))
+	if len(certs) == 0 {
+		cert, err := x509.ParseCertificate([]byte(certificate))
+		if err != nil {
+			return fmt.Errorf("add certificate failed")
+		}
+		certs = append(certs, cert)
 	}
+	custom := make(map[[sha256.Size]byte]struct{}, len(customSPKI)+len(certs))
+	for hash := range customSPKI {
+		custom[hash] = struct{}{}
+	}
+	for _, cert := range certs {
+		globalCertPool.AddCert(cert)
+		custom[spkiHash(cert)] = struct{}{}
+	}
+	customSPKI = custom
+	return nil
+}
+
+// parseCertificates returns the certificates of the PEM blocks in data like AppendCertsFromPEM,
+// skipping the blocks it cannot parse.
+func parseCertificates(data []byte) (certs []*x509.Certificate) {
+	for len(data) > 0 {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+			continue
+		}
+		if cert, err := x509.ParseCertificate(block.Bytes); err == nil {
+			certs = append(certs, cert)
+		}
+	}
+	return
+}
+
+// appendBundle adds the bundled roots to pool, leaving out the denylisted ones when denylist is set,
+// and returns how many it added.
+func appendBundle(pool *x509.CertPool, denylist bool) (n int) {
+	for _, cert := range parseCertificates(bundlePEM) {
+		if denylist && denylistedName(cert) != "" {
+			continue
+		}
+		pool.AddCert(cert)
+		n++
+	}
+	return
 }
 
 func initializeCertPool() {
+	customSPKI = nil
+	useSystem, useBundle := true, true
+	switch rootPolicy.Source {
+	case RootsBundle:
+		useSystem = false
+	case RootsSystem:
+		useBundle = false
+	default:
+		useSystem, useBundle = !DisableSystemCa, !DisableEmbedCa
+	}
+
 	var err error
-	if DisableSystemCa {
-		globalCertPool = x509.NewCertPool()
-	} else {
+	if useSystem {
+		// The system pool cannot be filtered (on Windows and macOS it is the platform verifier),
+		// CheckChains rejects its denylisted CAs after the verification instead.
 		globalCertPool, err = x509.SystemCertPool()
 		if err != nil {
 			globalCertPool = x509.NewCertPool()
 		}
+	} else {
+		globalCertPool = x509.NewCertPool()
 	}
-	if !DisableEmbedCa {
-		globalCertPool.AppendCertsFromPEM(_CaCertificates)
+	if useBundle {
+		appendBundle(globalCertPool, !rootPolicy.DisableDenylist)
 	}
 }
 
@@ -99,6 +219,7 @@ func GetTLSConfig(opt Option) (tlsConfig *tls.Config, err error) {
 	}
 
 	if len(opt.Fingerprint) > 0 {
+		// A pinned certificate is trusted explicitly, the denylist does not apply to it.
 		verifier, err := NewFingerprintNameVerifier(opt.Fingerprint, opt.NameCertVerify, tlsConfig.Time)
 		if err != nil {
 			return nil, err
@@ -117,6 +238,18 @@ func GetTLSConfig(opt Option) (tlsConfig *tls.Config, err error) {
 			return verifier(state.PeerCertificates)
 		}
 		tlsConfig.InsecureSkipVerify = true
+	} else {
+		// With skip-cert-verify there are no VerifiedChains, so CheckChains lets it through.
+		next := tlsConfig.VerifyConnection
+		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
+			if err := CheckChains(state.VerifiedChains); err != nil {
+				return err
+			}
+			if next != nil {
+				return next(state)
+			}
+			return nil
+		}
 	}
 
 	if len(opt.Certificate) > 0 || len(opt.PrivateKey) > 0 {
@@ -131,12 +264,11 @@ func GetTLSConfig(opt Option) (tlsConfig *tls.Config, err error) {
 	return tlsConfig, nil
 }
 
+// zeroTrustCertPool is the bundle alone, always without the denylisted CAs.
 var zeroTrustCertPool = once.OnceValue(func() *x509.CertPool {
-	if len(_CaCertificates) != 0 { // always using embed cert first
-		zeroTrustCertPool := x509.NewCertPool()
-		if zeroTrustCertPool.AppendCertsFromPEM(_CaCertificates) {
-			return zeroTrustCertPool
-		}
+	zeroTrustCertPool := x509.NewCertPool()
+	if appendBundle(zeroTrustCertPool, true) > 0 { // always using embed cert first
+		return zeroTrustCertPool
 	}
 	return nil // fallback to system pool
 })

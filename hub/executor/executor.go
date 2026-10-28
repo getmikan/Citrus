@@ -94,6 +94,7 @@ func ApplyConfig(cfg *config.Config, force bool) {
 
 	tunnel.OnSuspend()
 
+	ca.SetRootPolicy(cfg.TLS.RootPolicy)
 	ca.ResetCertificate()
 	for _, c := range cfg.TLS.CustomTrustCert {
 		if err := ca.AddCertificate(c); err != nil {
