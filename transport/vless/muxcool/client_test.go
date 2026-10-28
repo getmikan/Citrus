@@ -107,3 +107,86 @@ func TestPendingReadDeadlineAndClose(t *testing.T) {
 		t.Fatal("close did not unblock read")
 	}
 }
+
+// gatedConn blocks writes while held, like a slow uplink.
+type gatedConn struct {
+	net.Conn
+	mu   sync.Mutex
+	gate chan struct{}
+}
+
+func (c *gatedConn) hold() { c.mu.Lock(); c.gate = make(chan struct{}); c.mu.Unlock() }
+func (c *gatedConn) release() {
+	c.mu.Lock()
+	if c.gate != nil {
+		close(c.gate)
+		c.gate = nil
+	}
+	c.mu.Unlock()
+}
+func (c *gatedConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	gate := c.gate
+	c.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	return c.Conn.Write(p)
+}
+
+func newGatedClient(ctx context.Context, conns chan<- *gatedConn) *Client {
+	return NewClient(func(context.Context) (net.Conn, error) {
+		a, b := net.Pipe()
+		go func() { defer b.Close(); _ = vmess.HandleMuxConnection(ctx, b, M.Metadata{}, echoHandler{}) }()
+		gc := &gatedConn{Conn: a}
+		if conns != nil {
+			conns <- gc
+		}
+		return gc, nil
+	})
+}
+
+func TestStreamDeadlineDoesNotFailSiblings(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conns := make(chan *gatedConn, 1)
+	c := newGatedClient(ctx, conns)
+	defer c.Close()
+	s1, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gc := <-conns
+	s2, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+
+	gc.hold()
+	s1.SetWriteDeadline(time.Now().Add(50 * time.Millisecond))
+	n, err := s1.Write([]byte("a"))
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("s1 write: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("queued chunk not counted: n=%d", n)
+	}
+	closed := make(chan struct{})
+	go func() { s1.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close blocked on a slow conn")
+	}
+	gc.release()
+
+	s2.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := s2.Write([]byte("ping")); err != nil {
+		t.Fatalf("sibling write: %v", err)
+	}
+	got := make([]byte, 4)
+	if _, err := io.ReadFull(s2, got); err != nil || string(got) != "ping" {
+		t.Fatalf("sibling read: %q %v", got, err)
+	}
+}
