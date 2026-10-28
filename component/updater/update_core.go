@@ -130,39 +130,63 @@ func effectiveUpdateChannel(channel, version string) (string, error) {
 }
 
 func (u *CoreUpdater) CoreBaseName() string {
-	switch runtime.GOARCH {
+	return coreBaseName(buildTarget{
+		goos:       runtime.GOOS,
+		goarch:     runtime.GOARCH,
+		goarm:      features.GOARM,
+		gomips:     features.GOMIPS,
+		goamd64:    features.GOAMD64,
+		go386:      features.GO386,
+		loong64ABI: loong64ABI,
+	})
+}
+
+// buildTarget is what the release asset name of a build depends on.
+type buildTarget struct {
+	goos, goarch                  string
+	goarm, gomips, goamd64, go386 string
+	loong64ABI                    string
+}
+
+func coreBaseName(t buildTarget) string {
+	switch t.goarch {
 	case "arm":
 		// citrus-linux-armv5
-		return fmt.Sprintf("citrus-%s-%sv%s", runtime.GOOS, runtime.GOARCH, features.GOARM)
+		return fmt.Sprintf("citrus-%s-%sv%s", t.goos, t.goarch, t.goarm)
 	case "arm64":
-		if runtime.GOOS == "android" {
+		if t.goos == "android" {
 			// citrus-android-arm64-v8
-			return fmt.Sprintf("citrus-%s-%s-v8", runtime.GOOS, runtime.GOARCH)
+			return fmt.Sprintf("citrus-%s-%s-v8", t.goos, t.goarch)
 		}
 		// citrus-linux-arm64
-		return fmt.Sprintf("citrus-%s-%s", runtime.GOOS, runtime.GOARCH)
+		return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
 	case "mips", "mipsle":
 		// citrus-linux-mips-hardfloat
-		return fmt.Sprintf("citrus-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOMIPS)
+		return fmt.Sprintf("citrus-%s-%s-%s", t.goos, t.goarch, t.gomips)
 	case "amd64":
-		if runtime.GOOS == "android" {
+		if t.goos == "android" {
 			// citrus-android-amd64
-			return fmt.Sprintf("citrus-%s-%s", runtime.GOOS, runtime.GOARCH)
+			return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
 		}
 		// citrus-linux-amd64-v1
-		return fmt.Sprintf("citrus-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOAMD64)
-	case "loong64":
-		if loong64ABI != "" {
-			// citrus-linux-loong64-abi2
-			return fmt.Sprintf("citrus-%s-%s-abi%s", runtime.GOOS, runtime.GOARCH, loong64ABI)
+		return fmt.Sprintf("citrus-%s-%s-%s", t.goos, t.goarch, t.goamd64)
+	case "386":
+		if t.go386 == "softfloat" {
+			// citrus-linux-386-softfloat: the default asset needs SSE2
+			return fmt.Sprintf("citrus-%s-%s-softfloat", t.goos, t.goarch)
 		}
-		return fmt.Sprintf("citrus-%s-%s", runtime.GOOS, runtime.GOARCH)
+		return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
+	case "loong64":
+		if t.loong64ABI != "" {
+			// citrus-linux-loong64-abi2
+			return fmt.Sprintf("citrus-%s-%s-abi%s", t.goos, t.goarch, t.loong64ABI)
+		}
+		return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
 	default:
-		// citrus-linux-386
 		// citrus-linux-mips64
 		// citrus-linux-riscv64
 		// citrus-linux-s390x
-		return fmt.Sprintf("citrus-%s-%s", runtime.GOOS, runtime.GOARCH)
+		return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
 	}
 }
 

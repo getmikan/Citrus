@@ -69,6 +69,31 @@ func TestCoreBaseName(t *testing.T) {
 	}
 }
 
+// TestCoreBaseNameMatchesAssets checks the name every build variant asks for
+// against the asset that build.yml publishes for it.
+func TestCoreBaseNameMatchesAssets(t *testing.T) {
+	tests := []struct {
+		target buildTarget
+		want   string
+	}{
+		{buildTarget{goos: "linux", goarch: "386", go386: "sse2"}, "citrus-linux-386"},
+		{buildTarget{goos: "linux", goarch: "386", go386: "softfloat"}, "citrus-linux-386-softfloat"},
+		{buildTarget{goos: "windows", goarch: "386"}, "citrus-windows-386"},
+		{buildTarget{goos: "linux", goarch: "amd64", goamd64: "v3"}, "citrus-linux-amd64-v3"},
+		{buildTarget{goos: "android", goarch: "amd64", goamd64: "v1"}, "citrus-android-amd64"},
+		{buildTarget{goos: "linux", goarch: "arm", goarm: "7"}, "citrus-linux-armv7"},
+		{buildTarget{goos: "android", goarch: "arm64"}, "citrus-android-arm64-v8"},
+		{buildTarget{goos: "linux", goarch: "mipsle", gomips: "softfloat"}, "citrus-linux-mipsle-softfloat"},
+		{buildTarget{goos: "linux", goarch: "loong64", loong64ABI: "2"}, "citrus-linux-loong64-abi2"},
+		{buildTarget{goos: "linux", goarch: "riscv64"}, "citrus-linux-riscv64"},
+	}
+	for _, tt := range tests {
+		if got := coreBaseName(tt.target); got != tt.want {
+			t.Errorf("%+v: got %q, want %q", tt.target, got, tt.want)
+		}
+	}
+}
+
 func TestCoreChannelURLs(t *testing.T) {
 	tests := []struct {
 		name    string
