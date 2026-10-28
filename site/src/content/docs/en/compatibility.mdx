@@ -90,6 +90,7 @@ The suite runs against Xray v26.10.10. Keys come from Xray itself (`xray x25519`
 | Xray client → Citrus server: `mldsa65-seed` and `require-x25519mlkem768` | chrome, firefox; a wrong `mldsa65Verify` must fail |
 | Citrus client → Xray server: XHTTP (REALITY, h2) | packet-up, stream-one, stream-up, a path with `?query`, `x-padding-bytes: "0-0"` |
 | Xray client → Citrus server: XHTTP | packet-up, GET uplink, data in headers |
+| XHTTP over HTTP/3 (TLS, `alpn: [h3]`) in both directions | packet-up, stream-one, stream-up; Xray client also with GET uplink and data in headers |
 | ECH in both directions (Xray `echServerKeys`, Citrus `ech-key`) | the right and a wrong config; the wrong one must fail, which proves ECH was really used |
 | VLESS + gRPC over REALITY in both directions | |
 

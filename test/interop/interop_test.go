@@ -186,6 +186,98 @@ func TestXrayClientCitrusServerXHTTP(t *testing.T) {
 	})
 }
 
+// --- 3b. XHTTP over HTTP/3 (TLS, alpn h3), both directions ---
+//
+// Both servers listen on UDP only (`alpn: [h3]`), so the traffic can only
+// have gone over QUIC.
+
+func TestCitrusClientXrayServerXHTTPH3(t *testing.T) {
+	needXray(t)
+	id := genUUID(t)
+
+	dir := caseDir(t, "xray-server")
+	certFile, keyFile := writeFile(t, dir, "cert.pem", tlsCertPEM), writeFile(t, dir, "key.pem", tlsKeyPEM)
+	sport := freePort(t)
+	startXrayUDP(t, "xray-server", obj{
+		"log": xrayLog(),
+		"inbounds": []obj{{
+			"listen": "127.0.0.1", "port": sport, "protocol": "vless",
+			"settings": obj{"clients": []obj{{"id": id}}, "decryption": "none"},
+			"streamSettings": obj{
+				"network":       "xhttp",
+				"xhttpSettings": obj{"path": "/xh", "mode": "auto"},
+				"security":      "tls",
+				"tlsSettings": obj{
+					"alpn":         []string{"h3"},
+					"certificates": []obj{{"certificateFile": certFile, "keyFile": keyFile}},
+				},
+			},
+		}},
+		"outbounds": []obj{xrayFreedom()},
+	}, sport)
+
+	for _, mode := range []string{"packet-up", "stream-one", "stream-up"} {
+		t.Run(mode, func(t *testing.T) {
+			mp := freePort(t)
+			startCitrus(t, "citrus-client", citrusClient(mp, obj{
+				"type": "vless", "server": "127.0.0.1", "port": sport, "uuid": id, "udp": false,
+				"network": "xhttp", "tls": true, "alpn": []string{"h3"},
+				"servername": realitySNI, "fingerprint": tlsCertSHA256,
+				"xhttp-opts": obj{"path": "/xh", "mode": mode},
+			}), mp)
+			checkTraffic(t, mp)
+		})
+	}
+}
+
+func TestXrayClientCitrusServerXHTTPH3(t *testing.T) {
+	needXray(t)
+	id := genUUID(t)
+
+	sport := freePort(t)
+	startCitrusUDP(t, "citrus-server", citrusServer(obj{
+		"name": "vless-xhttp-h3", "type": "vless", "listen": "127.0.0.1", "port": sport,
+		"users":       []obj{{"username": "u", "uuid": id}},
+		"certificate": string(tlsCertPEM), "private-key": string(tlsKeyPEM),
+		"alpn":         []string{"h3"},
+		"xhttp-config": obj{"path": "/xh"},
+	}), sport)
+
+	cases := []struct {
+		name     string
+		settings obj
+	}{
+		{"packet-up", obj{"path": "/xh", "mode": "packet-up"}},
+		{"stream-one", obj{"path": "/xh", "mode": "stream-one"}},
+		{"stream-up", obj{"path": "/xh", "mode": "stream-up"}},
+		{"packet-up-GET-header", obj{"path": "/xh", "mode": "packet-up", "uplinkHTTPMethod": "GET", "uplinkDataPlacement": "header"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cp := freePort(t)
+			startXray(t, "xray-client", obj{
+				"log":      xrayLog(),
+				"inbounds": []obj{xraySocksIn(cp)},
+				"outbounds": []obj{{
+					"protocol": "vless",
+					"settings": obj{"vnext": []obj{{"address": "127.0.0.1", "port": sport,
+						"users": []obj{{"id": id, "encryption": "none"}}}}},
+					"streamSettings": obj{
+						"network":       "xhttp",
+						"xhttpSettings": c.settings,
+						"security":      "tls",
+						"tlsSettings": obj{
+							"serverName": realitySNI, "pinnedPeerCertSha256": tlsCertSHA256,
+							"alpn": []string{"h3"},
+						},
+					},
+				}},
+			}, cp)
+			checkTraffic(t, cp)
+		})
+	}
+}
+
 // --- 4. ECH (vless over TLS) with keys from `xray tls ech`, both directions ---
 //
 // The certificate is self-signed for interop.test and pinned by the clients. A

@@ -513,6 +513,24 @@ func waitPort(t *testing.T, port int) {
 	t.Fatalf("nothing listens on %s", addr)
 }
 
+// waitUDPPort waits until something binds the UDP port of 127.0.0.1. A QUIC
+// server answers nothing to a stray datagram, so the probe is the bind itself:
+// it fails once the server holds the port.
+func waitUDPPort(t *testing.T, port int) {
+	t.Helper()
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		pc, err := net.ListenPacket("udp", addr)
+		if err != nil {
+			return
+		}
+		pc.Close()
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("nothing listens on udp %s", addr)
+}
+
 func caseDir(t *testing.T, role string) string {
 	t.Helper()
 	d := filepath.Join(workDir, caseName(t), role)
@@ -549,22 +567,45 @@ type obj = map[string]any
 // startXray writes cfg and runs xray; waits for port.
 func startXray(t *testing.T, role string, cfg obj, port int) {
 	t.Helper()
+	runXray(t, role, cfg)
+	waitPort(t, port)
+}
+
+// startXrayUDP is startXray for a server that listens on UDP only (XHTTP/3).
+func startXrayUDP(t *testing.T, role string, cfg obj, port int) {
+	t.Helper()
+	runXray(t, role, cfg)
+	waitUDPPort(t, port)
+}
+
+func runXray(t *testing.T, role string, cfg obj) {
+	t.Helper()
 	dir := caseDir(t, role)
 	p := filepath.Join(dir, "config.json")
 	writeJSON(t, p, cfg)
 	start(t, role, xrayBin, "run", "-c", p)
-	waitPort(t, port)
 }
 
 // startCitrus writes cfg (JSON is valid YAML) and runs citrus; waits for port.
 // It returns the path of the log.
 func startCitrus(t *testing.T, role string, cfg obj, port int) string {
 	t.Helper()
+	return runCitrus(t, role, cfg, func() { waitPort(t, port) })
+}
+
+// startCitrusUDP is startCitrus for a server that listens on UDP only (XHTTP/3).
+func startCitrusUDP(t *testing.T, role string, cfg obj, port int) string {
+	t.Helper()
+	return runCitrus(t, role, cfg, func() { waitUDPPort(t, port) })
+}
+
+func runCitrus(t *testing.T, role string, cfg obj, wait func()) string {
+	t.Helper()
 	dir := caseDir(t, role)
 	p := filepath.Join(dir, "config.yaml")
 	writeJSON(t, p, cfg)
 	logPath := start(t, role, citrusBin, "-d", dir, "-f", p)
-	waitPort(t, port)
+	wait()
 	// Citrus opens its listeners before the tunnel is running: providers load
 	// in between, and connections that arrive then are dropped (EOF). Wait for
 	// the provider step, then give the tunnel a moment to switch to running,

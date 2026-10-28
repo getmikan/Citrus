@@ -90,6 +90,7 @@ clash.meta/<версия> citrus/<версия>
 | Клиент Xray → сервер Citrus: `mldsa65-seed` и `require-x25519mlkem768` | chrome, firefox; неверный `mldsa65Verify` должен отказать |
 | Клиент Citrus → сервер Xray: XHTTP (REALITY, h2) | packet-up, stream-one, stream-up, путь с `?query`, `x-padding-bytes: "0-0"` |
 | Клиент Xray → сервер Citrus: XHTTP | packet-up, выгрузка через GET, данные в заголовках |
+| XHTTP поверх HTTP/3 (TLS, `alpn: [h3]`) в обе стороны | packet-up, stream-one, stream-up; клиент Xray ещё и с выгрузкой через GET и данными в заголовках |
 | ECH в обе стороны (`echServerKeys` Xray и `ech-key` Citrus) | верный и неверный конфиг; неверный должен отказать, это доказывает, что ECH действительно работал |
 | VLESS + gRPC поверх REALITY в обе стороны | |
 
