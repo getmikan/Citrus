@@ -77,6 +77,21 @@ func TestFallbackIPv6RotationSharesSourceBudget(t *testing.T) {
 	}
 }
 
+func TestFallbackNegativeCapsCountOnly(t *testing.T) {
+	l := &Limiter{MaxTotal: -1, MaxSource: -1}
+	same := fallbackTestSource(t, "192.0.2.1")
+	for i := range MaxRelays + 1 {
+		r, ok := l.Acquire(same)
+		if !ok {
+			t.Fatalf("reservation %d rejected without caps", i)
+		}
+		defer l.Release(r)
+	}
+	if len(l.active) != MaxRelays+1 {
+		t.Fatalf("%d reservations counted", len(l.active))
+	}
+}
+
 func TestFallbackShutdownClosesBothSocketsAndRejectsNewWork(t *testing.T) {
 	l := &Limiter{}
 	raw, peer := net.Pipe()

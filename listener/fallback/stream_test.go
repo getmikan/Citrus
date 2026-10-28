@@ -53,23 +53,25 @@ func TestParseDest(t *testing.T) {
 			t.Errorf("parseDest(%q) = %q, %q, %v; want %q, %q", tt.in, network, address, err, tt.network, tt.address)
 		}
 	}
-	for _, in := range []string{"", "0", "70000", "localhost", ":80", "host:x", "host:0"} {
+	for _, in := range []string{"", "0", "70000", "localhost", ":80", "host:x", "host:0", "unix:"} {
 		if _, _, err := parseDest(in); err == nil {
 			t.Errorf("parseDest(%q) accepted", in)
 		}
 	}
 }
 
+// match picks as Xray-core does: by name (exact, else the longest name the SNI
+// contains), then ALPN, then path, with the gaps of a name filled from the
+// fallbacks without one.
 func TestMatchPrecedence(t *testing.T) {
 	s, err := NewStreams("test", []Target{
 		{Dest: "1"},
 		{Path: "/p", Dest: "2"},
 		{ALPN: "h2", Dest: "3"},
 		{ALPN: "h2", Path: "/p", Dest: "4"},
-		{Name: "*.example.com", Dest: "5"},
-		{Name: "*.b.example.com", Dest: "6"},
-		{Name: "A.example.com", Path: "/p", Dest: "7"},
-		{Name: "a.example.com", Dest: "8"},
+		{Name: "example.com", Dest: "5"},
+		{Name: "b.example.com", Dest: "6"},
+		{Name: "A.example.com.", Path: "/q", Dest: "7"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -81,12 +83,17 @@ func TestMatchPrecedence(t *testing.T) {
 		{"", "", "/p", "2"},
 		{"", "h2", "", "3"},
 		{"", "h2", "/p", "4"},
+		{"", "h2", "/x", "3"},
 		{"", "http/1.1", "/p", "2"},
-		{"x.example.com", "h2", "/p", "5"}, // name first
-		{"x.b.example.com", "", "", "6"},   // the longest wildcard
-		{"example.com", "", "", "1"},       // a wildcard is not its apex
-		{"A.Example.COM.", "", "/p", "7"},  // case and the root dot
-		{"a.example.com", "h2", "/q", "8"}, // exact name before ALPN
+		{"other.org", "", "", "1"},
+		{"www.example.com", "", "", "5"},   // a name takes the names that contain it
+		{"notexample.com", "", "", "5"},    // as a substring, as in Xray
+		{"x.b.example.com", "", "", "6"},   // the longest one
+		{"www.example.com", "", "/p", "2"}, // a name inherits the paths of no name
+		{"www.example.com", "h2", "/p", "4"},
+		{"www.example.com", "h2", "", "5"}, // and its own entry comes before the ALPN of no name
+		{"A.Example.COM.", "", "/q", "7"},  // case and the root dot
+		{"a.example.com", "", "", "1"},     // the gaps of a name come from no name, not from a shorter name
 	} {
 		got := s.match(tt.sni, tt.alpn, tt.path)
 		if got == nil || got.Dest != tt.want {
@@ -94,8 +101,66 @@ func TestMatchPrecedence(t *testing.T) {
 		}
 	}
 	s, _ = NewStreams("test", []Target{{Name: "a.example.com", Dest: "1"}})
-	if got := s.match("b.example.com", "", ""); got != nil {
-		t.Errorf("match of another name = %+v, want none", got)
+	for _, sni := range []string{"b.example.com", ""} {
+		if got := s.match(sni, "", ""); got != nil {
+			t.Errorf("match(%q) without a default = %+v, want none", sni, got)
+		}
+	}
+	s, _ = NewStreams("test", []Target{{Dest: "1"}, {Name: "a.example.com", ALPN: "h2", Dest: "2"}})
+	if got := s.match("a.example.com", "http/1.1", ""); got == nil || got.Dest != "1" {
+		t.Errorf("a name without the ALPN = %+v, want the default", got)
+	}
+}
+
+// The Xray-core fallbacks of the review: a ws path, served by another
+// inbound, and a site by SNI. The ws client with that SNI reaches the path.
+func TestMatchXrayPathUnderName(t *testing.T) {
+	s, err := NewStreams("test", []Target{
+		{Dest: "80"},
+		{Path: "/ws", Dest: "127.0.0.1:10001"},
+		{Name: "blog.example.com", Dest: "8082"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.match("blog.example.com", "", "/ws"); got == nil || got.Dest != "127.0.0.1:10001" {
+		t.Errorf("ws under the blog name = %+v, want the ws inbound", got)
+	}
+	if got := s.match("blog.example.com", "", "/"); got == nil || got.Dest != "8082" {
+		t.Errorf("blog = %+v, want 8082", got)
+	}
+}
+
+func TestNewStreamsNames(t *testing.T) {
+	s, err := NewStreams("test", []Target{{Name: "Blog.Example.com.", Dest: "1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.match("blog.example.com", "", ""); got == nil {
+		t.Error("a name with the root dot never matches")
+	}
+	for _, name := range []string{"*.example.com", "a.*.com"} {
+		if _, err := NewStreams("test", []Target{{Name: name, Dest: "1"}}); err == nil {
+			t.Errorf("name %q accepted", name)
+		}
+	}
+	// the same name once the dot is trimmed
+	if _, err := NewStreams("test", []Target{{Name: "a.com", Dest: "1"}, {Name: "a.com.", Dest: "2"}}); err == nil {
+		t.Error("duplicate name accepted")
+	}
+}
+
+func TestWarnNow(t *testing.T) {
+	var s Streams
+	now := time.Now()
+	if !s.warnNow(now) {
+		t.Fatal("first failure not warned")
+	}
+	if s.warnNow(now.Add(warnInterval - time.Second)) {
+		t.Fatal("second failure within the interval warned")
+	}
+	if !s.warnNow(now.Add(warnInterval)) {
+		t.Fatal("failure after the interval not warned")
 	}
 }
 
@@ -233,8 +298,9 @@ func TestSniffStallCloses(t *testing.T) {
 	}
 }
 
-// The relays of a Streams count against its limiter.
-func TestServeRespectsTheLimiter(t *testing.T) {
+// The relays of a Streams have no caps, as in Xray-core: more than
+// MaxPerSource from one address are served. Close still ends them.
+func TestServeHasNoCaps(t *testing.T) {
 	backend, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -244,25 +310,28 @@ func TestServeRespectsTheLimiter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.limiter.MaxSource = 1
 	defer s.Close()
-	client1, server1 := pipePair(t)
-	go s.serve(server1, []byte("one"))
-	c, err := backend.Accept()
-	if err != nil {
-		t.Fatal(err)
+	clients := make([]net.Conn, MaxPerSource+1)
+	for i := range clients {
+		var server net.Conn
+		clients[i], server = pipePair(t)
+		go s.serve(server, []byte("x"))
+		c, err := backend.Accept()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if _, err := io.ReadFull(c, make([]byte, 1)); err != nil {
+			t.Fatalf("relay %d: %v", i, err)
+		}
 	}
-	defer c.Close()
-	client2, server2 := pipePair(t)
-	s.serve(server2, []byte("two")) // over the cap: closed at once
-	_ = client2.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if _, err := client2.Read(make([]byte, 1)); err == nil {
-		t.Fatal("relay over the per-source cap served")
-	}
-	// Close ends the open relay
+	// Close ends the open relays
 	s.Close()
-	_ = client1.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if _, err := io.ReadAll(client1); err != nil {
-		t.Fatalf("open relay not closed: %v", err)
+	for i, client := range clients {
+		_ = client.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if _, err := io.ReadAll(client); err != nil {
+			t.Fatalf("relay %d not closed: %v", i, err)
+		}
 	}
 }

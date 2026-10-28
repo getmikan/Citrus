@@ -14,6 +14,7 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/outbound"
 	"github.com/metacubex/mihomo/common/proxyproto"
+	"github.com/metacubex/mihomo/component/authevent"
 	"github.com/metacubex/mihomo/listener/inbound"
 	"github.com/metacubex/mihomo/transport/trojan"
 	"github.com/metacubex/mihomo/transport/vless/encryption"
@@ -117,18 +118,18 @@ func httpGet(path string) []byte {
 // fallbackBackends are the targets of the fallbacks of the tests: one per
 // way to match.
 type fallbackBackends struct {
-	any, path, h2, sni, wildcard, v1, v2 *fallbackBackend
+	any, path, h2, sni, contained, v1, v2 *fallbackBackend
 }
 
 func startFallbackBackends(t *testing.T) (fallbackBackends, []inbound.Fallback) {
 	b := fallbackBackends{
-		any:      startFallbackBackend(t, "any", false),
-		path:     startFallbackBackend(t, "path", false),
-		h2:       startFallbackBackend(t, "h2", false),
-		sni:      startFallbackBackend(t, "sni", false),
-		wildcard: startFallbackBackend(t, "wildcard", false),
-		v1:       startFallbackBackend(t, "v1", true),
-		v2:       startFallbackBackend(t, "v2", true),
+		any:       startFallbackBackend(t, "any", false),
+		path:      startFallbackBackend(t, "path", false),
+		h2:        startFallbackBackend(t, "h2", false),
+		sni:       startFallbackBackend(t, "sni", false),
+		contained: startFallbackBackend(t, "contained", false),
+		v1:        startFallbackBackend(t, "v1", true),
+		v2:        startFallbackBackend(t, "v2", true),
 	}
 	_, port, _ := net.SplitHostPort(b.any.addr)
 	return b, []inbound.Fallback{
@@ -136,7 +137,7 @@ func startFallbackBackends(t *testing.T) (fallbackBackends, []inbound.Fallback) 
 		{Path: "/app", Dest: b.path.addr},
 		{ALPN: "h2", Dest: b.h2.addr},
 		{Name: "a.example.com", Dest: b.sni.addr},
-		{Name: "*.example.com", Dest: b.wildcard.addr},
+		{Name: "example.com", Dest: b.contained.addr},
 		{Path: "/v1", Dest: b.v1.addr, Xver: 1},
 		{Path: "/v2", Dest: b.v2.addr, Xver: 2},
 	}
@@ -159,9 +160,10 @@ func checkFallbackRouting(t *testing.T, addr string, b fallbackBackends) {
 		{name: "other path", payload: httpGet("/app2"), want: b.any, tag: "any"},
 		{name: "alpn", alpn: "h2", payload: []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"), want: b.h2, tag: "h2"},
 		{name: "alpn http/1.1 is offered", alpn: "http/1.1", payload: httpGet("/"), want: b.any, tag: "any"},
-		{name: "sni before path", sni: "a.example.com", payload: httpGet("/app"), want: b.sni, tag: "sni"},
-		{name: "wildcard sni", sni: "b.example.com", payload: httpGet("/"), want: b.wildcard, tag: "wildcard"},
-		{name: "wildcard does not take the apex", sni: "example.com", payload: httpGet("/"), want: b.any, tag: "any"},
+		{name: "sni", sni: "a.example.com", payload: httpGet("/"), want: b.sni, tag: "sni"},
+		{name: "a path under a name", sni: "a.example.com", payload: httpGet("/app"), want: b.path, tag: "path"},
+		{name: "a name takes the names that contain it", sni: "b.example.com", payload: httpGet("/"), want: b.contained, tag: "contained"},
+		{name: "the name itself", sni: "example.com", payload: httpGet("/"), want: b.contained, tag: "contained"},
 		{name: "one byte", payload: []byte("x\r\n\r\n"), want: b.any, tag: "any"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -199,9 +201,9 @@ func checkFallbackRouting(t *testing.T, addr string, b fallbackBackends) {
 }
 
 // TestInboundVlessFallbacks: on the plain TCP transport a stream that is not
-// VLESS, or VLESS with an unknown UUID, goes to the fallback that matches its
-// SNI, ALPN and path best, with what was read of it and the PROXY header of
-// xver; with none that matches it is closed.
+// VLESS, or VLESS with an unknown UUID (also reported as an auth event), goes
+// to the fallback that matches its SNI, ALPN and path, with what was read of
+// it and the PROXY header of xver; with none that matches it is closed.
 func TestInboundVlessFallbacks(t *testing.T) {
 	backends, fallbacks := startFallbackBackends(t)
 	addr := listenVless(t, inbound.VlessOption{
@@ -212,6 +214,7 @@ func TestInboundVlessFallbacks(t *testing.T) {
 	checkFallbackRouting(t, addr, backends)
 
 	t.Run("unknown uuid", func(t *testing.T) {
+		events := subscribeAuthEvents(t)
 		header := append([]byte{0}, uuid.Must(uuid.NewV4()).Bytes()...)
 		header = append(header, 0, 1, 0, 80, 1, 1, 2, 3, 4, '\r', '\n', '\r', '\n')
 		resp, _ := fallbackDial(t, addr, "", "", header)
@@ -220,6 +223,9 @@ func TestInboundVlessFallbacks(t *testing.T) {
 		}
 		if hit := backends.any.hit(t); !bytes.Equal(hit.data, header) {
 			t.Fatalf("the fallback got %x, want %x", hit.data, header)
+		}
+		if e := waitAuthEvent(t, events, "vless", addr); e.Reason != authevent.ReasonWrongCredentials {
+			t.Fatalf("auth event reason %q", e.Reason)
 		}
 	})
 
@@ -276,7 +282,7 @@ func listenTrojan(t *testing.T, opt inbound.TrojanOption) string {
 }
 
 // TestInboundTrojanFallbacks: as TestInboundVlessFallbacks, for a stream that
-// is not Trojan or has the key of no user.
+// is not Trojan or has the key of no user (an auth event too).
 func TestInboundTrojanFallbacks(t *testing.T) {
 	backends, fallbacks := startFallbackBackends(t)
 	addr := listenTrojan(t, inbound.TrojanOption{
@@ -287,6 +293,7 @@ func TestInboundTrojanFallbacks(t *testing.T) {
 	checkFallbackRouting(t, addr, backends)
 
 	t.Run("unknown key", func(t *testing.T) {
+		events := subscribeAuthEvents(t)
 		key := trojan.Key("wrong")
 		header := append(key[:], "\r\n\x01\x01\x01\x02\x03\x04\x00\x50\r\n\r\n"...)
 		resp, _ := fallbackDial(t, addr, "", "", header)
@@ -295,6 +302,9 @@ func TestInboundTrojanFallbacks(t *testing.T) {
 		}
 		if hit := backends.any.hit(t); !bytes.Equal(hit.data, header) {
 			t.Fatalf("the fallback got %q, want %q", hit.data, header)
+		}
+		if e := waitAuthEvent(t, events, "trojan", addr); e.Reason != authevent.ReasonWrongCredentials {
+			t.Fatalf("auth event reason %q", e.Reason)
 		}
 	})
 
@@ -346,7 +356,8 @@ func TestInboundFallbacksConfig(t *testing.T) {
 		{name: "bad dest", vless: &inbound.VlessOption{Fallbacks: []inbound.Fallback{{Dest: "localhost"}}}},
 		{name: "bad xver", vless: &inbound.VlessOption{Fallbacks: []inbound.Fallback{{Dest: "80", Xver: 3}}}},
 		{name: "relative path", vless: &inbound.VlessOption{Fallbacks: []inbound.Fallback{{Dest: "80", Path: "x"}}}},
-		{name: "bad wildcard", vless: &inbound.VlessOption{Fallbacks: []inbound.Fallback{{Dest: "80", Name: "a.*.com"}}}},
+		{name: "wildcard", vless: &inbound.VlessOption{Fallbacks: []inbound.Fallback{{Dest: "80", Name: "*.example.com"}}}},
+		{name: "unix without a path", vless: &inbound.VlessOption{Fallbacks: []inbound.Fallback{{Dest: "unix:"}}}},
 		{name: "duplicate", vless: &inbound.VlessOption{Fallbacks: []inbound.Fallback{{Dest: "80"}, {Dest: "81"}}}},
 		{name: "trojan ws", troj: &inbound.TrojanOption{WsPath: "/ws", Fallbacks: ok}},
 		{name: "trojan ss", troj: &inbound.TrojanOption{SSOption: inbound.TrojanSSOption{Enabled: true, Password: "x"}, Fallbacks: ok}},

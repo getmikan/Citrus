@@ -43,11 +43,11 @@ The listener reads as little as it needs: one byte for most web traffic, 17 byte
 
 | Field | Matches | Empty |
 | --- | --- | --- |
-| `name` | TLS SNI: a name, or `*.example.com` for the subdomains of example.com, not for example.com itself. Case-insensitive. | any name, and no TLS |
+| `name` | TLS SNI: the name itself, else the longest `name` the SNI contains, as in Xray. `example.com` also takes `www.example.com` (and `notexample.com`). Case-insensitive, without wildcards. | any name, and no TLS |
 | `alpn` | the negotiated ALPN, such as `h2` or `http/1.1` | any |
 | `path` | the path of an HTTP/1.x request line: `/api` in `GET /api?x HTTP/1.1`. It must start with `/`. HTTP/2 has no request line, so a `path` never matches h2 | any |
 
-The most specific match wins, whatever the order: first by `name` (exact, then the longest wildcard, then any), then by `alpn`, then by `path`. Two fallbacks with the same `name`, `alpn` and `path` are a config error. A stream that matches none is closed. Add a fallback with only `dest` as the default.
+The order of the list does not matter. The fallback is chosen as in Xray: first the `name`, then within it the `alpn`, then the `path`, each falling back to the empty value when nothing matches. A fallback with a `name` inherits the `alpn` and `path` entries of the fallbacks without a `name`, unless it sets the same pair itself. So with `{path: /ws, dest: 10001}` and `{name: blog.example.com, dest: 8082}`, `GET /ws` with the SNI blog.example.com goes to 10001, and the rest of the blog's traffic goes to 8082. Likewise, a fallback with an `alpn` inherits the paths of the fallbacks without an `alpn` under the same `name`. Two fallbacks with the same `name`, `alpn` and `path` are a config error. A stream that matches none is closed. Add a fallback with only `dest` as the default.
 
 With an `alpn` in any fallback, the TLS layer offers the listed values and `http/1.1`. Without one, no ALPN is negotiated, as before. A client that offers only ALPNs outside that list fails the handshake. A client that offers `http/1.1` or no ALPN at all connects. The Trojan default `h2, http/1.1` also works.
 
@@ -60,12 +60,14 @@ The connection to `dest` is made directly, not through the rules, and is expecte
 
 ## Limits
 
-Fallback relays have the same limits as the Sudoku fallback: at most 256 per listener and 64 per source (an IPv4 address or an IPv6 /64), and they are closed after 60 seconds without traffic in either direction. A stream over a limit is closed. Closing the listener closes its relays.
+As in Xray, fallback relays have no limit on their number and no idle timeout. They carry a website and the inbounds chained behind a `path`, such as a ws inbound, and those sessions can stay quiet for a long time. Set the limits on the server at `dest`, for example with nginx's `limit_conn` and `keepalive_timeout`. Closing the listener closes its relays.
+
+When `dest` cannot be reached, the first failure is logged as a warning, then at most one warning per minute. The other failures go to the debug log, since any client can cause one.
 
 ## Where it works
 
 - Only the plain TCP transport: `fallbacks` together with `ws-path`, `grpc-service-name` or `xhttp-config` is a config error. On those HTTP transports, [`fallback-page`](#fallback-page) serves requests that are not the inbound's own.
-- On any security layer: TLS (`certificate`), REALITY, ShadowTLS, JLS, ResTLS, or none with `allow-insecure`. `name` and `alpn` need TLS or REALITY. Behind the other layers they are empty and match only empty values.
+- On any security layer: TLS (`certificate`), REALITY, ShadowTLS, JLS, ResTLS, or none with `allow-insecure`. `name` needs TLS or REALITY, `alpn` needs TLS: REALITY negotiates no ALPN, so behind it only an empty `alpn` matches. Behind the other layers both are empty and match only empty values.
 - Not with VLESS `decryption` or Trojan `ss-option`: the header is encrypted there, and a fallback would get ciphertext. Both combinations are config errors.
 
 ## fallback-page

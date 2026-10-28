@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	N "github.com/metacubex/mihomo/common/net"
@@ -24,8 +25,9 @@ import (
 // TCP transport (Xray-core "fallbacks"): where a connection that is not the
 // inbound's own goes, after its TLS layer, with the bytes read from it.
 type Target struct {
-	// Name matches the TLS SNI: a name, "*.example.com" for any name under
-	// example.com, or "" for any (and for no TLS).
+	// Name matches the TLS SNI as in Xray-core: the SNI itself, else the
+	// longest Name the SNI contains ("example.com" takes "www.example.com"),
+	// else "".
 	Name string `json:"name,omitempty"`
 	// ALPN matches the negotiated ALPN ("h2", "http/1.1"), "" for any.
 	ALPN string `json:"alpn,omitempty"`
@@ -47,30 +49,44 @@ const MaxPeek = 256
 // dialTimeout bounds the connect to a Dest, which is expected to be local.
 const dialTimeout = 5 * time.Second
 
+// warnInterval spaces the warnings about a Dest that cannot be reached: any
+// peer can trigger one, the rest go to the debug log.
+const warnInterval = time.Minute
+
 type target struct {
 	Target
 	network, address string
 }
 
+// routes is the targets by name, ALPN and path, with the gaps filled as
+// Xray-core does: an entry with a name (or an ALPN) takes the ALPNs and paths
+// it does not set from the entries without one.
+type routes map[string]map[string]map[string]*target
+
 // Streams is the fallbacks of an inbound: it reads the start of a connection
 // for the protocol to tell its own from others (Sniff), and relays the others
-// to the Target that matches them best, under the limits of Limiter.
+// to the Target that matches them. Unlike the Sudoku fallback, the relays have
+// no caps and no idle timeout, as in Xray-core: they front a website and
+// chained inbounds, whose own server bounds them.
 type Streams struct {
 	targets  []target
+	routes   routes
 	needPath bool
 	limiter  Limiter
 	tag      string
+	lastWarn atomic.Int64 // unix nanoseconds of the last dial warning
 }
 
 // NewStreams validates targets; tag names the inbound type in the logs.
 func NewStreams(tag string, targets []Target) (*Streams, error) {
-	s := &Streams{tag: tag}
+	s := &Streams{tag: tag, limiter: Limiter{MaxTotal: -1, MaxSource: -1}}
 	type key struct{ name, alpn, path string }
 	seen := make(map[key]bool)
 	for i, t := range targets {
-		t.Name = strings.ToLower(t.Name)
-		if strings.Contains(strings.TrimPrefix(t.Name, "*."), "*") {
-			return nil, fmt.Errorf("fallbacks[%d]: name %q: only a leading \"*.\" is a wildcard", i, t.Name)
+		// the SNI is matched without case and its root dot
+		t.Name = strings.ToLower(strings.TrimSuffix(t.Name, "."))
+		if strings.Contains(t.Name, "*") {
+			return nil, fmt.Errorf("fallbacks[%d]: name %q: no wildcards, a name also matches the names that contain it (\"example.com\" takes \"www.example.com\")", i, t.Name)
 		}
 		if t.Path != "" && !strings.HasPrefix(t.Path, "/") {
 			return nil, fmt.Errorf("fallbacks[%d]: path %q must start with /", i, t.Path)
@@ -96,7 +112,70 @@ func NewStreams(tag string, targets []Target) (*Streams, error) {
 	if len(s.targets) == 0 {
 		return nil, nil
 	}
+	s.routes = newRoutes(s.targets)
 	return s, nil
+}
+
+// newRoutes fills the gaps of targets as the New of the VLESS and Trojan
+// inbounds of Xray-core does.
+func newRoutes(targets []target) routes {
+	r := make(routes)
+	for i := range targets {
+		t := &targets[i]
+		if r[t.Name] == nil {
+			r[t.Name] = make(map[string]map[string]*target)
+		}
+		if r[t.Name][t.ALPN] == nil {
+			r[t.Name][t.ALPN] = make(map[string]*target)
+		}
+		r[t.Name][t.ALPN][t.Path] = t
+	}
+	byDefault := r[""]
+	if byDefault != nil {
+		for name, byALPN := range r {
+			if name == "" {
+				continue
+			}
+			for alpn := range byDefault {
+				if byALPN[alpn] == nil {
+					byALPN[alpn] = make(map[string]*target)
+				}
+			}
+		}
+	}
+	// an ALPN takes the paths of no ALPN, under the same name
+	for _, byALPN := range r {
+		anyALPN := byALPN[""]
+		if anyALPN == nil {
+			continue
+		}
+		for alpn, byPath := range byALPN {
+			if alpn == "" {
+				continue
+			}
+			for path, t := range anyALPN {
+				if byPath[path] == nil {
+					byPath[path] = t
+				}
+			}
+		}
+	}
+	// a name takes the ALPNs and paths of no name
+	if byDefault != nil {
+		for name, byALPN := range r {
+			if name == "" {
+				continue
+			}
+			for alpn, byPath := range byDefault {
+				for path, t := range byPath {
+					if byALPN[alpn][path] == nil {
+						byALPN[alpn][path] = t
+					}
+				}
+			}
+		}
+	}
+	return r
 }
 
 // NextProtos is the ALPN list the TLS layer of an inbound with targets offers:
@@ -122,6 +201,9 @@ func parseDest(dest string) (network, address string, err error) {
 	case dest == "":
 		return "", "", errors.New("dest is required")
 	case strings.HasPrefix(dest, "unix:"):
+		if dest == "unix:" {
+			return "", "", errors.New("dest \"unix:\": the socket path is missing")
+		}
 		return "unix", strings.TrimPrefix(dest, "unix:"), nil
 	case strings.HasPrefix(dest, "/"), strings.HasPrefix(dest, "@"):
 		return "unix", dest, nil
@@ -274,42 +356,32 @@ func tlsInfo(conn net.Conn) (sni, alpn string) {
 	return "", ""
 }
 
-// match returns the most specific target that matches: by name first (exact,
-// then the longest wildcard, then any), then ALPN, then path; nil for none.
+// match returns the target of a stream as Xray-core picks it: by name (the
+// SNI, else the longest name it contains, else ""), then ALPN, then path,
+// each falling back to "" when it has no entry; nil for none.
 func (s *Streams) match(sni, alpn, path string) *target {
-	sni = strings.ToLower(strings.TrimSuffix(sni, "."))
-	var best *target
-	var bestRank [3]int
-	for i := range s.targets {
-		t := &s.targets[i]
-		var rank [3]int
-		switch {
-		case t.Name == "":
-		case t.Name == sni:
-			rank[0] = 1 << 16
-		case strings.HasPrefix(t.Name, "*.") && strings.HasSuffix(sni, t.Name[1:]):
-			rank[0] = len(t.Name)
-		default:
-			continue
-		}
-		if t.ALPN != "" {
-			if t.ALPN != alpn {
-				continue
+	name := strings.ToLower(strings.TrimSuffix(sni, "."))
+	if s.routes[name] == nil {
+		longest := ""
+		for n := range s.routes {
+			if n != "" && strings.Contains(name, n) && len(n) > len(longest) {
+				longest = n
 			}
-			rank[1] = 1
 		}
-		if t.Path != "" {
-			if t.Path != path {
-				continue
-			}
-			rank[2] = 1
-		}
-		if best == nil || rank[0] > bestRank[0] ||
-			rank[0] == bestRank[0] && (rank[1] > bestRank[1] || rank[1] == bestRank[1] && rank[2] > bestRank[2]) {
-			best, bestRank = t, rank
-		}
+		name = longest
 	}
-	return best
+	byALPN := s.routes[name]
+	if byALPN == nil {
+		return nil
+	}
+	byPath := byALPN[alpn]
+	if byPath == nil {
+		byPath = byALPN[""]
+	}
+	if t := byPath[path]; t != nil {
+		return t
+	}
+	return byPath[""]
 }
 
 // serve relays conn, of which prefix is read, to its target; it closes conn.
@@ -330,7 +402,11 @@ func (s *Streams) serve(conn net.Conn, prefix []byte) {
 	dialer := net.Dialer{Timeout: dialTimeout}
 	backend, err := dialer.Dial(t.network, t.address)
 	if err != nil {
-		log.Warnln("[%s] fallback %s: %v", s.tag, t.Dest, err)
+		if s.warnNow(time.Now()) {
+			log.Warnln("[%s] fallback %s: %v", s.tag, t.Dest, err)
+		} else {
+			log.Debugln("[%s] fallback %s: %v", s.tag, t.Dest, err)
+		}
 		return
 	}
 	defer backend.Close()
@@ -353,9 +429,17 @@ func (s *Streams) serve(conn net.Conn, prefix []byte) {
 	_ = backend.SetWriteDeadline(time.Time{})
 	// the stream is classified: lift the handshake deadline
 	_ = conn.SetDeadline(time.Time{})
-	idle := NewIdleGuard(IdleTimeout, conn, backend)
-	defer idle.Stop()
-	N.Relay(idle.Wrap(conn), idle.Wrap(backend))
+	N.Relay(conn, backend)
+}
+
+// warnNow reports whether a dial failure at now gets a warning: the first,
+// and then one per warnInterval.
+func (s *Streams) warnNow(now time.Time) bool {
+	last := s.lastWarn.Load()
+	if last != 0 && now.UnixNano()-last < int64(warnInterval) {
+		return false
+	}
+	return s.lastWarn.CompareAndSwap(last, now.UnixNano())
 }
 
 // addrPort is the IP address and port of addr, invalid when it has none.

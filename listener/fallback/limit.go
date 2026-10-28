@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// The bounds of the relays a listener's fallback keeps open (Sudoku, and the
-// fallbacks of VLESS and Trojan): every one holds two sockets and two copy
-// goroutines for a peer that never authenticated.
+// The bounds of the relays the Sudoku fallback keeps open: every one holds two
+// sockets and two copy goroutines for a peer that never authenticated.
 const (
 	MaxRelays    = 256
 	MaxPerSource = 64
@@ -23,7 +22,8 @@ type Reservation struct {
 }
 
 // Limiter caps the open fallback relays of a listener, in all and per source
-// (an IPv4 address or an IPv6 /64). Zero caps mean MaxRelays and MaxPerSource.
+// (an IPv4 address or an IPv6 /64). Zero caps mean MaxRelays and MaxPerSource,
+// negative ones no cap: the relays are only counted, for Close.
 type Limiter struct {
 	MaxTotal, MaxSource int
 
@@ -61,14 +61,14 @@ func (l *Limiter) Acquire(raw net.Conn) (*Reservation, bool) {
 		l.sources = make(map[netip.Prefix]int)
 	}
 	total, perSource := l.MaxTotal, l.MaxSource
-	if total <= 0 {
+	if total == 0 {
 		total = MaxRelays
 	}
-	if perSource <= 0 {
+	if perSource == 0 {
 		perSource = MaxPerSource
 	}
 	source := Source(raw.RemoteAddr())
-	if l.closed || len(l.active) >= total || l.sources[source] >= perSource {
+	if l.closed || total > 0 && len(l.active) >= total || perSource > 0 && l.sources[source] >= perSource {
 		return nil, false
 	}
 	r := &Reservation{raw: raw, source: source}
