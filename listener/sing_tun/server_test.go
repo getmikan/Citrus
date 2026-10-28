@@ -1,6 +1,7 @@
 package sing_tun
 
 import (
+	"errors"
 	"net"
 	"testing"
 
@@ -60,4 +61,20 @@ func TestClaimRoutingMarkReleasedOnClose(t *testing.T) {
 	assert.Equal(t, int32(0x2024), dialer.DefaultRoutingMark.Load())
 	require.NoError(t, l.Close())
 	assert.Equal(t, int32(0), dialer.DefaultRoutingMark.Load())
+}
+
+type fakeStack struct {
+	startErr error
+	closed   bool
+}
+
+func (s *fakeStack) Start() error { return s.startErr }
+func (s *fakeStack) Close() error { s.closed = true; return nil }
+
+func TestStartStackFailureClosedByListener(t *testing.T) {
+	stack := &fakeStack{startErr: errors.New("inet6 listen failed")}
+	l := &Listener{}
+	require.Error(t, l.startStack(stack))
+	require.NoError(t, l.Close())
+	assert.True(t, stack.closed, "a stack whose Start failed must still be closed")
 }

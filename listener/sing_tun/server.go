@@ -511,11 +511,10 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		return
 	}
 
-	err = tunStack.Start()
+	err = l.startStack(tunStack)
 	if err != nil {
 		return
 	}
-	l.tunStack = tunStack
 
 	if l.autoRedirect != nil {
 		if len(l.options.RouteAddressSet) > 0 && len(l.routeAddressSet) == 0 {
@@ -549,6 +548,13 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 	l.addrStr = fmt.Sprintf("%s(%s,%s), mtu: %d, auto route: %v, auto redir: %v, ip stack: %s",
 		tunName, tunOptions.Inet4Address, tunOptions.Inet6Address, tunMTU, options.AutoRoute, options.AutoRedirect, options.Stack)
 	return
+}
+
+// startStack records tunStack before starting it, so the deferred Close in New
+// also tears down a stack whose Start failed halfway.
+func (l *Listener) startStack(tunStack tun.Stack) error {
+	l.tunStack = tunStack
+	return tunStack.Start()
 }
 
 // claimRoutingMark takes the global routing-mark for auto-redirect mark mode.
