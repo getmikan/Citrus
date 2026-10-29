@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -87,10 +88,26 @@ func listenVlessXHTTP(t *testing.T, tunnel *TestTunnel, port string, alpn []stri
 	inboundOptions.Users = []inbound.VlessUser{{Username: "test", UUID: userUUID}}
 	in, err := inbound.NewVless(&inboundOptions)
 	require.NoError(t, err)
-	require.NoError(t, in.Listen(tunnel))
+	// With port 0 and alpn h3 plus h2 the UDP side binds the number the
+	// system gave TCP, which may sit in a range Windows reserved for UDP:
+	// that bind is refused (not in use), so the inbound is started again.
+	for attempt := 0; ; attempt++ {
+		err = in.Listen(tunnel)
+		if err == nil || port != "0" || attempt == 7 || !bindRefused(err) {
+			break
+		}
+	}
+	require.NoError(t, err)
 	addrPort, err := netip.ParseAddrPort(in.Address())
 	require.NoError(t, err)
 	return in, addrPort
+}
+
+// bindRefused reports a bind error other than address in use, such as
+// WSAEACCES for a port Windows reserved.
+func bindRefused(err error) bool {
+	var errno syscall.Errno
+	return errors.As(err, &errno) && errno != syscall.EADDRINUSE && errno != 10048 // 10048: WSAEADDRINUSE
 }
 
 func newXHTTPOutbound(t *testing.T, tunnel *TestTunnel, addrPort netip.AddrPort, mode string, alpn []string, downloadALPN []string) *outbound.Vless {
@@ -141,36 +158,60 @@ func TestInboundVless_XHTTP_H3AndTCP(t *testing.T) {
 	}
 }
 
-// portFreeOn reports whether nothing listens on addr for network, binding it
-// for a moment.
-func portFreeOn(network, addr string) bool {
+// bindProbe is the outcome of binding a port for a moment.
+type bindProbe int
+
+const (
+	bindFree    bindProbe = iota // the bind succeeded: nothing listens there
+	bindInUse                    // address in use: something listens there
+	bindUnknown                  // another error, e.g. a port Windows reserved (WSAEACCES)
+)
+
+// probeBind binds addr on network for a moment.
+func probeBind(network, addr string) bindProbe {
+	var err error
 	if network == "tcp" {
-		ln, err := net.Listen(network, addr)
-		if err == nil {
+		var ln net.Listener
+		if ln, err = net.Listen(network, addr); err == nil {
 			_ = ln.Close()
 		}
-		return err == nil
+	} else {
+		var pc net.PacketConn
+		if pc, err = net.ListenPacket(network, addr); err == nil {
+			_ = pc.Close()
+		}
 	}
-	pc, err := net.ListenPacket(network, addr)
 	if err == nil {
-		_ = pc.Close()
+		return bindFree
 	}
-	return err == nil
+	var errno syscall.Errno
+	if errors.As(err, &errno) && (errno == syscall.EADDRINUSE || errno == 10048) { // 10048: WSAEADDRINUSE
+		return bindInUse
+	}
+	return bindUnknown
 }
 
 // requireOtherSideFree asserts that an inbound from start leaves its port
 // free on network. Other tests of the package bind random ports too and may
-// hold that number on the other protocol by chance, so a taken port is
-// retried on a fresh inbound; an inbound that does open the other side fails
-// every attempt.
+// hold that number on the other protocol by chance, and Windows refuses binds
+// in its reserved port ranges, so a taken or refused port is retried on a
+// fresh inbound; an inbound that does open the other side is in use on every
+// attempt. If the system refuses every probe, nothing can be proven here.
 func requireOtherSideFree(t *testing.T, network string, start func() (io.Closer, netip.AddrPort)) {
-	for range 5 {
+	inUse := 0
+	for range 8 {
 		in, addrPort := start()
-		free := portFreeOn(network, addrPort.String())
+		probe := probeBind(network, addrPort.String())
 		_ = in.Close()
-		if free {
+		switch probe {
+		case bindFree:
 			return
+		case bindInUse:
+			inUse++
 		}
+	}
+	if inUse == 0 {
+		t.Skipf("the system refused every %s probe bind (reserved ports); cannot check", network)
 	}
 	t.Fatalf("the inbound listens on %s too", network)
 }
