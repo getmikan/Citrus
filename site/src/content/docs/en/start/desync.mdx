@@ -62,18 +62,18 @@ At least one of `tlsrec`, `split`, `random`, `fake` or `udp` is required. `tfo`,
 
 ## Operating systems
 
-| Option | Windows | Linux, Android | macOS |
-| --- | :---: | :---: | :---: |
-| `tlsrec`, `split`, `split-delay`, `random` | ✓ | ✓ | ✓ |
-| `split-wait: sent` | ✓¹ | ✓ | — |
-| `split-wait: acked` | ✓¹ | ✓ | ✓ |
-| `disorder` | ✓¹ | ✓ | ✓² |
-| `oob`, `oob-byte` | ✓ | ✓ | ✓ |
-| `fake` (with `sni`, `randomize`, `from-original`, `offset`, split pieces) | ✓ | ✓ | —³ |
-| `fake.auto-ttl` | fallback `ttl` only⁴ | IPv6; IPv4 uses the fallback `ttl`⁴ | — |
-| `udp` (with `template`, `sni`, `quic-only`) | ✓ | ✓ | ✓ |
+| Option | Windows | Linux | Android | macOS |
+| --- | :---: | :---: | :---: | :---: |
+| `tlsrec`, `split`, `split-delay`, `random` | ✓ | ✓ | ✓ | ✓ |
+| `split-wait: sent` | ✓¹ | ✓ | ✓⁵ | — |
+| `split-wait: acked` | ✓¹ | ✓ | ✓ | ✓ |
+| `disorder` | ✓¹ | ✓ | ✓⁵ | ✓² |
+| `oob`, `oob-byte` | ✓ | ✓ | ✓ | ✓ |
+| `fake` (with `sni`, `randomize`, `from-original`, `offset`, split pieces) | ✓ | ✓ | ✓⁵ | —³ |
+| `fake.auto-ttl` | fallback `ttl` only⁴ | IPv6; IPv4 uses the fallback `ttl`⁴ | IPv6; IPv4 uses the fallback `ttl`⁴ | — |
+| `udp` (with `template`, `sni`, `quic-only`) | ✓ | ✓ | ✓ | ✓ |
 
-¹ Windows reports send-queue progress through counters (`SIO_TCP_INFO`), not the queue itself, so a wait can end early. ² macOS cannot see unsent bytes: the low-hop piece is written once the send buffer is empty, the transmission is inferred. ³ macOS cannot make a retransmission carry other bytes than the first transmission. ⁴ No unprivileged interface reports the TTL of a TCP socket's received packets on Windows, macOS or Linux IPv4. `auto-ttl` without `ttl` is a config error on Windows, and on Linux with `ip-version: ipv4-only`; on Linux with IPv6 enabled it is accepted, and an IPv4 connection then fails at its first write (a warning is logged).
+¹ Windows reports send-queue progress through counters (`SIO_TCP_INFO`), not the queue itself, so a wait can end early. ² macOS cannot see unsent bytes: the low-hop piece is written once the send buffer is empty, the transmission is inferred. ³ macOS cannot make a retransmission carry other bytes than the first transmission. ⁴ No unprivileged interface reports the TTL of a TCP socket's received packets on Windows, macOS or Linux IPv4. `auto-ttl` without `ttl` is a config error on Windows, and on Linux with `ip-version: ipv4-only`; on Linux with IPv6 enabled it is accepted, and an IPv4 connection then fails at its first write (a warning is logged). Android behaves like Linux here. ⁵ Per connection: Android does not let apps read the unsent bytes of a socket through `SIOCOUTQNSD`, so they are read from `TCP_INFO`, which needs Linux 4.6 or later. The config is accepted and the log says that the method is verified per connection; on a kernel without that field the connection fails before anything is sent, with an error that names the method. Nothing is replaced by a pause or another method.
 
 ## Routing
 
