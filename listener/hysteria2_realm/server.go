@@ -130,6 +130,7 @@ func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunn
 		//TCP
 		l, err := lc.Listen(context.Background(), "tcp", addr)
 		if err != nil {
+			_ = sl.Close() // the earlier addresses
 			return nil, err
 		}
 		if tlsConfig.GetCertificate != nil {
@@ -140,6 +141,9 @@ func New(config LC.Hysteria2RealmServer, lc C.InboundListenConfig, tunnel C.Tunn
 		srv := &http.Server{
 			Handler:           s.routes(),
 			ReadHeaderTimeout: 10 * time.Second,
+			// the wait between keep-alive requests: without it an idle
+			// connection is kept forever (no ReadTimeout, /events is long-lived)
+			IdleTimeout: 30 * time.Second,
 		}
 
 		sl.servers = append(sl.servers, srv)

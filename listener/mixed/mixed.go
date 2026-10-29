@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
@@ -11,6 +12,7 @@ import (
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/http"
@@ -26,7 +28,7 @@ import (
 type Listener struct {
 	listener net.Listener
 	addr     string
-	closed   bool
+	closed   atomic.Bool
 }
 
 // RawAddress implements C.Listener
@@ -41,7 +43,7 @@ func (l *Listener) Address() string {
 
 // Close implements C.Listener
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	return l.listener.Close()
 }
 
@@ -59,13 +61,9 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		}
 	}
 
-	l, err := lc.Listen(context.Background(), "tcp", config.Listen)
-	if err != nil {
-		return nil, err
-	}
-
 	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
 	var realityBuilder *reality.Builder
+	var err error
 
 	if config.Certificate != "" && config.PrivateKey != "" {
 		certLoader, err := ca.NewTLSKeyPairLoader(config.Certificate, config.PrivateKey)
@@ -109,6 +107,13 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		}
 	}
 
+	// listen once the configuration is validated: an error above must not
+	// leave the port bound with nobody accepting
+	l, err := lc.Listen(context.Background(), "tcp", config.Listen)
+	if err != nil {
+		return nil, err
+	}
+
 	if realityBuilder != nil {
 		l = realityBuilder.NewListener(l)
 	} else if tlsConfig.GetCertificate != nil {
@@ -121,12 +126,9 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 	}
 	go func() {
 		for {
-			c, err := ml.listener.Accept()
+			c, err := accept.Next(ml.listener, ml.closed.Load)
 			if err != nil {
-				if ml.closed {
-					break
-				}
-				continue
+				break
 			}
 			store := config.AuthStore
 			if isDefault || store == authStore.Default { // only apply on default listener

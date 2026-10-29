@@ -84,6 +84,7 @@ func (h *HTTP) Listen(tunnel C.Tunnel) error {
 			h.Additions()...,
 		)
 		if err != nil {
+			_ = h.Close() // the addresses already listening
 			return err
 		}
 		h.l = append(h.l, l)

@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	"github.com/metacubex/mihomo/transport/socks5"
 )
 
@@ -15,7 +17,7 @@ type Listener struct {
 	addr     string
 	target   socks5.Addr
 	proxy    string
-	closed   bool
+	closed   atomic.Bool
 }
 
 // RawAddress implements C.Listener
@@ -30,7 +32,7 @@ func (l *Listener) Address() string {
 
 // Close implements C.Listener
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	return l.listener.Close()
 }
 
@@ -62,12 +64,9 @@ func New(addr, target, proxy string, lc C.InboundListenConfig, tunnel C.Tunnel, 
 
 	go func() {
 		for {
-			c, err := l.Accept()
+			c, err := accept.Next(l, rl.closed.Load)
 			if err != nil {
-				if rl.closed {
-					break
-				}
-				continue
+				break
 			}
 			go rl.handleTCP(c, tunnel, additions...)
 		}

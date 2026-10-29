@@ -13,6 +13,7 @@ import (
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/reality"
@@ -63,13 +64,9 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		}
 	}
 
-	l, err := lc.Listen(context.Background(), "tcp", config.Listen)
-	if err != nil {
-		return nil, err
-	}
-
 	tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
 	var realityBuilder *reality.Builder
+	var err error
 
 	if config.Certificate != "" && config.PrivateKey != "" {
 		certLoader, err := ca.NewTLSKeyPairLoader(config.Certificate, config.PrivateKey)
@@ -113,6 +110,13 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 		}
 	}
 
+	// listen once the configuration is validated: an error above must not
+	// leave the port bound with nobody accepting
+	l, err := lc.Listen(context.Background(), "tcp", config.Listen)
+	if err != nil {
+		return nil, err
+	}
+
 	if realityBuilder != nil {
 		l = realityBuilder.NewListener(l)
 	} else if tlsConfig.GetCertificate != nil {
@@ -125,12 +129,9 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 	}
 	go func() {
 		for {
-			c, err := l.Accept()
+			c, err := accept.Next(l, sl.closed.Load)
 			if err != nil {
-				if sl.closed.Load() {
-					break
-				}
-				continue
+				break
 			}
 			store := config.AuthStore
 			if isDefault || store == authStore.Default { // only apply on default listener
@@ -207,7 +208,7 @@ func HandleSocks5(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, addition
 	if command == socks5.CmdUDPAssociate {
 		// The association lives as long as this control connection (RFC 1928 §7);
 		// the UDP listener only relays for clients that hold one when auth is on.
-		release := addAssociation(conn.LocalAddr(), conn.RemoteAddr(), user, target.UDPAddr())
+		release := addAssociation(store, conn.LocalAddr(), conn.RemoteAddr(), user, target.UDPAddr())
 		defer release()
 		defer conn.Close()
 		io.Copy(io.Discard, conn)

@@ -35,3 +35,25 @@ func TestClientIP(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "198.51.100.1", clientIP(request("198.51.100.1:1000", "203.0.113.7"), off))
 }
+
+// The realm token is compared in constant time; the comparison must still
+// accept only the exact token, and nothing when no token is set.
+func TestCheckRealmToken(t *testing.T) {
+	check := func(token, header string) bool {
+		r, err := http.NewRequest(http.MethodPost, "http://realm/v1/x", nil)
+		require.NoError(t, err)
+		if header != "" {
+			r.Header.Set("Authorization", header)
+		}
+		return newServer(serverConfig{realmToken: token}).checkRealmToken(r)
+	}
+	assert.True(t, check("realm-token", "Bearer realm-token"))
+	assert.False(t, check("realm-token", "Bearer realm-tokeN"))
+	assert.False(t, check("realm-token", "Bearer realm-token2"))
+	assert.False(t, check("realm-token", "Bearer realm"))
+	assert.False(t, check("realm-token", "Bearer "))
+	assert.False(t, check("realm-token", "realm-token"))
+	assert.False(t, check("realm-token", ""))
+	assert.False(t, check("", "Bearer "))
+	assert.False(t, check("", ""))
+}

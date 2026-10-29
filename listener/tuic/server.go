@@ -191,6 +191,7 @@ func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additi
 
 		ul, err := lc.ListenPacket(context.Background(), "udp", addr)
 		if err != nil {
+			_ = sl.Close() // the earlier addresses
 			return nil, err
 		}
 
@@ -203,6 +204,7 @@ func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additi
 		var server *tuic.Server
 		server, err = tuic.NewServer(option, ul)
 		if err != nil {
+			_ = sl.Close() // the earlier addresses
 			return nil, err
 		}
 

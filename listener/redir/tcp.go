@@ -2,16 +2,18 @@ package redir
 
 import (
 	"net"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/component/keepalive"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 )
 
 type Listener struct {
 	listener net.Listener
 	addr     string
-	closed   bool
+	closed   atomic.Bool
 }
 
 // RawAddress implements C.Listener
@@ -26,7 +28,7 @@ func (l *Listener) Address() string {
 
 // Close implements C.Listener
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	return l.listener.Close()
 }
 
@@ -50,12 +52,9 @@ func New(addr string, tunnel C.Tunnel, additions ...inbound.Addition) (*Listener
 
 	go func() {
 		for {
-			c, err := l.Accept()
+			c, err := accept.Next(l, rl.closed.Load)
 			if err != nil {
-				if rl.closed {
-					break
-				}
-				continue
+				break
 			}
 			go handleRedir(c, tunnel, additions...)
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
@@ -14,6 +15,7 @@ import (
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/fallback"
 	"github.com/metacubex/mihomo/listener/inbounduser"
@@ -39,7 +41,7 @@ import (
 )
 
 type Listener struct {
-	closed     bool
+	closed     atomic.Bool
 	config     LC.VlessServer
 	listeners  []net.Listener
 	h3         []*h3Listener // XHTTP over HTTP/3 (alpn h3)
@@ -408,16 +410,16 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 					_ = httpServer.Serve(l)
 					return
 				}
+				// listener, not sl: a later address that fails returns nil
+				// into sl while this loop still runs until the cleanup
+				// closes l
 				for {
-					c, err := l.Accept()
+					c, err := accept.Next(l, listener.closed.Load)
 					if err != nil {
-						if sl.closed {
-							break
-						}
-						continue
+						break
 					}
 
-					go sl.acceptConn(c, tunnel)
+					go listener.acceptConn(c, tunnel)
 				}
 			}()
 		}
@@ -468,7 +470,7 @@ func (l *Listener) Close() error {
 
 // closeListeners closes the TCP listeners and the HTTP/3 servers.
 func (l *Listener) closeListeners() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, lis := range l.listeners {
 		err := lis.Close()

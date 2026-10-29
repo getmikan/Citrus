@@ -54,6 +54,7 @@ func (r *Redir) Listen(tunnel C.Tunnel) error {
 	for _, addr := range strings.Split(r.RawAddress(), ",") {
 		l, err := redir.New(addr, tunnel, r.Additions()...)
 		if err != nil {
+			_ = r.Close() // the addresses already listening
 			return err
 		}
 		r.l = append(r.l, l)

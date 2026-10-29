@@ -220,6 +220,7 @@ func New(config LC.Hysteria2Server, lc C.InboundListenConfig, tunnel C.Tunnel, a
 
 		ul, err := lc.ListenPacket(context.Background(), "udp", addr)
 		if err != nil {
+			_ = sl.Close()
 			return nil, err
 		}
 

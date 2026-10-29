@@ -1,6 +1,7 @@
 package hysteria2_realm
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,9 +50,11 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 	s.routes().ServeHTTP(w, r)
 }
 
+// checkRealmToken compares in constant time: the realm token is the only
+// credential of register and connect, on a network-exposed API.
 func (s *server) checkRealmToken(r *http.Request) bool {
 	expected := s.realmToken
-	return expected != "" && bearer(r) == expected
+	return expected != "" && subtle.ConstantTimeCompare([]byte(bearer(r)), []byte(expected)) == 1
 }
 
 func (s *server) requestIP(r *http.Request) string {
