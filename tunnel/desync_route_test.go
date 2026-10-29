@@ -16,6 +16,7 @@ import (
 	RC "github.com/metacubex/mihomo/rules/common"
 	"github.com/metacubex/mihomo/tunnel"
 
+	"github.com/Nemu-x/desync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,4 +98,38 @@ func TestDesyncRuleRouting(t *testing.T) {
 	whole, ok = <-routeHello(t, ln2, "other.test")
 	require.True(t, ok, "the DIRECT connection did not arrive")
 	assert.True(t, whole, "DIRECT must stay untouched")
+}
+
+// The options of desync v0.1.0 through the parser and the tunnel: random
+// record cuts and a disorder piece still reach the server as a ClientHello
+// split into records, where the OS implements disorder.
+func TestDesyncRuleRoutingRandom(t *testing.T) {
+	local := &sequenceResolver{ips: []netip.Addr{netip.MustParseAddr("127.0.0.1")}}
+	setupTunnel(t, []C.Rule{
+		RC.NewDomainSuffix("youtube.test", "desync-yt"),
+		RC.NewMatch("DIRECT"),
+	}, local, local)
+	mapping := map[string]any{
+		"name": "desync-yt", "type": "desync",
+		"random": map[string]any{
+			"tlsrec": []any{map[string]any{"from": "-4+s", "to": "4+s", "count": 2}},
+			"split":  []any{map[string]any{"from": 1, "to": 60}},
+		},
+	}
+	if desync.PlatformCapabilities().Disorder.Supported {
+		mapping["disorder"] = true
+	}
+	proxy, err := adapter.ParseProxy(mapping)
+	require.NoError(t, err)
+	tunnel.UpdateProxies(map[string]C.Proxy{
+		"DIRECT":    adapter.NewProxy(outbound.NewDirect()),
+		"REJECT":    adapter.NewProxy(outbound.NewReject()),
+		"desync-yt": proxy,
+	}, nil)
+
+	ln := listen(t)
+	defer ln.Close()
+	whole, ok := <-routeHello(t, ln, "www.youtube.test")
+	require.True(t, ok, "the desync connection did not arrive")
+	assert.False(t, whole, "random record cuts must split the ClientHello")
 }

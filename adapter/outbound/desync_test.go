@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net"
 	"net/netip"
+	"runtime"
 	"syscall"
 	"testing"
 	"time"
@@ -396,21 +397,22 @@ func TestDesyncOptionValidation(t *testing.T) {
 	}
 }
 
-// Off Windows, fake and udp are configuration errors that say why.
+// Where the library does not implement fake or udp, they are configuration
+// errors that name the OS and say why.
 func TestDesyncPlatformMethods(t *testing.T) {
 	_, err := NewDesync(DesyncOption{Name: "fake", TLSRec: "1+s", Fake: &DesyncFakeOption{TTL: 4, Prefix: -1, Timeout: 3000}})
 	if desync.SupportsFake() {
 		assert.NoError(t, err)
 	} else {
 		assert.ErrorIs(t, err, desync.ErrFakeUnsupported)
-		assert.ErrorContains(t, err, "Windows only")
+		assert.ErrorContains(t, err, "fake is not supported on "+runtime.GOOS)
 	}
 	_, err = NewDesync(DesyncOption{Name: "udp", UDP: &DesyncUDPOption{TTL: 4}})
 	if desync.SupportsUDPFake() {
 		assert.NoError(t, err)
 	} else {
 		assert.ErrorIs(t, err, desync.ErrUDPFakeUnsupported)
-		assert.ErrorContains(t, err, "Windows only")
+		assert.ErrorContains(t, err, "udp is not supported on "+runtime.GOOS)
 	}
 }
 
