@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
@@ -61,6 +62,19 @@ func TestParseDesyncInvalid(t *testing.T) {
 		"dialer-proxy": {"tlsrec": "1+s", "dialer-proxy": "vpn"},
 		"fake ttl":     {"tlsrec": "1+s", "fake": map[string]any{"ttl": 999}},
 		"udp repeats":  {"udp": map[string]any{"ttl": 4, "repeats": 100}},
+		"split-wait":   {"split": "2", "split-wait": "soon"},
+		"wait timeout": {"split": "2", "split-wait-timeout": 100},
+		"disorder":     {"tlsrec": "1+s", "disorder": true},
+		"oob-byte":     {"split": "2", "oob": true, "oob-byte": "ab"},
+		"random":       {"random": map[string]any{"seed": 1}},
+		"random range": {"random": map[string]any{"split": []any{map[string]any{"from": 9, "to": 3}}}},
+		"random to":    {"random": map[string]any{"split": []any{map[string]any{"from": 1}}}},
+		"random list":  {"random": map[string]any{"split": map[string]any{"from": 1, "to": 3}}},
+		"fake no ttl":  {"tlsrec": "1+s", "fake": map[string]any{"prefix": -1}},
+		"fake sni":     {"tlsrec": "1+s", "fake": map[string]any{"ttl": 4, "sni": "www.example.com"}},
+		"auto-ttl":     {"tlsrec": "1+s", "fake": map[string]any{"ttl": 4, "auto-ttl": map[string]any{"min": 9, "max": 4}}},
+		"udp template": {"udp": map[string]any{"ttl": 4, "template": "quic-v2"}},
+		"udp sni":      {"udp": map[string]any{"ttl": 4, "sni": "www.example.com"}},
 	} {
 		mapping := map[string]any{"name": name, "type": "desync"}
 		for k, v := range extra {
@@ -90,6 +104,117 @@ func TestParseDesyncPlatformMethods(t *testing.T) {
 	} else {
 		assert.ErrorIs(t, err, desync.ErrUDPFakeUnsupported)
 	}
+}
+
+// The socket methods and random cuts as a YAML configuration decodes them.
+func TestParseDesyncMethods(t *testing.T) {
+	caps := desync.PlatformCapabilities()
+	mapping := map[string]any{
+		"name":               "desync-methods",
+		"type":               "desync",
+		"tlsrec":             "1+s",
+		"split":              "2,1+s",
+		"split-wait":         "acked",
+		"split-wait-timeout": 500,
+		"oob":                true,
+		"oob-byte":           "z",
+		"random": map[string]any{
+			"tlsrec": []any{map[string]any{"from": "-8+s", "to": "8+s", "count": 2, "min-piece": 2}},
+			"split":  []any{map[string]any{"from": 1, "to": 120}},
+			"seed":   12345,
+		},
+	}
+	p, err := ParseProxy(mapping)
+	if !caps.OOB || !caps.Ack.Acked {
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), runtime.GOOS)
+		return
+	}
+	require.NoError(t, err)
+	raw, err := json.Marshal(p)
+	require.NoError(t, err)
+	var v struct {
+		Desync struct {
+			TCP map[string]json.RawMessage `json:"tcp"`
+		} `json:"desync"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &v))
+	tcp := v.Desync.TCP
+	assert.JSONEq(t, `"acked"`, string(tcp["split-wait"]))
+	assert.JSONEq(t, `500`, string(tcp["split-wait-timeout"]))
+	assert.JSONEq(t, `false`, string(tcp["disorder"]))
+	assert.JSONEq(t, `{"byte":"z"}`, string(tcp["oob"]))
+	assert.JSONEq(t, `{"seed":12345,
+		"tlsrec":[{"from":"-8+s","to":"8+s","count":2,"min-piece":2}],
+		"split":[{"from":"1","to":"120","count":1,"min-piece":1}]}`, string(tcp["random"]))
+
+	// disorder cannot wait for acknowledgement; with sent it can
+	mapping["disorder"] = true
+	_, err = ParseProxy(mapping)
+	assert.ErrorContains(t, err, "SplitWaitAcked")
+	mapping["split-wait"] = "sent"
+	_, err = ParseProxy(mapping)
+	if caps.Ack.Sent && caps.Disorder.Supported {
+		assert.NoError(t, err)
+	} else {
+		assert.ErrorContains(t, err, runtime.GOOS)
+	}
+}
+
+func TestParseDesyncFakeDecoy(t *testing.T) {
+	p, err := ParseProxy(map[string]any{
+		"name": "desync-fake", "type": "desync", "split": "1+s", "disorder": true,
+		"fake": map[string]any{
+			"ttl":           5,
+			"auto-ttl":      map[string]any{}, // the defaults
+			"prefix":        -1,
+			"sni":           []any{"www.example.com", "cdn-##.example.net"},
+			"randomize":     true,
+			"from-original": true,
+			"offset":        2,
+		},
+	})
+	if !desync.SupportsFake() {
+		assert.ErrorIs(t, err, desync.ErrFakeUnsupported)
+		assert.ErrorContains(t, err, "fake is not supported on "+runtime.GOOS)
+		return
+	}
+	require.NoError(t, err)
+	raw, err := json.Marshal(p)
+	require.NoError(t, err)
+	var v struct {
+		Desync struct {
+			TCP struct {
+				Fake json.RawMessage `json:"fake"`
+			} `json:"tcp"`
+		} `json:"desync"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &v))
+	assert.JSONEq(t, `{"ttl":5,"auto-ttl":{"delta":1,"min":3,"max":20},"prefix":-1,"timeout":3000,
+		"sni":["www.example.com","cdn-##.example.net"],"randomize":true,"from-original":true,"offset":2,"last-ttl":null}`, string(v.Desync.TCP.Fake))
+}
+
+func TestParseDesyncUDPQUIC(t *testing.T) {
+	p, err := ParseProxy(map[string]any{
+		"name": "desync-quic", "type": "desync",
+		"udp": map[string]any{"ttl": 4, "template": "quic", "sni": "www.example.com", "quic-only": true},
+	})
+	if !desync.SupportsUDPFake() {
+		assert.ErrorIs(t, err, desync.ErrUDPFakeUnsupported)
+		return
+	}
+	require.NoError(t, err)
+	raw, err := json.Marshal(p)
+	require.NoError(t, err)
+	var v struct {
+		Desync struct {
+			UDP map[string]any `json:"udp"`
+		} `json:"desync"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &v))
+	assert.Equal(t, "quic", v.Desync.UDP["template"])
+	assert.Equal(t, "www.example.com", v.Desync.UDP["sni"])
+	assert.Equal(t, true, v.Desync.UDP["quic-only"])
 }
 
 // A URL test of the outbound dials through the transformer: the test

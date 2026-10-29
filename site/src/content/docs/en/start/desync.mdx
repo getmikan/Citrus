@@ -3,7 +3,7 @@ title: Desync outbound
 description: A desync outbound is a DIRECT connection adapted to networks with DPI filtering. It changes how the first TLS ClientHello is sent, not what the server receives.
 ---
 
-A `desync` outbound adapts direct connections to networks with DPI filtering. It dials like `DIRECT` and transforms the first TLS ClientHello of the connection before it is sent: the ClientHello is split into several TLS records or TCP writes, and on Windows a low-TTL fake prefix can go first. The server still receives the same handshake. Everything after the ClientHello, and any connection that does not start with one, passes unchanged. It is not a tunnel and needs no server. The transformations come from the [desync](https://github.com/Nemu-x/desync) library.
+A `desync` outbound adapts direct connections to networks with DPI filtering. It dials like `DIRECT` and transforms the first TLS ClientHello of the connection before it is sent: the ClientHello is split into several TLS records or TCP writes, a piece can go out with a hop limit that expires on the way or be followed by an urgent byte, and a low-TTL decoy can take the place of the first transmission. The server still receives the same handshake. Everything after the ClientHello, and any connection that does not start with one, passes unchanged. It is not a tunnel and needs no server. The transformations come from the [desync](https://github.com/Nemu-x/desync) library, v0.1.0.
 
 ```yaml
 proxies:
@@ -12,8 +12,13 @@ proxies:
     tlsrec: "1+s"            # positions, comma-separated
     # split: "2"             # optional: separate TCP writes
     # split-delay: 0         # ms between them, 0–1000
-    # fake: { ttl: 4, prefix: -1, timeout: 3000 } # Windows only
-    # udp: { ttl: 4, repeats: 6, packets: 3 }     # Windows only
+    # split-wait: sent       # sent | acked
+    # disorder: true         # needs split
+    # oob: true              # needs split
+    # random:
+    #   tlsrec: [{ from: "-8+s", to: "8+s", count: 2 }]
+    # fake: { ttl: 4, prefix: -1, sni: [www.example.com], randomize: true }
+    # udp: { ttl: 4, template: quic, quic-only: true }
 
 proxy-groups:
   - name: youtube
@@ -32,21 +37,50 @@ rules:
 
 | Key | Meaning |
 | --- | --- |
-| `tlsrec` | Where to split the ClientHello into TLS records. `3` is byte 3 of the TLS input (counted from the first record header), `1+s` one byte after the start of the server name. |
+| `tlsrec` | Where to split the ClientHello into TLS records. `3` is byte 3 of the TLS input (counted from the first record header), `1+s` one byte after the start of the server name, `-2+s` two bytes before it. |
 | `split` | Where to split it into separate TCP writes, same notation. TCP segmentation stays up to the operating system. |
-| `split-delay` | Pause between the writes of `split`, in milliseconds, 0–1000. Needs `split`. |
-| `fake` | Windows only. Sends an alternate prefix with a short hop limit (`ttl`), then the original bytes for retransmission. `prefix` is counted after record splitting, negative from the end (`-1` by default); `timeout` bounds the native send in milliseconds (default 3000). Cannot be combined with `split`. |
-| `udp` | Windows only. Sends `repeats` (1–16, default 6) low-TTL datagrams before each of the first `packets` (1–8, default 3) datagrams to a peer; the originals are unchanged. Without `udp` the outbound's UDP is plain DIRECT. |
+| `split-delay` | Pause between the split writes, in milliseconds, 0–1000. Needs split positions. |
+| `split-wait` | `sent` or `acked`: before each further split piece, wait until the kernel reports every earlier byte as transmitted, or as acknowledged by the server. The wait ends as soon as that is reported; it is never replaced by a timed pause. Needs split positions. |
+| `split-wait-timeout` | Bound of each wait in milliseconds, 0–60000 (default 2000). It also bounds the wait of `disorder`. A wait that times out closes the connection. |
+| `disorder` | The first split piece goes out with hop limit 1 and expires at the first router; TCP retransmits it after the server received the later pieces (ByeDPI `--disorder`). Needs split positions; cannot be combined with `split-wait: acked`. |
+| `oob` | One urgent (`MSG_OOB`) byte follows the first split piece (ByeDPI `--oob`, with `disorder` `--disoob`). The server's TCP takes it out of the stream. Needs split positions. |
+| `oob-byte` | That byte, one ASCII character (default `a`). Needs `oob`. |
+| `random` | Random cuts drawn per connection and added to `tlsrec`/`split`: lists of ranges under `tlsrec` and `split`, each `{ from, to, count, min-piece }`. A range draws `count` cuts (1–64, default 1) from `from`..`to` (inclusive, both absolute or both `+s`), at least `min-piece` bytes apart (default 1); a range that does not fit is clipped. At most 16 ranges per list. `seed: 0` (default) draws a new seed per connection; another value makes every connection cut alike, for tests and bug reports. Random write cuts count as split positions. |
+| `fake` | Windows, Linux and Android. The first transmission of the ClientHello prefix carries a decoy with a short hop limit; the retransmission carries the original bytes. With split positions (or `disorder`, `oob`) the prefix end is one more cut, and the piece ending there is the fake; the first piece must stay an ordinary one then, or the write fails before anything is sent. `prefix` is counted after record splitting, negative from the end (`-1` by default); `timeout` bounds the native send in milliseconds (default 3000). Cannot be combined with `split-wait: acked`. |
+| `fake.ttl` | Hop limit of the decoy, 1–255. Required without `auto-ttl`; with it, the fallback where the path cannot be observed (0 or unset: such a connection fails). |
+| `fake.auto-ttl` | `{ delta, min, max }`: derive the hop limit from the TTL of the server's SYN-ACK, `hops - delta` clamped to `min`..`max` (defaults 1, 3, 20; `auto-ttl: {}` uses them). Observable only on Linux and Android over IPv6; see the table below. |
+| `fake.sni` | List of server names for a decoy ClientHello, one drawn per connection; `*` becomes a random letter or digit, `?` a letter, `#` a digit. DNS names only, at most 64. |
+| `fake.randomize` | Fresh random, session ID and key share values in the decoy per connection. |
+| `fake.from-original` | Build the decoy from the connection's own ClientHello instead of the built-in template. Needs `sni` or `randomize`. |
+| `fake.offset` | Start the decoy at this byte, 0–65535, for example to line it up with a fake piece that does not start the stream. |
+| `udp` | Sends `repeats` (1–16, default 6) low-TTL (`ttl`) datagrams before each of the first `packets` (1–8, default 3) datagrams to a peer; the originals are unchanged. Without `udp` the outbound's UDP is plain DIRECT. |
+| `udp.template` | `zero` (64 zero bytes, default) or `quic`: each burst is a freshly generated QUIC v1 Initial for `udp.sni` (default `www.wikipedia.org`). |
+| `udp.quic-only` | Burst only before datagrams that look like a QUIC client Initial; other UDP passes untouched and does not count towards `packets`. |
 | `interface-name`, `routing-mark`, `ip-version` | As for `direct`. |
 
-At least one of `tlsrec`, `split`, `fake` or `udp` is required. `tfo`, `mptcp` and `dialer-proxy` are refused: with TFO the ClientHello would leave with the SYN, before it could be split. `fake` and `udp` on Linux, macOS or Android are a config error rather than a silent DIRECT.
+At least one of `tlsrec`, `split`, `random`, `fake` or `udp` is required. `tfo`, `mptcp` and `dialer-proxy` are refused: with TFO the ClientHello would leave with the SYN, before it could be split. A method that the operating system does not implement is a config error that names the system and the reason, never a silent DIRECT.
+
+## Operating systems
+
+| Option | Windows | Linux, Android | macOS |
+| --- | :---: | :---: | :---: |
+| `tlsrec`, `split`, `split-delay`, `random` | ✓ | ✓ | ✓ |
+| `split-wait: sent` | ✓¹ | ✓ | — |
+| `split-wait: acked` | ✓¹ | ✓ | ✓ |
+| `disorder` | ✓¹ | ✓ | ✓² |
+| `oob`, `oob-byte` | ✓ | ✓ | ✓ |
+| `fake` (with `sni`, `randomize`, `from-original`, `offset`, split pieces) | ✓ | ✓ | —³ |
+| `fake.auto-ttl` | fallback `ttl` only⁴ | IPv6; IPv4 uses the fallback `ttl`⁴ | — |
+| `udp` (with `template`, `sni`, `quic-only`) | ✓ | ✓ | ✓ |
+
+¹ Windows reports send-queue progress through counters (`SIO_TCP_INFO`), not the queue itself, so a wait can end early. ² macOS cannot see unsent bytes: the low-hop piece is written once the send buffer is empty, the transmission is inferred. ³ macOS cannot make a retransmission carry other bytes than the first transmission. ⁴ No unprivileged interface reports the TTL of a TCP socket's received packets on Windows, macOS or Linux IPv4. `auto-ttl` without `ttl` is a config error on Windows, and on Linux with `ip-version: ipv4-only`; on Linux with IPv6 enabled it is accepted, and an IPv4 connection then fails at its first write (a warning is logged).
 
 ## Routing
 
-The outbound is routed like any other: rules and groups pick it by name, and the global `DIRECT` is not changed. Health checks and URL tests of the outbound go through the transformation, so a fallback or url-test group can switch to a proxy node when the desync route stops working and back when it recovers. It resolves names with `direct-nameserver` like DIRECT, keeps the address an IP rule was checked against, and refuses a connection that is its own coming back through a Citrus listener.
+The outbound is routed like any other: rules and groups pick it by name, and the global `DIRECT` is not changed. Health checks and URL tests of the outbound go through the transformation, so a fallback or url-test group can switch to a proxy node when the desync route stops working and back when it recovers. It resolves names with `direct-nameserver` like DIRECT, keeps the address an IP rule was checked against, and refuses a connection that is its own coming back through a Citrus listener. A server inbound user cannot reach private or loopback addresses through it, as through DIRECT.
 
 TTL values such as 4 are examples, not defaults that suit every network: the fake has to expire after the filtering equipment and before the server. Whether a method helps depends on the network; a local test only shows that the bytes are sent as configured.
 
 ## Controller API
 
-`GET /proxies` shows the outbound with `"type": "Desync"` and a `desync` object: the active `strategy` (`static`, the configured options), the `tcp` options and, with `udp`, its options and the counters of original and fake datagrams, fake errors and peers. The counters show that datagrams were sent, not that they helped.
+`GET /proxies` shows the outbound with `"type": "Desync"` and a `desync` object: the active `strategy` (`static`, the configured options) and the `tcp` options with the defaults filled in (`split-wait`, `split-wait-timeout`, `disorder`, `oob`, `random`, `fake`). Under `fake`, `last-ttl` is the hop limit the latest fake was sent with and whether `auto-ttl` derived it (`null` before the first fake). With `udp`, its options and the counters of original and fake datagrams, fake errors and peers. The counters show that datagrams were sent, not that they helped.
