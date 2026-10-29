@@ -201,14 +201,16 @@ func (s *ServerConfig) serverV3(ctx context.Context, conn net.Conn) (net.Conn, s
 	if err != nil {
 		return nil, "", fmt.Errorf("shadow-tls: read client handshake: %w", err)
 	}
-	serverName, err := extractServerName(clientHello)
-	if err != nil {
-		return nil, "", fmt.Errorf("shadow-tls: extract server name: %w", err)
-	}
+	// A hello without SNI still goes to the handshake server unless it is
+	// authenticated: closing it would tell a prober this is not that server.
+	serverName, sniErr := extractServerName(clientHello)
 	user, authErr := verifyClientHello(clientHello, s.users)
 	if authErr != nil {
 		log.Warnln("[ShadowTLS] client hello verify failed: %v", authErr)
 		return nil, "", s.relayFallback(ctx, conn, clientHello, s.fallbackV3Handshake(ctx, serverName))
+	}
+	if sniErr != nil {
+		return nil, "", fmt.Errorf("shadow-tls: extract server name: %w", sniErr)
 	}
 	log.Debugln("[ShadowTLS] client hello verify success")
 	handshakeConfig := s.selectV3Handshake(serverName, true)

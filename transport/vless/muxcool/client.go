@@ -23,6 +23,21 @@ const (
 	chunkSize   = 8 * 1024
 )
 
+// idleTimeout closes a session that has had no streams for this long, as
+// Xray's mux client does; an idle XDrive session would otherwise keep
+// polling storage for the life of the proxy.
+// A Client reads it once, in NewClient.
+var idleTimeout = 16 * time.Second
+
+// writeTimeout fails a session whose conn takes this long to accept one
+// frame (a black-holed peer, stalled XDrive storage). A stream's own
+// deadline only fails that stream, so without it new dials would keep
+// queueing behind the dead conn.
+// A Client reads it once, in NewClient.
+var writeTimeout = 30 * time.Second
+
+var errWriteStalled = errors.New("Mux.Cool session write stalled")
+
 type Client struct {
 	dial     func(context.Context) (net.Conn, error)
 	mu       sync.Mutex
@@ -30,10 +45,13 @@ type Client struct {
 	dialing  int
 	closed   bool
 	notify   chan struct{}
+
+	idleTimeout  time.Duration
+	writeTimeout time.Duration
 }
 
 func NewClient(dial func(context.Context) (net.Conn, error)) *Client {
-	return &Client{dial: dial, notify: make(chan struct{})}
+	return &Client{dial: dial, notify: make(chan struct{}), idleTimeout: idleTimeout, writeTimeout: writeTimeout}
 }
 func (c *Client) wakeLocked() { close(c.notify); c.notify = make(chan struct{}) }
 func (c *Client) DialContext(ctx context.Context, addr string) (net.Conn, error) {
@@ -64,11 +82,17 @@ func (c *Client) DialContext(ctx context.Context, addr string) (net.Conn, error)
 				continue
 			}
 			s.nextID++
+			s.disarmIdleLocked()
 			st := &stream{session: s, id: s.nextID, data: make(chan []byte, 16), done: make(chan struct{}), readDeadline: deadline.MakePipeDeadline(), writeDeadline: deadline.MakePipeDeadline()}
 			s.streams[st.id] = st
 			c.mu.Unlock()
-			if err := s.send(ctx, frame(st.id, 1, 0, target, nil), &st.writeDeadline); err != nil {
-				st.finish(err)
+			if queued, err := s.send(ctx, frame(st.id, 1, 0, target, nil), &st.writeDeadline); err != nil {
+				if queued {
+					// The New frame still goes out, so end the stream on the server too.
+					st.Close()
+				} else {
+					st.finish(err)
+				}
 				return nil, err
 			}
 			return st, nil
@@ -83,6 +107,7 @@ func (c *Client) DialContext(ctx context.Context, addr string) (net.Conn, error)
 			if err == nil && !closed {
 				s := &session{client: c, conn: conn, streams: make(map[uint16]*stream), done: make(chan struct{}), writes: make(chan writeRequest, 16)}
 				c.sessions = append(c.sessions, s)
+				s.armIdleLocked()
 				go s.readLoop()
 				go s.writeLoop()
 			}
@@ -136,33 +161,74 @@ type session struct {
 	writes  chan writeRequest
 	done    chan struct{}
 	once    sync.Once
+	idle    *time.Timer // guarded by client.mu
+	idleSeq uint64      // guarded by client.mu; bumped on every arm and disarm
 }
 
-func (s *session) send(ctx context.Context, data []byte, d *deadline.PipeDeadline) error {
+func (s *session) armIdleLocked() {
+	s.disarmIdleLocked()
+	seq := s.idleSeq
+	s.idle = time.AfterFunc(s.client.idleTimeout, func() { s.closeIfIdle(seq) })
+}
+func (s *session) disarmIdleLocked() {
+	s.idleSeq++
+	if s.idle != nil {
+		s.idle.Stop()
+		s.idle = nil
+	}
+}
+
+// closeIfIdle fails the session if it stayed idle since the timer that
+// called it was armed. It drops the session from client.sessions under
+// client.mu first, so no DialContext can add a stream to it meanwhile.
+func (s *session) closeIfIdle(seq uint64) {
+	c := s.client
+	c.mu.Lock()
+	if seq != s.idleSeq || len(s.streams) != 0 {
+		c.mu.Unlock()
+		return
+	}
+	s.idle = nil
+	for i, other := range c.sessions {
+		if other == s {
+			c.sessions = append(c.sessions[:i], c.sessions[i+1:]...)
+			break
+		}
+	}
+	c.mu.Unlock()
+	s.fail(io.EOF)
+}
+
+// send queues data for writeLoop and waits for it to be written. queued
+// reports whether the frame was handed to writeLoop: if so, it is written
+// whole later even when send gives up waiting on ctx or the deadline, so
+// that only fails the caller, not the session and its sibling streams.
+func (s *session) send(ctx context.Context, data []byte, d *deadline.PipeDeadline) (queued bool, err error) {
 	req := writeRequest{data: data, done: make(chan error, 1)}
 	select {
 	case s.writes <- req:
 	case <-ctx.Done():
-		return ctx.Err()
+		return false, ctx.Err()
 	case <-s.done:
-		return net.ErrClosed
+		return false, net.ErrClosed
 	case <-d.Wait():
-		return os.ErrDeadlineExceeded
+		return false, os.ErrDeadlineExceeded
 	}
 	select {
 	case err := <-req.done:
-		return err
+		return true, err
 	case <-ctx.Done():
-		s.fail(ctx.Err())
-		return ctx.Err()
+		return true, ctx.Err()
 	case <-s.done:
-		return net.ErrClosed
+		return true, net.ErrClosed
 	case <-d.Wait():
-		s.fail(os.ErrDeadlineExceeded)
-		return os.ErrDeadlineExceeded
+		return true, os.ErrDeadlineExceeded
 	}
 }
 func (s *session) writeLoop() {
+	stall := time.AfterFunc(s.client.writeTimeout, func() { s.fail(errWriteStalled) })
+	stall.Stop()
+	defer stall.Stop()
 	for {
 		select {
 		case <-s.done:
@@ -170,6 +236,7 @@ func (s *session) writeLoop() {
 		case req := <-s.writes:
 			p := req.data
 			var err error
+			stall.Reset(s.client.writeTimeout)
 			for len(p) > 0 {
 				var n int
 				n, err = s.conn.Write(p)
@@ -184,6 +251,7 @@ func (s *session) writeLoop() {
 					break
 				}
 			}
+			stall.Stop()
 			req.done <- err
 			if err != nil {
 				s.fail(err)
@@ -256,6 +324,7 @@ func (s *session) fail(err error) {
 	s.once.Do(func() {
 		close(s.done)
 		s.client.mu.Lock()
+		s.disarmIdleLocked()
 		streams := make([]*stream, 0, len(s.streams))
 		for _, st := range s.streams {
 			streams = append(streams, st)
@@ -290,6 +359,13 @@ func (s *stream) finish(err error) {
 		delete(s.session.streams, s.id)
 		s.session.client.wakeLocked()
 		exhausted := s.session.nextID == 65535 && len(s.session.streams) == 0
+		if len(s.session.streams) == 0 && !exhausted {
+			select {
+			case <-s.session.done:
+			default:
+				s.session.armIdleLocked()
+			}
+		}
 		s.session.client.mu.Unlock()
 		if exhausted {
 			go s.session.fail(io.EOF)
@@ -337,10 +413,15 @@ func (s *stream) Write(p []byte) (int, error) {
 		default:
 		}
 		n := min(len(p), chunkSize)
-		if err := s.session.send(context.Background(), frame(s.id, 2, 1, nil, p[:n]), &s.writeDeadline); err != nil {
+		queued, err := s.session.send(context.Background(), frame(s.id, 2, 1, nil, p[:n]), &s.writeDeadline)
+		if err == nil || queued && errors.Is(err, os.ErrDeadlineExceeded) {
+			// A chunk queued before the deadline is still written whole by
+			// writeLoop, so count it.
+			total += n
+		}
+		if err != nil {
 			return total, err
 		}
-		total += n
 		p = p[n:]
 	}
 	return total, nil
@@ -353,10 +434,12 @@ func (s *stream) Close() error {
 		default:
 		}
 		s.finish(net.ErrClosed)
-		d := deadline.MakePipeDeadline()
-		d.Set(time.Now().Add(time.Second))
-		defer d.Set(time.Time{})
-		_ = s.session.send(context.Background(), frame(s.id, 3, 0, nil, nil), &d)
+		// Queue the End frame without waiting for it: a slow conn must not
+		// block Close, and abandoning the wait must not fail the session.
+		go func() {
+			d := deadline.MakePipeDeadline()
+			_, _ = s.session.send(context.Background(), frame(s.id, 3, 0, nil, nil), &d)
+		}()
 		s.readDeadline.Set(time.Time{})
 		s.writeDeadline.Set(time.Time{})
 	})

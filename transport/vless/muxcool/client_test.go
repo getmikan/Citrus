@@ -73,6 +73,28 @@ func TestConcurrentStreamsAgainstSingMuxServer(t *testing.T) {
 		t.Fatalf("opened %d sessions", n)
 	}
 }
+func TestWriteReportsBytesWritten(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c := NewClient(func(context.Context) (net.Conn, error) {
+		a, b := net.Pipe()
+		go func() { defer b.Close(); _ = vmess.HandleMuxConnection(ctx, b, M.Metadata{}, echoHandler{}) }()
+		return a, nil
+	})
+	defer c.Close()
+	conn, err := c.DialContext(ctx, "echo.test:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	want := bytes.Repeat([]byte{7}, 3*chunkSize+1)
+	go io.Copy(io.Discard, conn)
+	// io.Copy rejects a writer that reports more than it was given.
+	if n, err := conn.Write(want); err != nil || n != len(want) {
+		t.Fatalf("Write = %d, %v; want %d, nil", n, err, len(want))
+	}
+}
 func TestPendingReadDeadlineAndClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -105,5 +127,240 @@ func TestPendingReadDeadlineAndClose(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("close did not unblock read")
+	}
+}
+
+func TestIdleSessionCloses(t *testing.T) {
+	defer func(d time.Duration) { idleTimeout = d }(idleTimeout)
+	idleTimeout = 100 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conns := make(chan *gatedConn, 2)
+	c := newGatedClient(ctx, conns)
+	defer c.Close()
+
+	conn, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-conns
+	// A live stream keeps the session open past the idle timeout.
+	time.Sleep(3 * idleTimeout)
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := conn.Write([]byte("x")); err != nil {
+		t.Fatalf("busy session closed: %v", err)
+	}
+	if _, err := io.ReadFull(conn, make([]byte, 1)); err != nil {
+		t.Fatalf("busy session closed: %v", err)
+	}
+	c.mu.Lock()
+	s := c.sessions[0]
+	c.mu.Unlock()
+	conn.Close()
+	select {
+	case <-s.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("idle session not closed")
+	}
+	c.mu.Lock()
+	n := len(c.sessions)
+	c.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("idle session still listed: %d", n)
+	}
+	// The next dial opens a fresh session.
+	conn, err = c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if len(conns) != 1 {
+		t.Fatal("no new session dialed")
+	}
+}
+
+// gatedConn blocks writes while held, like a slow uplink.
+type gatedConn struct {
+	net.Conn
+	mu   sync.Mutex
+	gate chan struct{}
+}
+
+func (c *gatedConn) hold() { c.mu.Lock(); c.gate = make(chan struct{}); c.mu.Unlock() }
+func (c *gatedConn) release() {
+	c.mu.Lock()
+	if c.gate != nil {
+		close(c.gate)
+		c.gate = nil
+	}
+	c.mu.Unlock()
+}
+func (c *gatedConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	gate := c.gate
+	c.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	return c.Conn.Write(p)
+}
+
+func newGatedClient(ctx context.Context, conns chan<- *gatedConn) *Client {
+	return NewClient(func(context.Context) (net.Conn, error) {
+		a, b := net.Pipe()
+		go func() { defer b.Close(); _ = vmess.HandleMuxConnection(ctx, b, M.Metadata{}, echoHandler{}) }()
+		gc := &gatedConn{Conn: a}
+		if conns != nil {
+			conns <- gc
+		}
+		return gc, nil
+	})
+}
+
+func TestStreamDeadlineDoesNotFailSiblings(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conns := make(chan *gatedConn, 1)
+	c := newGatedClient(ctx, conns)
+	defer c.Close()
+	s1, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gc := <-conns
+	s2, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+
+	gc.hold()
+	s1.SetWriteDeadline(time.Now().Add(50 * time.Millisecond))
+	n, err := s1.Write([]byte("a"))
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("s1 write: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("queued chunk not counted: n=%d", n)
+	}
+	closed := make(chan struct{})
+	go func() { s1.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close blocked on a slow conn")
+	}
+	gc.release()
+
+	s2.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := s2.Write([]byte("ping")); err != nil {
+		t.Fatalf("sibling write: %v", err)
+	}
+	got := make([]byte, 4)
+	if _, err := io.ReadFull(s2, got); err != nil || string(got) != "ping" {
+		t.Fatalf("sibling read: %q %v", got, err)
+	}
+}
+
+func TestStalledWriteFailsSession(t *testing.T) {
+	defer func(d time.Duration) { writeTimeout = d }(writeTimeout)
+	writeTimeout = 100 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conns := make(chan *gatedConn, 2)
+	c := newGatedClient(ctx, conns)
+	defer c.Close()
+	s1, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s1.Close()
+	gc := <-conns
+	defer gc.release()
+
+	gc.hold()
+	written := make(chan error, 1)
+	go func() { _, err := s1.Write([]byte("a")); written <- err }()
+	select {
+	case err := <-written:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("write on a stalled session: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stalled session not failed")
+	}
+	// The next dial must not queue behind the dead conn.
+	s2, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if len(conns) != 1 {
+		t.Fatal("no new session dialed")
+	}
+	s2.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := s2.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(s2, make([]byte, 4)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// endHandler echoes like echoHandler and reports each stream the server
+// saw end.
+type endHandler struct{ ended chan struct{} }
+
+func (h endHandler) NewConnection(ctx context.Context, c net.Conn, m M.Metadata) error {
+	defer func() { h.ended <- struct{}{} }()
+	return echoHandler{}.NewConnection(ctx, c, m)
+}
+func (endHandler) NewPacketConnection(context.Context, N.PacketConn, M.Metadata) error {
+	return errors.New("UDP not used")
+}
+func (endHandler) NewError(context.Context, error) {}
+
+func TestDialCancelledAfterQueueEndsStream(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	h := endHandler{ended: make(chan struct{}, 4)}
+	var gc *gatedConn
+	c := NewClient(func(context.Context) (net.Conn, error) {
+		a, b := net.Pipe()
+		go func() { defer b.Close(); _ = vmess.HandleMuxConnection(ctx, b, M.Metadata{}, h) }()
+		gc = &gatedConn{Conn: a}
+		return gc, nil
+	})
+	defer c.Close()
+	s1, err := c.DialContext(ctx, "echo.test:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s1.Close()
+
+	// The New frame is queued but the conn does not take it before the
+	// dial ctx ends.
+	gc.hold()
+	dialCtx, dialCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer dialCancel()
+	if _, err := c.DialContext(dialCtx, "echo.test:80"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("dial: %v", err)
+	}
+	gc.release()
+
+	// The server got End for the abandoned stream ...
+	select {
+	case <-h.ended:
+	case <-time.After(2 * time.Second):
+		t.Fatal("abandoned stream never ended on the server")
+	}
+	// ... and the cancelled dial did not take the session down.
+	s1.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := s1.Write([]byte("ping")); err != nil {
+		t.Fatalf("sibling write: %v", err)
+	}
+	got := make([]byte, 4)
+	if _, err := io.ReadFull(s1, got); err != nil || string(got) != "ping" {
+		t.Fatalf("sibling read: %q %v", got, err)
 	}
 }

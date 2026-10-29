@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -35,7 +36,9 @@ type CommonConn struct {
 var ErrNewHandshakeNeeded = errors.New("new handshake needed")
 
 func (c *CommonConn) retryHandshake(err error) error {
-	if c.Client == nil {
+	// A local deadline or Close says nothing about the ticket; only a reply
+	// the server cut short or could not authenticate does.
+	if c.Client == nil || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, net.ErrClosed) {
 		return err
 	}
 	c.Client.RWLock.Lock()
