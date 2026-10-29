@@ -3,7 +3,7 @@ module github.com/metacubex/mihomo
 go 1.26.0
 
 require (
-	github.com/Nemu-x/desync v0.0.0-20261028171725-d534eba24b68
+	github.com/Nemu-x/desync v0.1.0
 	github.com/bahlo/generic-list-go v0.2.0
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/easytier/easytier/easytier-go v0.0.0-20260910071355-3d0c9c3ca5e2

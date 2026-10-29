@@ -368,7 +368,6 @@ func TestDesyncOptionValidation(t *testing.T) {
 		"fake ttl":         {Fake: &DesyncFakeOption{TTL: 0}},
 		"fake ttl 256":     {Fake: &DesyncFakeOption{TTL: 256}},
 		"fake timeout":     {Fake: &DesyncFakeOption{TTL: 4, Timeout: 60001}},
-		"fake with split":  {Split: "2", Fake: &DesyncFakeOption{TTL: 4}},
 		"udp ttl":          {UDP: &DesyncUDPOption{TTL: 0}},
 		"udp repeats":      {UDP: &DesyncUDPOption{TTL: 4, Repeats: 17}},
 		"udp packets":      {UDP: &DesyncUDPOption{TTL: 4, Packets: 9}},
