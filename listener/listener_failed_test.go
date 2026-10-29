@@ -15,11 +15,11 @@ type fakeListener struct {
 	closed bool
 }
 
-func (f *fakeListener) Name() string            { return f.name }
-func (f *fakeListener) Listen(C.Tunnel) error   { f.listen++; return f.err }
-func (f *fakeListener) Close() error            { f.closed = true; return nil }
-func (f *fakeListener) Address() string         { return "" }
-func (f *fakeListener) RawAddress() string      { return "" }
+func (f *fakeListener) Name() string          { return f.name }
+func (f *fakeListener) Listen(C.Tunnel) error { f.listen++; return f.err }
+func (f *fakeListener) Close() error          { f.closed = true; return nil }
+func (f *fakeListener) Address() string       { return "" }
+func (f *fakeListener) RawAddress() string    { return "" }
 func (f *fakeListener) Config() C.InboundConfig {
 	if f.cfg != "" {
 		return fakeConfig(f.cfg)
