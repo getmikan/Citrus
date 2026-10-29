@@ -141,13 +141,18 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 			inbound.WithSpecialRules(""),
 		}
 	}
+	if !supportRedirect {
+		options.AutoRedirect = false
+	}
+	// Validate before anything is started: the deferred cleanup below cannot
+	// undo monitors or the DefaultInterfaceFinder swap once l is nil.
+	if options.AutoRedirect && !options.AutoRoute {
+		return nil, E.New("`auto-route` is required by `auto-redirect`")
+	}
 	ctx := context.TODO()
 	rpTunnel := tunnel.(P.Tunnel)
 	if options.GSOMaxSize == 0 {
 		options.GSOMaxSize = 65536
-	}
-	if !supportRedirect {
-		options.AutoRedirect = false
 	}
 	tunName := options.Device
 	if options.FileDescriptor == 0 && (tunName == "" || !checkTunName(tunName)) {
@@ -426,9 +431,6 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		l.routeAddressMap = make(map[string]*netipx.IPSet)
 		l.routeExcludeAddressMap = make(map[string]*netipx.IPSet)
 
-		if !options.AutoRoute {
-			return nil, E.New("`auto-route` is required by `auto-redirect`")
-		}
 		disableNFTables, dErr := strconv.ParseBool(os.Getenv("DISABLE_NFTABLES"))
 		l.autoRedirect, err = tun.NewAutoRedirect(tun.AutoRedirectOptions{
 			TunOptions:             &tunOptions,
@@ -509,11 +511,10 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		return
 	}
 
-	err = tunStack.Start()
+	err = l.startStack(tunStack)
 	if err != nil {
 		return
 	}
-	l.tunStack = tunStack
 
 	if l.autoRedirect != nil {
 		if len(l.options.RouteAddressSet) > 0 && len(l.routeAddressSet) == 0 {
@@ -528,9 +529,8 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 			return
 		}
 		if tunOptions.AutoRedirectMarkMode {
-			l.autoRedirectOutputMark = int32(outputMark)
-			if !dialer.DefaultRoutingMark.CompareAndSwap(0, l.autoRedirectOutputMark) {
-				err = E.New("not allowed setting global routing-mark when working with autoRedirectMarkMode")
+			err = l.claimRoutingMark(int32(outputMark))
+			if err != nil {
 				return
 			}
 			l.autoRedirect.UpdateRouteAddressSet()
@@ -548,6 +548,24 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 	l.addrStr = fmt.Sprintf("%s(%s,%s), mtu: %d, auto route: %v, auto redir: %v, ip stack: %s",
 		tunName, tunOptions.Inet4Address, tunOptions.Inet6Address, tunMTU, options.AutoRoute, options.AutoRedirect, options.Stack)
 	return
+}
+
+// startStack records tunStack before starting it, so the deferred Close in New
+// also tears down a stack whose Start failed halfway.
+func (l *Listener) startStack(tunStack tun.Stack) error {
+	l.tunStack = tunStack
+	return tunStack.Start()
+}
+
+// claimRoutingMark takes the global routing-mark for auto-redirect mark mode.
+// l.autoRedirectOutputMark is set only once the mark is ours, otherwise Close
+// would reset a user-configured routing-mark that happens to be equal.
+func (l *Listener) claimRoutingMark(mark int32) error {
+	if !dialer.DefaultRoutingMark.CompareAndSwap(0, mark) {
+		return E.New("not allowed setting global routing-mark when working with autoRedirectMarkMode")
+	}
+	l.autoRedirectOutputMark = mark
+	return nil
 }
 
 func (l *Listener) ruleUpdateCallback(ruleProvider P.RuleProvider) {
