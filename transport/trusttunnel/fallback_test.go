@@ -294,6 +294,14 @@ func TestFallbackUpgradeOutlivesIdleTimeout(t *testing.T) {
 // TLS, HTTP/3 over QUIC) with the given fallback backend and returns its address.
 func startFallbackServer(t *testing.T, backend *httptest.Server, idleTimeout time.Duration, zeroRTT ...bool) (*Service, string) {
 	t.Helper()
+	return startFallbackServerUsers(t, backend, idleTimeout, nil, zeroRTT...)
+}
+
+// startFallbackServerUsers is startFallbackServer with users set before Start,
+// as UpdateUsers requires: set after it, the race detector sees the write and
+// the request goroutines' reads as unordered.
+func startFallbackServerUsers(t *testing.T, backend *httptest.Server, idleTimeout time.Duration, users map[string]string, zeroRTT ...bool) (*Service, string) {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -329,6 +337,9 @@ func startFallbackServer(t *testing.T, backend *httptest.Server, idleTimeout tim
 		QUICZeroRTT: len(zeroRTT) > 0 && zeroRTT[0],
 	})
 	s.fallbackIdleTimeout = idleTimeout
+	if users != nil {
+		s.UpdateUsers(users)
+	}
 	// Like listener/trusttunnel: a certificate and no NextProtos.
 	err = s.Start(tcpListener, udpConn, &tls.Config{
 		Certificates: []tls.Certificate{certificate},
