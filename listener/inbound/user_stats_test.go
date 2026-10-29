@@ -3,6 +3,7 @@ package inbound_test
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -53,9 +54,9 @@ func startSizedServer(t *testing.T) netip.AddrPort {
 }
 
 // transfer opens a connection through out and moves up bytes (plus the
-// 8-byte request) up and down bytes down.
-func transfer(t *testing.T, out C.ProxyAdapter, server netip.AddrPort, up, down int) {
-	t.Helper()
+// 8-byte request) up and down bytes down. It returns an error rather than
+// failing the test, so that it can run in a goroutine of its own.
+func transfer(out C.ProxyAdapter, server netip.AddrPort, up, down int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	conn, err := out.DialContext(ctx, &C.Metadata{
@@ -63,17 +64,22 @@ func transfer(t *testing.T, out C.ProxyAdapter, server netip.AddrPort, up, down 
 		DstIP:   server.Addr(),
 		DstPort: server.Port(),
 	})
-	require.NoError(t, err)
+	if err != nil {
+		return fmt.Errorf("dial: %w", err)
+	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(20 * time.Second))
 	var hdr [8]byte
 	binary.BigEndian.PutUint32(hdr[:4], uint32(up))
 	binary.BigEndian.PutUint32(hdr[4:], uint32(down))
-	_, err = conn.Write(append(hdr[:], make([]byte, up)...))
-	require.NoError(t, err)
+	if _, err := conn.Write(append(hdr[:], make([]byte, up)...)); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
 	n, err := io.CopyN(io.Discard, conn, int64(down))
-	require.NoError(t, err)
-	require.Equal(t, int64(down), n)
+	if err != nil {
+		return fmt.Errorf("read %d of %d bytes: %w", n, down, err)
+	}
+	return nil
 }
 
 // TestInboundUserStats runs traffic of two VLESS users through the real
@@ -124,16 +130,22 @@ func TestInboundUserStats(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
 		wg.Add(2)
-		go func() { defer wg.Done(); transfer(t, alice, server, 100_000, 1_000_000) }()
-		go func() { defer wg.Done(); transfer(t, bob, server, 50_000, 20_000) }()
+		go func() { defer wg.Done(); assert.NoError(t, transfer(alice, server, 100_000, 1_000_000), "alice") }()
+		go func() { defer wg.Done(); assert.NoError(t, transfer(bob, server, 50_000, 20_000), "bob") }()
 	}
 	wg.Wait()
+	// A transfer that failed moved fewer bytes than the counters below
+	// expect: stop here with its error rather than wait for counts that
+	// cannot come.
+	if t.Failed() {
+		t.FailNow()
+	}
 
 	// bob also opens two streams over one sing-mux connection
 	mux, err := outbound.NewSingMux(outbound.SingMuxOption{Enabled: true, Protocol: "h2mux", MaxStreams: 4}, bob)
 	require.NoError(t, err)
-	transfer(t, mux, server, 7_000, 9_000)
-	transfer(t, mux, server, 3_000, 1_000)
+	require.NoError(t, transfer(mux, server, 7_000, 9_000), "bob mux")
+	require.NoError(t, transfer(mux, server, 3_000, 1_000), "bob mux")
 	_ = mux.Close()
 
 	want := map[string][2]int64{
