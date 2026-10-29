@@ -119,6 +119,14 @@ func (p *Pool) get(host string) netip.Addr {
 }
 
 func (p *Pool) FlushFakeIP() error {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
+	return p.flushFakeIP()
+}
+
+// flushFakeIP must be called with p.mux held, or before the pool is shared.
+func (p *Pool) flushFakeIP() error {
 	err := p.store.FlushFakeIP()
 	if err == nil {
 		p.cycle = false
@@ -128,6 +136,9 @@ func (p *Pool) FlushFakeIP() error {
 }
 
 func (p *Pool) StoreState() {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
 	if s, ok := p.store.(*cachefileStore); ok {
 		s.PutByHost(offsetKey, p.offset)
 		if p.cycle {
@@ -146,10 +157,10 @@ func (p *Pool) restoreState() {
 			if p.ipnet.Contains(offset) {
 				p.offset = offset
 			} else {
-				_ = p.FlushFakeIP()
+				_ = p.flushFakeIP()
 			}
 		} else if s.Exist(p.first) {
-			_ = p.FlushFakeIP()
+			_ = p.flushFakeIP()
 		}
 	}
 }

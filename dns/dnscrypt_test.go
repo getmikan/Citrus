@@ -224,6 +224,10 @@ type fakeDNSCryptServer struct {
 	udpQueries  atomic.Int32
 	tcpQueries  atomic.Int32
 	truncated   atomic.Int32
+
+	// injectJunk makes every UDP reply follow a forged copy of itself, as an
+	// on-path attacker racing the real resolver would send.
+	injectJunk atomic.Bool
 }
 
 type fakeServerKey struct {
@@ -300,6 +304,15 @@ func (s *fakeDNSCryptServer) serveUDP() {
 			return
 		}
 		if resp := s.handle(append([]byte(nil), buf[:n]...), false); resp != nil {
+			if s.injectJunk.Load() {
+				// Break the DNS id of a certificate reply and the magic
+				// and tag of an encrypted one.
+				junk := append([]byte(nil), resp...)
+				junk[0] ^= 0xff
+				junk[1] ^= 0xff
+				junk[len(junk)-1] ^= 0xff
+				s.udp.WriteTo(junk, from)
+			}
 			s.udp.WriteTo(resp, from)
 		}
 	}
@@ -575,4 +588,21 @@ func TestDNSCryptTransform(t *testing.T) {
 	assert.Contains(t, clients[0].Address(), s.addr)
 	_, err := clients[1].ExchangeContext(context.Background(), new(D.Msg))
 	assert.ErrorContains(t, err, "https://")
+}
+
+func TestDNSCryptUDPSkipsForgedReply(t *testing.T) {
+	s := newFakeDNSCryptServer(t)
+	now := time.Now()
+	cert, _ := s.newCert(t, dnsCryptESXChacha20, 1, now.Add(-time.Hour), now.Add(time.Hour))
+	s.publish(cert)
+	s.injectJunk.Store(true)
+	c, _, _ := newTestDNSCryptClient(t, s)
+
+	for i := 0; i < 3; i++ {
+		r := dnsCryptQuery(t, c, "example.com.", D.TypeA)
+		require.Len(t, r.Answer, 1)
+		assert.Equal(t, "192.0.2.1", r.Answer[0].(*D.A).A.String())
+	}
+	assert.Equal(t, int32(1), s.certQueries.Load(), "a forged reply must not trigger a certificate refetch")
+	assert.Equal(t, int32(3), s.udpQueries.Load())
 }
