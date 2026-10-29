@@ -99,6 +99,9 @@ func verifyManifestSignature(manifestBytes, signatureBytes []byte, keys map[stri
 	return errors.New("manifest is not signed by a trusted non-revoked update key")
 }
 
+// errAlreadyLatest reports a valid manifest for the running version.
+var errAlreadyLatest = errors.New("manifest is for the running version")
+
 func buildSequence() uint64 {
 	value, _ := strconv.ParseUint(C.BuildSequence, 10, 64)
 	return value
@@ -123,6 +126,11 @@ func verifyUpdateManifest(manifestBytes, signatureBytes []byte, channel, coreBas
 		return updateManifest{}, updateArtifact{}, errors.New("manifest validity period is invalid or expired")
 	}
 	if manifest.Sequence <= minimumSequence || manifest.Sequence <= buildSequence() {
+		if manifest.Version == C.Version {
+			// The newest build stamps the same sequence into itself and
+			// its manifest: this is not a rollback but no update.
+			return updateManifest{}, updateArtifact{}, errAlreadyLatest
+		}
 		return updateManifest{}, updateArtifact{}, fmt.Errorf("manifest sequence %d is not newer than the trusted state", manifest.Sequence)
 	}
 	packageName := coreBaseName + "-" + manifest.Version

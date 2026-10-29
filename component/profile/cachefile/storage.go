@@ -1,6 +1,7 @@
 package cachefile
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -56,17 +57,23 @@ func (c *CacheFile) GetStorage(key string) []byte {
 	return data
 }
 
-func (c *CacheFile) SetStorage(key string, data []byte) {
-	if c.DB == nil {
-		return
-	}
+var (
+	ErrStorageKeyTooLong = fmt.Errorf("storage key exceeds %d bytes", storageKeySizeLimit)
+	ErrStorageTooLarge   = fmt.Errorf("storage payload exceeds %d bytes", storageSizeLimit)
+)
+
+// SetStorage stores data under key. It returns ErrStorageKeyTooLong or
+// ErrStorageTooLarge for a value it refuses and the database error when the
+// write fails.
+func (c *CacheFile) SetStorage(key string, data []byte) error {
 	if len(key) > storageKeySizeLimit {
-		log.Warnln("[CacheFile] skip storage for key %s: key exceeds %d bytes", key, storageKeySizeLimit)
-		return
+		return ErrStorageKeyTooLong
 	}
 	if len(data) > storageSizeLimit {
-		log.Warnln("[CacheFile] skip storage for key %s: payload exceeds %d bytes", key, storageSizeLimit)
-		return
+		return ErrStorageTooLarge
+	}
+	if c.DB == nil {
+		return nil
 	}
 	keyBytes := []byte(key)
 	payload, err := msgpack.Marshal(StorageData{
@@ -74,7 +81,7 @@ func (c *CacheFile) SetStorage(key string, data []byte) {
 		Time: time.Now(),
 	})
 	if err != nil {
-		return
+		return err
 	}
 	err = c.DB.Batch(func(t *bbolt.Tx) error {
 		bucket, err := t.CreateBucketIfNotExists(bucketStorage)
@@ -146,6 +153,7 @@ func (c *CacheFile) SetStorage(key string, data []byte) {
 	if err != nil {
 		log.Warnln("[CacheFile] write cache to %s failed: %s", c.DB.Path(), err.Error())
 	}
+	return err
 }
 
 func (c *CacheFile) DeleteStorage(key string) {

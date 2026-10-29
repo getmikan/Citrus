@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -234,13 +235,50 @@ func (u *UIUpdater) downloadUI() error {
 		return err
 	}
 	defer root.Close()
-	if err = cleanupRoot(root); err != nil {
-		return fmt.Errorf("cleanup existing UI: %w", err)
+	return installUI(tmpDir, root)
+}
+
+// uiStagingDir holds the new UI inside the UI directory until it is
+// complete, so it can be moved into place by renames on the same file system.
+const uiStagingDir = ".citrus-ui-staging"
+
+// installUI replaces the contents of root with the UI extracted to src. The
+// copy, the step that can fail for lack of space or an unreadable file, goes
+// to a staging directory first; the old UI is removed only once the new one
+// is complete. A failed copy leaves the old UI in place, which matters
+// because AutoDownloadUI never repairs a non-empty UI directory.
+func installUI(src string, root *os.Root) error {
+	if err := root.RemoveAll(uiStagingDir); err != nil {
+		return fmt.Errorf("cleanup UI staging: %w", err)
 	}
-	if err = copyDirToRoot(tmpDir, root); err != nil {
+	if err := root.Mkdir(uiStagingDir, 0o755); err != nil {
+		return fmt.Errorf("create UI staging: %w", err)
+	}
+	staging, err := root.OpenRoot(uiStagingDir)
+	if err != nil {
+		_ = root.RemoveAll(uiStagingDir)
+		return fmt.Errorf("open UI staging: %w", err)
+	}
+	err = copyDirToRoot(src, staging)
+	var entries []os.DirEntry
+	if err == nil {
+		entries, err = readRootDir(staging)
+	}
+	staging.Close()
+	if err != nil {
+		_ = root.RemoveAll(uiStagingDir)
 		return fmt.Errorf("install UI: %w", err)
 	}
-	return nil
+
+	if err = cleanupRoot(root, uiStagingDir); err != nil {
+		return fmt.Errorf("cleanup existing UI: %w", err)
+	}
+	for _, entry := range entries {
+		if err = root.Rename(filepath.Join(uiStagingDir, entry.Name()), entry.Name()); err != nil {
+			return fmt.Errorf("install UI: %w", err)
+		}
+	}
+	return root.Remove(uiStagingDir)
 }
 
 func (u *UIUpdater) prepareUIPath() error {
@@ -419,17 +457,25 @@ func cleanTarPath(path string) string {
 	return path
 }
 
-func cleanupRoot(root *os.Root) error {
+func readRootDir(root *os.Root) ([]os.DirEntry, error) {
 	dir, err := root.Open(".")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer dir.Close()
-	entries, err := dir.ReadDir(-1)
+	return dir.ReadDir(-1)
+}
+
+// cleanupRoot removes everything in root except the entries named in keep.
+func cleanupRoot(root *os.Root, keep ...string) error {
+	entries, err := readRootDir(root)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
+		if slices.Contains(keep, entry.Name()) {
+			continue
+		}
 		if err = root.RemoveAll(entry.Name()); err != nil {
 			return err
 		}

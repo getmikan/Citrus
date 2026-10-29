@@ -77,9 +77,7 @@ func UpdateMMDB() (err error) {
 		return fmt.Errorf("authenticate MMDB database file: %w", err)
 	}
 
-	defer mmdb.ReloadIP()
-	mmdb.IPInstance().Reader.Close() //  mmdb is loaded with mmap, so it needs to be closed before overwriting the file
-	if err = vehicle.Write(data); err != nil {
+	if err = mmdb.ReplaceIP(func() error { return vehicle.Write(data) }); err != nil {
 		return fmt.Errorf("can't save MMDB database file: %w", err)
 	}
 	return nil
@@ -118,9 +116,7 @@ func UpdateASN() (err error) {
 		return fmt.Errorf("authenticate ASN database file: %w", err)
 	}
 
-	defer mmdb.ReloadASN()
-	mmdb.ASNInstance().Reader.Close() //  mmdb is loaded with mmap, so it needs to be closed before overwriting the file
-	if err = vehicle.Write(data); err != nil {
+	if err = mmdb.ReplaceASN(func() error { return vehicle.Write(data) }); err != nil {
 		return fmt.Errorf("can't save ASN database file: %w", err)
 	}
 	return nil
@@ -235,11 +231,9 @@ var ErrGetDatabaseUpdateSkip = errors.New("GEO database is updating, skip")
 func UpdateGeoDatabases() error {
 	log.Infoln("[GEO] Start updating GEO database")
 
-	if updatingGeo.Load() {
+	if !updatingGeo.CompareAndSwap(false, true) {
 		return ErrGetDatabaseUpdateSkip
 	}
-
-	updatingGeo.Store(true)
 	defer updatingGeo.Store(false)
 
 	log.Infoln("[GEO] Updating GEO database")
@@ -278,29 +272,35 @@ func RegisterGeoUpdater() {
 	}
 
 	go func() {
-		ticker := time.NewTicker(time.Duration(updateInterval) * time.Hour)
+		interval := time.Duration(updateInterval) * time.Hour
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-
-		lastUpdate, err := getUpdateTime()
-		if err != nil {
-			log.Errorln("[GEO] Get GEO database update time error: %s", err.Error())
-			return
-		}
-
-		log.Infoln("[GEO] last update time %s", lastUpdate)
-		if lastUpdate.Add(time.Duration(updateInterval) * time.Hour).Before(time.Now()) {
-			log.Infoln("[GEO] Database has not been updated for %v, update now", time.Duration(updateInterval)*time.Hour)
-			if err := UpdateGeoDatabases(); err != nil {
-				log.Errorln("[GEO] Failed to update GEO database: %s", err.Error())
-				return
-			}
-		}
-
-		for range ticker.C {
-			log.Infoln("[GEO] updating database every %d hours", updateInterval)
-			if err := UpdateGeoDatabases(); err != nil {
-				log.Errorln("[GEO] Failed to update GEO database: %s", err.Error())
-			}
-		}
+		runGeoUpdater(interval, ticker.C, getUpdateTime, UpdateGeoDatabases)
 	}()
+}
+
+// runGeoUpdater updates once at start when the databases are overdue, then on
+// every tick. A failed or impossible first update is logged and the ticks
+// still run: the updater is registered only once, so returning here would
+// stop GEO updates until a restart.
+func runGeoUpdater(interval time.Duration, ticks <-chan time.Time, lastUpdateTime func() (time.Time, error), update func() error) {
+	lastUpdate, err := lastUpdateTime()
+	if err != nil {
+		log.Errorln("[GEO] Get GEO database update time error: %s", err.Error())
+	} else {
+		log.Infoln("[GEO] last update time %s", lastUpdate)
+	}
+	if err != nil || lastUpdate.Add(interval).Before(time.Now()) {
+		log.Infoln("[GEO] Database has not been updated for %v, update now", interval)
+		if err := update(); err != nil {
+			log.Errorln("[GEO] Failed to update GEO database: %s", err.Error())
+		}
+	}
+
+	for range ticks {
+		log.Infoln("[GEO] updating database every %v", interval)
+		if err := update(); err != nil {
+			log.Errorln("[GEO] Failed to update GEO database: %s", err.Error())
+		}
+	}
 }

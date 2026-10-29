@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"sync"
@@ -42,7 +43,7 @@ func isNonPublicAddr(addr netip.Addr) bool {
 		cgnatPrefix.Contains(addr)
 }
 
-func resolveRedirectHost(ctx context.Context, host string) ([]netip.Addr, error) {
+func resolveRedirectHost(ctx context.Context, lookup func(context.Context, string) ([]netip.Addr, error), host string) ([]netip.Addr, error) {
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
@@ -52,7 +53,7 @@ func resolveRedirectHost(ctx context.Context, host string) ([]netip.Addr, error)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	addrs, err := redirectLookup(ctx, host)
+	addrs, err := lookup(ctx, host)
 	if err != nil || len(addrs) == 0 {
 		if err == nil {
 			err = errors.New("no addresses")
@@ -66,33 +67,47 @@ func resolveRedirectHost(ctx context.Context, host string) ([]netip.Addr, error)
 }
 
 type redirectPolicy struct {
-	mu            sync.RWMutex
-	pinned        map[string][]netip.Addr
+	lookup func(context.Context, string) ([]netip.Addr, error)
+	mu     sync.RWMutex
+	pinned map[string][]netip.Addr
+
+	// originDone is closed once privateOrigin is known.
+	originDone    chan struct{}
 	privateOrigin bool
-	originErr     error
 }
 
+// newRedirectPolicy starts classifying the origin as the request starts, not
+// when a redirect arrives, so a later DNS answer cannot manufacture the
+// private-origin exemption. The lookup runs in the background: most requests
+// never redirect, and one whose origin resolves only through a proxy must not
+// wait on (or be failed by) a local lookup.
 func newRedirectPolicy(ctx context.Context, originHost string) *redirectPolicy {
-	p := &redirectPolicy{pinned: make(map[string][]netip.Addr)}
-	addrs, err := resolveRedirectHost(ctx, originHost)
-	if err != nil {
-		p.originErr = err
-		return p
+	p := &redirectPolicy{
+		lookup:     redirectLookup,
+		pinned:     make(map[string][]netip.Addr),
+		originDone: make(chan struct{}),
 	}
-	private, public := false, false
+	go func() {
+		defer close(p.originDone)
+		p.privateOrigin = isPrivateOrigin(ctx, p.lookup, originHost)
+	}()
+	return p
+}
+
+// isPrivateOrigin reports whether every address of host is non-public. An
+// origin that does not resolve locally, or resolves to a mix, gets no
+// exemption: its redirects are checked like any public origin's.
+func isPrivateOrigin(ctx context.Context, lookup func(context.Context, string) ([]netip.Addr, error), host string) bool {
+	addrs, err := resolveRedirectHost(ctx, lookup, host)
+	if err != nil {
+		return false
+	}
 	for _, addr := range addrs {
-		if isNonPublicAddr(addr) {
-			private = true
-		} else {
-			public = true
+		if !isNonPublicAddr(addr) {
+			return false
 		}
 	}
-	if private && public {
-		p.originErr = errors.New("origin resolves to both public and non-public addresses")
-		return p
-	}
-	p.privateOrigin = private
-	return p
+	return true
 }
 
 func normalizeRedirectHost(host string) string {
@@ -112,16 +127,49 @@ func (p *redirectPolicy) approved(host string) ([]netip.Addr, bool) {
 	return append([]netip.Addr(nil), addrs...), ok
 }
 
+// approvedFor returns the validated addresses of address's host that suit
+// network. pinned is false when the host is not a validated redirect target.
+func (p *redirectPolicy) approvedFor(network, address string) (addrs []netip.Addr, pinned bool, err error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, false, nil
+	}
+	approved, ok := p.approved(host)
+	if !ok {
+		return nil, false, nil
+	}
+	for _, ip := range approved {
+		if (network == "tcp4" && !ip.Is4()) || (network == "tcp6" && !ip.Is6()) {
+			continue
+		}
+		addrs = append(addrs, ip)
+	}
+	if len(addrs) == 0 {
+		return nil, true, errors.New("redirect target has no validated address for " + network)
+	}
+	return addrs, true, nil
+}
+
 // checkRedirect keeps a remote resource (provider, rule set, GEO database,
 // dashboard) from redirecting Citrus to loopback, link-local or private
 // addresses. A resource whose configured URL is itself on such an address
 // (a provider served from the LAN, say) may still redirect anywhere.
+//
+// The check uses the local resolver and pins its answer for DIRECT and for a
+// custom dialer only. A download routed through a proxy hands the proxy the
+// host name, which it resolves again on its side: there the check does not
+// stop a rebinding name from reaching the proxy host's own private network
+// (its cloud metadata address, its LAN). Guarding that is the proxy server's
+// job, as for any client traffic; pinning the IP for proxies too would break
+// remote resolution, which downloads blocked by local DNS depend on.
 func (p *redirectPolicy) checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxRedirects {
 		return fmt.Errorf("stopped after %d redirects", maxRedirects)
 	}
-	if p.originErr != nil {
-		return fmt.Errorf("cannot validate redirect origin %s: %w", via[0].URL.Host, p.originErr)
+	select {
+	case <-p.originDone:
+	case <-req.Context().Done():
+		return req.Context().Err()
 	}
 	if p.privateOrigin {
 		// The origin's private identity was captured before the first request;
@@ -130,7 +178,7 @@ func (p *redirectPolicy) checkRedirect(req *http.Request, via []*http.Request) e
 	}
 
 	target := req.URL.Hostname()
-	addrs, err := resolveRedirectHost(req.Context(), target)
+	addrs, err := resolveRedirectHost(req.Context(), p.lookup, target)
 	if err != nil {
 		return fmt.Errorf("cannot validate redirect target %s: %w", req.URL.Host, err)
 	}

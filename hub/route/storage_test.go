@@ -44,3 +44,11 @@ func TestSetStoragePayloadLimit(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestSetStorageRefusesLongKey(t *testing.T) {
+	h := storageRouter()
+	req := httptest.NewRequest(http.MethodPut, "/"+strings.Repeat("k", 65), strings.NewReader(`"v"`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "a key that cannot be stored must not get 204")
+}

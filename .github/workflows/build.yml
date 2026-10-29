@@ -160,13 +160,14 @@ jobs:
         GO386: ${{matrix.jobs.go386}}
         GOARM: ${{matrix.jobs.goarm}}
         GOMIPS: ${{matrix.jobs.gomips}}
+        LOONG64_ABI: ${{matrix.jobs.abi}}
       run: |
         go env
         CORE_BINARY="citrus"
         if [ "${{matrix.jobs.goos}}" = "windows" ]; then
           CORE_BINARY="citrus.exe"
         fi
-        go build -o "$CORE_BINARY" -v -tags "with_gvisor" -trimpath -ldflags "${BUILDTAG} -X 'github.com/metacubex/mihomo/constant.Version=${VERSION}' -X 'github.com/metacubex/mihomo/constant.BuildTime=${BUILDTIME}' -X 'github.com/metacubex/mihomo/constant.BuildSequence=${GITHUB_RUN_ID}' -w -s -buildid="
+        go build -o "$CORE_BINARY" -v -tags "with_gvisor" -trimpath -ldflags "${BUILDTAG} -X 'github.com/metacubex/mihomo/constant.Version=${VERSION}' -X 'github.com/metacubex/mihomo/constant.BuildTime=${BUILDTIME}' -X 'github.com/metacubex/mihomo/constant.BuildSequence=${GITHUB_RUN_ID}' -X 'github.com/metacubex/mihomo/component/updater.loong64ABI=${LOONG64_ABI}' -w -s -buildid="
         if [ "${{matrix.jobs.goos}}" = "windows" ]; then
           cp citrus.exe citrus-${{matrix.jobs.goos}}-${{matrix.jobs.output}}.exe
           zip -r citrus-${{matrix.jobs.goos}}-${{matrix.jobs.output}}-${VERSION}.zip citrus-${{matrix.jobs.goos}}-${{matrix.jobs.output}}.exe

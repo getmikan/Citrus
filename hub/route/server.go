@@ -128,11 +128,16 @@ func ReCreateServer(cfg *Config) {
 	}
 
 	closeStreams()
-	start(cfg)
-	startTLS(cfg)
-	startUnix(cfg)
+	ok := start(cfg)
+	ok = startTLS(cfg) && ok
+	ok = startUnix(cfg) && ok
 	if inbound.SupportNamedPipe {
-		startPipe(cfg)
+		ok = startPipe(cfg) && ok
+	}
+	if !ok {
+		// A listener that failed (port busy, certificate not readable yet)
+		// is retried by the next reload, even with the same settings.
+		applied = nil
 	}
 }
 
@@ -222,7 +227,7 @@ func newNetworkHandler(cfg *Config) http.Handler {
 	return h
 }
 
-func start(cfg *Config) {
+func start(cfg *Config) bool {
 	// first stop existing server
 	if httpServer != nil {
 		_ = httpServer.Close()
@@ -233,7 +238,7 @@ func start(cfg *Config) {
 	if len(cfg.Addr) > 0 {
 		if err := cfg.checkTCP(); err != nil {
 			log.Errorln("External controller refused: %s", err)
-			return
+			return false
 		}
 		if cfg.AllowInsecure {
 			log.Warnln("External controller %s uses the explicit insecure compatibility mode; bearer credentials may travel in clear text and a secretless listener grants the full API", cfg.Addr)
@@ -243,7 +248,7 @@ func start(cfg *Config) {
 		l, err := lc.Listen(context.Background(), "tcp", cfg.Addr)
 		if err != nil {
 			log.Errorln("External controller listen error: %s", err)
-			return
+			return false
 		}
 		log.Infoln("RESTful API listening at: %s", l.Addr().String())
 
@@ -251,9 +256,10 @@ func start(cfg *Config) {
 		httpServer = server
 		go serve(server, l, "External controller serve error: %s")
 	}
+	return true
 }
 
-func startTLS(cfg *Config) {
+func startTLS(cfg *Config) bool {
 	// first stop existing server
 	if tlsServer != nil {
 		_ = tlsServer.Close()
@@ -264,12 +270,12 @@ func startTLS(cfg *Config) {
 	if len(cfg.TLSAddr) > 0 {
 		if err := cfg.checkTLS(); err != nil {
 			log.Errorln("External controller refused: %s", err)
-			return
+			return false
 		}
 		certLoader, err := ca.NewTLSKeyPairLoader(cfg.Certificate, cfg.PrivateKey)
 		if err != nil {
 			log.Errorln("External controller tls listen error: %s", err)
-			return
+			return false
 		}
 
 		tlsConfig := &tls.Config{Time: ntp.Now, MinVersion: tls.VersionTLS12}
@@ -287,7 +293,7 @@ func startTLS(cfg *Config) {
 			pool, err := ca.LoadCertificates(cfg.ClientAuthCert)
 			if err != nil {
 				log.Errorln("External controller tls listen error: %s", err)
-				return
+				return false
 			}
 			tlsConfig.ClientCAs = pool
 		}
@@ -296,7 +302,7 @@ func startTLS(cfg *Config) {
 			err = ech.LoadECHKey(cfg.EchKey, tlsConfig)
 			if err != nil {
 				log.Errorln("External controller tls serve error: %s", err)
-				return
+				return false
 			}
 		}
 
@@ -305,7 +311,7 @@ func startTLS(cfg *Config) {
 		l, err := lc.Listen(context.Background(), "tcp", cfg.TLSAddr)
 		if err != nil {
 			log.Errorln("External controller tls listen error: %s", err)
-			return
+			return false
 		}
 		log.Infoln("RESTful API tls listening at: %s", l.Addr().String())
 
@@ -313,9 +319,10 @@ func startTLS(cfg *Config) {
 		tlsServer = server
 		go serve(server, tls.NewListener(l, tlsConfig), "External controller tls serve error: %s")
 	}
+	return true
 }
 
-func startUnix(cfg *Config) {
+func startUnix(cfg *Config) bool {
 	// first stop existing server
 	if unixServer != nil {
 		_ = unixServer.Close()
@@ -330,7 +337,7 @@ func startUnix(cfg *Config) {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				log.Errorln("External controller unix listen error: %s", err)
-				return
+				return false
 			}
 		}
 
@@ -347,7 +354,7 @@ func startUnix(cfg *Config) {
 		l, err := listenUnix(addr)
 		if err != nil {
 			log.Errorln("External controller unix listen error: %s", err)
-			return
+			return false
 		}
 		log.Infoln("RESTful API unix listening at: %s", l.Addr().String())
 
@@ -355,9 +362,10 @@ func startUnix(cfg *Config) {
 		unixServer = server
 		go serve(server, l, "External controller unix serve error: %s")
 	}
+	return true
 }
 
-func startPipe(cfg *Config) {
+func startPipe(cfg *Config) bool {
 	// first stop existing server
 	if pipeServer != nil {
 		_ = pipeServer.Close()
@@ -368,13 +376,13 @@ func startPipe(cfg *Config) {
 	if len(cfg.PipeAddr) > 0 {
 		if !strings.HasPrefix(cfg.PipeAddr, "\\\\.\\pipe\\") { // windows namedpipe must start with "\\.\pipe\"
 			log.Errorln("External controller pipe listen error: windows namedpipe must start with \"\\\\.\\pipe\\\"")
-			return
+			return false
 		}
 
 		l, err := inbound.ListenNamedPipe(cfg.PipeAddr)
 		if err != nil {
 			log.Errorln("External controller pipe listen error: %s", err)
-			return
+			return false
 		}
 		log.Infoln("RESTful API pipe listening at: %s", l.Addr().String())
 
@@ -382,6 +390,7 @@ func startPipe(cfg *Config) {
 		pipeServer = server
 		go serve(server, l, "External controller pipe serve error: %s")
 	}
+	return true
 }
 
 func safeEqual(a, b string) bool {
