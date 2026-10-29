@@ -1,6 +1,6 @@
 ---
 title: Event stream
-description: GET /events pushes what happens in the core (logins, user limits, user changes, reloads, provider updates, listeners, chain health) so a panel does not have to poll.
+description: GET /events pushes what happens in the core (logins, user limits, user changes, reloads, provider updates, listeners, chain health, Windows TUN egress flags) so a panel does not have to poll.
 ---
 
 `GET /events` on the controller streams the events of the core as they happen: a panel learns that a user ran out of quota, that a listener failed to start or that a provider update failed without polling `/traffic/users`, `/limits/users` and the rest.
@@ -38,6 +38,7 @@ Every event is a JSON object with `type`, `time` (RFC 3339) and `data`:
 | `provider.update` | A proxy or rule provider was fetched (on its interval, on a file change, or through the API). | `name`, `kind` (`proxy`, `rule`), `vehicle`, `status` (`ok`, `error`), `changed` (false when the content is the same), `error`. |
 | `inbound.state` | A listener of the `listeners` section started, failed to listen, or stopped (removed or recreated by a reload). | `inbound`, `type`, `state` (`started`, `failed`, `stopped`), `error`. |
 | `chain.health` | The health check of a [chain group](/Citrus/en/start/chains/) found it in another state than before: it broke, a different hop failed, or it works again. The first check reports only a broken chain. | `chain`, `alive`, `failedHop`, `position` (from 1), `error`. |
+| `tun.forwarding` | Windows, TUN with `auto-route`: `Forwarding` or `WeakHostSend` turned on for an interface the core binds its connections to, so they loop back into the TUN (`on`), or that is over (`cleared`). Sent once per change, not on every check; see [TUN on Windows](/Citrus/en/start/configuration/#tun-on-windows). | `interface` (the alias, as `Set-NetIPInterface -InterfaceAlias` takes it), `family` (`ipv4`, `ipv6`), `forwarding`, `weakHostSend`, `state` (`on`, `cleared`), `reason` of `cleared`: `off` (the flags were turned off), `not-egress` (the core no longer binds to it), `gone` (the interface is gone), `stopped` (the TUN stopped). |
 | `dropped` | The stream read too slowly and events were dropped for it; sent every 5 seconds while it happens, whatever the filter. | `count`. |
 
 ### Aggregation of `auth`

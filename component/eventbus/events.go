@@ -84,6 +84,31 @@ type ChainHealth struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// States of a tun.forwarding event.
+const (
+	TunForwardingOn      = "on"
+	TunForwardingCleared = "cleared"
+)
+
+// TunForwarding is the data of a tun.forwarding event (Windows only), sent
+// when Forwarding or WeakHostSend turns on for an interface the core binds its
+// connections to while a TUN with auto-route runs, and when that stops. With a
+// flag on, Windows routes those connections into the TUN.
+type TunForwarding struct {
+	Interface string `json:"interface"`
+	// Family is "ipv4" or "ipv6".
+	Family       string `json:"family"`
+	Forwarding   bool   `json:"forwarding"`
+	WeakHostSend bool   `json:"weakHostSend"`
+	// State is "on" or "cleared".
+	State string `json:"state"`
+	// Reason of a cleared event: "off" (the flags were turned off; both are
+	// false then), "not-egress" (the core no longer binds to the interface),
+	// "gone" (the interface is gone) or "stopped" (the TUN stopped); the flags
+	// of the last three are the ones last seen on.
+	Reason string `json:"reason,omitempty"`
+}
+
 // Dropped is the data of a dropped event.
 type Dropped struct {
 	Count uint64 `json:"count"`
