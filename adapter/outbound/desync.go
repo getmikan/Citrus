@@ -40,6 +40,16 @@ const (
 // as a parameter, so that the per-OS errors can be tested on any OS.
 var desyncCaps = desync.PlatformCapabilities()
 
+// desyncConditional reports whether the library implements method on this OS
+// but decides per socket whether a connection can use it (Android, where
+// unsent bytes are read from TCP_INFO when the kernel provides them). Such a
+// method is listed in Unsupported too; configuration accepts it, and a socket
+// that cannot honor it fails the first write before any byte is sent.
+func desyncConditional(caps desync.Capabilities, method string) bool {
+	_, ok := caps.Conditional[method]
+	return ok
+}
+
 // DesyncOption is the configuration of a "desync" outbound: a DIRECT
 // connection whose first TLS ClientHello is transformed by
 // github.com/Nemu-x/desync. Everything after the ClientHello, and any
@@ -378,6 +388,8 @@ func parseDesyncRandomCuts(name string, cuts []DesyncRandomCut) ([]desync.Random
 }
 
 func (o DesyncOption) tcpOptions(caps desync.Capabilities) (opts desync.Options, err error) {
+	// Methods accepted although this OS decides them per socket.
+	var conditional []string
 	if opts.TLSRec, err = parseDesyncPositions(o.TLSRec); err != nil {
 		return opts, fmt.Errorf("tlsrec: %w", err)
 	}
@@ -417,7 +429,9 @@ func (o DesyncOption) tcpOptions(caps desync.Capabilities) (opts desync.Options,
 		if !splits {
 			return opts, errors.New("split-wait needs split positions")
 		}
-		if !caps.Ack.Supports(opts.SplitWait) {
+		if opts.SplitWait == desync.SplitWaitSent && !caps.Ack.Sent && desyncConditional(caps, "split-wait-sent") {
+			conditional = append(conditional, "split-wait sent")
+		} else if !caps.Ack.Supports(opts.SplitWait) {
 			return opts, fmt.Errorf("split-wait %s is not supported on %s (%s): %w",
 				opts.SplitWait, caps.OS, desyncAckReason(caps.Ack), desync.ErrSplitWaitUnsupported)
 		}
@@ -428,7 +442,9 @@ func (o DesyncOption) tcpOptions(caps desync.Capabilities) (opts desync.Options,
 		if !splits {
 			return opts, errors.New("disorder needs split positions: it acts on the first split piece")
 		}
-		if !caps.Disorder.Supported {
+		if !caps.Disorder.Supported && desyncConditional(caps, "disorder") {
+			conditional = append(conditional, "disorder")
+		} else if !caps.Disorder.Supported {
 			return opts, desyncUnsupported(caps, "disorder", "disorder", desync.ErrDisorderUnsupported)
 		}
 	}
@@ -452,7 +468,9 @@ func (o DesyncOption) tcpOptions(caps desync.Capabilities) (opts desync.Options,
 	}
 
 	if f := o.Fake; f != nil {
-		if !caps.FakeTCP {
+		if !caps.FakeTCP && desyncConditional(caps, "fake-tcp") {
+			conditional = append(conditional, "fake")
+		} else if !caps.FakeTCP {
 			return opts, desyncUnsupported(caps, "fake", "fake-tcp", desync.ErrFakeUnsupported)
 		}
 		if f.AutoTTL == nil && f.TTL == 0 {
@@ -484,7 +502,14 @@ func (o DesyncOption) tcpOptions(caps desync.Capabilities) (opts desync.Options,
 			}
 		}
 	}
-	return opts, opts.Validate()
+	if err := opts.Validate(); err != nil {
+		return opts, err
+	}
+	if len(conditional) > 0 {
+		log.Infoln("[desync] %s: %s on %s is verified per connection: a socket that cannot observe its unsent bytes fails the connection before anything is sent",
+			o.Name, strings.Join(conditional, ", "), caps.OS)
+	}
+	return opts, nil
 }
 
 // checkAutoTTL rejects an auto-ttl that can never derive a TTL here and has
