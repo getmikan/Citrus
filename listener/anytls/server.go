@@ -33,7 +33,7 @@ import (
 )
 
 type Listener struct {
-	closed    bool
+	closed    atomic.Bool
 	config    LC.AnyTLSServer
 	listeners []net.Listener
 	tlsConfig *tls.Config
@@ -170,7 +170,7 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 
 		go func() {
 			for {
-				c, err := accept.Next(l, func() bool { return sl.closed })
+				c, err := accept.Next(l, sl.closed.Load)
 				if err != nil {
 					break
 				}
@@ -183,7 +183,7 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, lis := range l.listeners {
 		err := lis.Close()

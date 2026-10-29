@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
@@ -27,7 +28,7 @@ import (
 type Listener struct {
 	listener net.Listener
 	addr     string
-	closed   bool
+	closed   atomic.Bool
 }
 
 // RawAddress implements C.Listener
@@ -42,7 +43,7 @@ func (l *Listener) Address() string {
 
 // Close implements C.Listener
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	return l.listener.Close()
 }
 
@@ -125,7 +126,7 @@ func NewWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunn
 	}
 	go func() {
 		for {
-			c, err := accept.Next(ml.listener, func() bool { return ml.closed })
+			c, err := accept.Next(ml.listener, ml.closed.Load)
 			if err != nil {
 				break
 			}

@@ -41,7 +41,7 @@ import (
 )
 
 type Listener struct {
-	closed     bool
+	closed     atomic.Bool
 	config     LC.TrojanServer
 	listeners  []net.Listener
 	users      *inbounduser.Set[[trojan.KeyLength]byte]
@@ -93,7 +93,7 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		log.Warnln("[Trojan] %s: trusted-proxy-header %q is ignored until trusted-proxies lists the reverse proxies", config.Listen, realIP.Header)
 	}
 
-	sl := &Listener{false, config, nil, users, pickCipher, h, realIP, nil}
+	sl := &Listener{atomic.Bool{}, config, nil, users, pickCipher, h, realIP, nil}
 
 	if len(config.Fallbacks) > 0 {
 		if pickCipher != nil {
@@ -281,7 +281,7 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 				return
 			}
 			for {
-				c, err := accept.Next(l, func() bool { return sl.closed })
+				c, err := accept.Next(l, sl.closed.Load)
 				if err != nil {
 					break
 				}
@@ -295,7 +295,7 @@ func New(config LC.TrojanServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, lis := range l.listeners {
 		err := lis.Close()

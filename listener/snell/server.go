@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
@@ -30,7 +31,7 @@ import (
 const maxPacketLength = 0x3fff
 
 type Listener struct {
-	closed    bool
+	closed    atomic.Bool
 	config    LC.SnellServer
 	listeners []net.Listener
 }
@@ -109,7 +110,7 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		l.listeners = append(l.listeners, ln)
 		go func(ln net.Listener) {
 			for {
-				conn, err := accept.Next(ln, func() bool { return l.closed })
+				conn, err := accept.Next(ln, l.closed.Load)
 				if err != nil {
 					return
 				}
@@ -121,7 +122,7 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, ln := range l.listeners {
 		if err := ln.Close(); err != nil {
