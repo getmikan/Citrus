@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -217,4 +219,100 @@ func TestListenerCloseCancelsPendingHandlersAndAccept(t *testing.T) {
 		t.Fatal("Accept did not stop")
 	}
 	handlers.Wait()
+}
+
+type temporaryError struct{}
+
+func (temporaryError) Error() string   { return "temporary accept failure" }
+func (temporaryError) Timeout() bool   { return false }
+func (temporaryError) Temporary() bool { return true }
+
+type flakyListener struct {
+	net.Listener
+	mu       sync.Mutex
+	failures int
+	errors   int
+	err      error // temporaryError{} when nil
+}
+
+func (l *flakyListener) Accept() (net.Conn, error) {
+	l.mu.Lock()
+	if l.failures > 0 {
+		l.failures--
+		l.errors++
+		err := l.err
+		l.mu.Unlock()
+		if err == nil {
+			err = temporaryError{}
+		}
+		return nil, err
+	}
+	l.mu.Unlock()
+	return l.Listener.Accept()
+}
+
+func TestListenerSurvivesTemporaryAcceptErrors(t *testing.T) {
+	testListenerSurvivesAcceptErrors(t, nil)
+}
+
+// Go's Temporary() is false for socket exhaustion on Windows (WSAENOBUFS from
+// WSASocket in accept) and for ENOBUFS / ENOMEM on Linux.
+func TestListenerSurvivesResourceExhaustionAcceptErrors(t *testing.T) {
+	err := &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("socket", syscall.Errno(10055))}
+	if err.Temporary() {
+		t.Fatal("the injected error must not be Temporary")
+	}
+	testListenerSurvivesAcceptErrors(t, err)
+}
+
+func testListenerSurvivesAcceptErrors(t *testing.T, acceptErr error) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flaky := &flakyListener{Listener: raw, failures: 3, err: acceptErr}
+	l := NewHandleContextListener(context.Background(), flaky, func(ctx context.Context, c net.Conn) (net.Conn, error) { return c, nil }, nil)
+	t.Cleanup(func() { l.Close() })
+	accepted := make(chan error, 1)
+	go func() {
+		c, err := l.Accept()
+		if c != nil {
+			c.Close()
+		}
+		accepted <- err
+	}()
+	dialGuarded(t, l)
+	select {
+	case err := <-accepted:
+		if err != nil {
+			t.Fatalf("temporary accept error shut the listener down: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("listener did not recover from temporary accept errors")
+	}
+	flaky.mu.Lock()
+	defer flaky.mu.Unlock()
+	if flaky.errors != 3 {
+		t.Fatalf("expected 3 retried errors, got %d", flaky.errors)
+	}
+}
+
+func TestListenerShutsDownOnPermanentAcceptError(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := NewHandleContextListener(context.Background(), raw, func(ctx context.Context, c net.Conn) (net.Conn, error) { return c, nil }, nil)
+	t.Cleanup(func() { l.Close() })
+	raw.Close()
+	done := make(chan error, 1)
+	go func() { _, err := l.Accept(); done <- err }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("permanent accept error did not stop the listener")
+	}
 }

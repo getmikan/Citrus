@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 )
@@ -37,5 +38,17 @@ func TestCopyLimit(t *testing.T) {
 	}
 	if dst.Len() > 6 {
 		t.Fatalf("wrote %d bytes past a 5-byte limit", dst.Len())
+	}
+}
+
+func TestLimitMaxInt64IsUnlimited(t *testing.T) {
+	buf, err := ReadAllLimit(strings.NewReader("12345"), math.MaxInt64)
+	if err != nil || string(buf) != "12345" {
+		t.Fatalf("ReadAllLimit: %q %v", buf, err)
+	}
+	var dst bytes.Buffer
+	n, err := CopyLimit(&dst, strings.NewReader("12345"), math.MaxInt64)
+	if err != nil || n != 5 || dst.String() != "12345" {
+		t.Fatalf("CopyLimit: %d %q %v", n, dst.String(), err)
 	}
 }

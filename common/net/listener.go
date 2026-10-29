@@ -101,12 +101,17 @@ func (l *handleContextListener) shutdown(err error) {
 }
 func (l *handleContextListener) init() {
 	go func() {
+		var backoff AcceptBackoff
 		for {
 			raw, err := l.Listener.Accept()
 			if err != nil {
+				if backoff.Retry(err, l.done) {
+					continue
+				}
 				l.shutdown(err)
 				return
 			}
+			backoff.Reset()
 			select {
 			case l.slots <- struct{}{}:
 			default:

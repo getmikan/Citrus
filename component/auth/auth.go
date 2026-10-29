@@ -1,6 +1,10 @@
 package auth
 
-import "io"
+import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"io"
+)
 
 type Authenticator interface {
 	Verify(user string, pass string) bool
@@ -35,14 +39,17 @@ type AuthUser struct {
 	Pass string
 }
 
+// The passwords are kept as SHA-256 digests so that Verify compares
+// fixed-length values in constant time, also for unknown users.
 type inMemoryAuthenticator struct {
-	storage   map[string]string
+	storage   map[string][sha256.Size]byte
 	usernames []string
 }
 
 func (au *inMemoryAuthenticator) Verify(user string, pass string) bool {
-	realPass, ok := au.storage[user]
-	return ok && realPass == pass
+	realPass, ok := au.storage[user] // the zero digest for an unknown user
+	digest := sha256.Sum256([]byte(pass))
+	return subtle.ConstantTimeCompare(realPass[:], digest[:]) == 1 && ok
 }
 
 func (au *inMemoryAuthenticator) Users() []string { return au.usernames }
@@ -73,11 +80,11 @@ func NewAuthenticator(users []AuthUser) Authenticator {
 		return nil
 	}
 	au := &inMemoryAuthenticator{
-		storage:   make(map[string]string),
+		storage:   make(map[string][sha256.Size]byte),
 		usernames: make([]string, 0, len(users)),
 	}
 	for _, user := range users {
-		au.storage[user.User] = user.Pass
+		au.storage[user.User] = sha256.Sum256([]byte(user.Pass))
 		au.usernames = append(au.usernames, user.User)
 	}
 	return au
