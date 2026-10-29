@@ -95,7 +95,7 @@ func NewOpenVPN(option OpenVPNOption) (*OpenVPN, error) {
 		return nil, errors.New("openvpn skip-server-identity-check cannot be combined with verify-x509-name or verify-server-name")
 	}
 	if !option.SkipServerIdentityCheck && option.VerifyX509Name == "" && !option.VerifyServerName {
-		return nil, errors.New("openvpn server identity is not configured; set verify-x509-name or verify-server-name, or explicitly set skip-server-identity-check: true")
+		return nil, C.ProviderSkipError("openvpn server identity is not configured; set verify-x509-name or verify-server-name, or explicitly set skip-server-identity-check: true")
 	}
 	if option.HandshakeTimeout < 0 {
 		return nil, errors.New("openvpn handshake timeout must be non-negative")

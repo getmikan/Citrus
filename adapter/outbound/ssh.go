@@ -119,7 +119,7 @@ func (s *Ssh) Close() error {
 
 func NewSsh(option SshOption) (*Ssh, error) {
 	if len(option.HostKey) == 0 && !option.SkipHostKeyCheck {
-		return nil, errors.New("ssh host-key is required unless skip-host-key-check is explicitly true")
+		return nil, C.ProviderSkipError("ssh host-key is required unless skip-host-key-check is explicitly true")
 	}
 	if len(option.HostKey) != 0 && option.SkipHostKeyCheck {
 		return nil, errors.New("ssh host-key and skip-host-key-check cannot be used together")

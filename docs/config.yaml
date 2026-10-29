@@ -1093,6 +1093,8 @@ proxies: # socks5
       # session-ttl-seconds: 300
       # concurrency: 8 # parallel segment requests; maximum 64
       # local uses a shared filesystem path as remote-folder and needs no secrets.
+      # local and template are refused in http proxy providers (skipped with a warning);
+      # top-level proxies, file and inline providers can use them.
       # template uses the same template object and placeholders as Xray:
       # template:
       #   flatten: true

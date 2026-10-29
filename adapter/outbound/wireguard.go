@@ -697,6 +697,8 @@ func unwrapWireGuard(adapter C.ProxyAdapter) *WireGuard {
 			return a
 		case *autoCloseProxyAdapter:
 			adapter = a.ProxyAdapter
+		case *SingMux:
+			adapter = a.ProxyAdapter
 		default:
 			return nil
 		}
