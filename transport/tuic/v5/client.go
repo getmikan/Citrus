@@ -89,8 +89,9 @@ func (t *clientImpl) getQuicConn(ctx context.Context) (*quic.Conn, error) {
 		_ = t.handleMessage(quicConn) // always handleMessage because tuicV5 using datagram to send the Heartbeat
 	}()
 
+	// openStreams is not reset here: the streams of the connection this one
+	// replaces still count, and their deferred decrements still run
 	t.quicConn = quicConn
-	t.openStreams.Store(0)
 	return quicConn, nil
 }
 
@@ -304,7 +305,7 @@ func (t *clientImpl) DialContext(ctx context.Context, metadata *C.Metadata) (net
 				time.AfterFunc(C.DefaultTCPTimeout, func() {
 					openStreams := t.openStreams.Add(-1)
 					if openStreams == 0 && t.closed.Load() {
-						t.forceClose(quicConn, types.ClientClosed)
+						t.forceClose(nil, types.ClientClosed) // the current connection: one this stream outlived is closed already
 					}
 				})
 			},
@@ -355,7 +356,7 @@ func (t *clientImpl) ListenPacket(ctx context.Context, metadata *C.Metadata) (ne
 			time.AfterFunc(C.DefaultUDPTimeout, func() {
 				openStreams := t.openStreams.Add(-1)
 				if openStreams == 0 && t.closed.Load() {
-					t.forceClose(quicConn, types.ClientClosed)
+					t.forceClose(nil, types.ClientClosed) // the current connection: one this conn outlived is closed already
 				}
 			})
 		},

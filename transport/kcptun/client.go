@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/log"
@@ -29,6 +30,7 @@ type Client struct {
 	muxes   []timedSession
 	rr      uint16
 	connMu  sync.Mutex
+	closed  atomic.Bool
 
 	chScavenger chan timedSession
 }
@@ -47,12 +49,28 @@ func NewClient(config Config) *Client {
 	}
 }
 
+// Close closes the sessions the client holds and the ones it creates later
+// fail to open. The scavenger closes the expired sessions it tracks.
 func (c *Client) Close() error {
+	c.closed.Store(true)
+	// ends a dial in progress, which holds connMu, and the scavenger
 	c.cancel()
+	c.connMu.Lock()
+	for i := range c.muxes {
+		if c.muxes[i].session != nil {
+			_ = c.muxes[i].session.Close()
+			c.muxes[i].session = nil
+		}
+	}
+	c.connMu.Unlock()
 	return nil
 }
 
 func (c *Client) createConn(ctx context.Context, dial DialFn) (*smux.Session, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(c.ctx, cancel)
+	defer stop()
 	conn, addr, err := dial(ctx)
 	if err != nil {
 		return nil, err
@@ -107,12 +125,18 @@ func (c *Client) OpenStream(ctx context.Context, dial DialFn) (*smux.Stream, err
 			go scavenger(c.ctx, c.chScavenger, &c.config)
 		}
 
+		c.connMu.Lock() // Close reads muxes
 		c.numconn = uint16(c.config.Conn)
 		c.muxes = make([]timedSession, c.config.Conn)
 		c.rr = uint16(0)
+		c.connMu.Unlock()
 	})
 
 	c.connMu.Lock()
+	if c.closed.Load() {
+		c.connMu.Unlock()
+		return nil, net.ErrClosed
+	}
 	idx := c.rr % c.numconn
 
 	// do auto expiration && reconnection
@@ -126,7 +150,10 @@ func (c *Client) OpenStream(ctx context.Context, dial DialFn) (*smux.Stream, err
 		}
 		c.muxes[idx].expiryDate = time.Now().Add(time.Duration(c.config.AutoExpire) * time.Second)
 		if c.config.AutoExpire > 0 { // only when autoexpire set
-			c.chScavenger <- c.muxes[idx]
+			select {
+			case c.chScavenger <- c.muxes[idx]:
+			case <-c.ctx.Done(): // closed: Close closes the session in muxes
+			}
 		}
 
 	}
@@ -169,7 +196,17 @@ func scavenger(ctx context.Context, ch chan timedSession, config *Config) {
 			}
 			sessionList = newList
 		case <-ctx.Done():
-			return
+			for _, s := range sessionList {
+				_ = s.session.Close()
+			}
+			for {
+				select {
+				case item := <-ch:
+					_ = item.session.Close()
+				default:
+					return
+				}
+			}
 		}
 	}
 }

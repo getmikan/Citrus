@@ -74,9 +74,36 @@ func (s *Stream) closeRecv(drop bool) {
 		}
 		s.recvBufs, s.recvHead = nil, 0
 	}
+	dropped = s.takenLocked(dropped)
 	s.recvLock.Unlock()
 	s.sess.recvTaken(dropped)
 	s.signalReadable()
+}
+
+// detachRecv takes the frames still queued on a stream whose queue has ended
+// out of the session's budget. They stay queued for a reader that is still
+// there, and are garbage once the stream is; the peer sends no more frames
+// on the stream, so it holds no more than it had queued.
+func (s *Stream) detachRecv() {
+	var queued int
+	s.recvLock.Lock()
+	if s.recvClosed && !s.recvDetached {
+		for i := s.recvHead; i < len(s.recvBufs); i++ {
+			queued += s.recvBufs[i].Len()
+		}
+		s.recvDetached = true
+	}
+	s.recvLock.Unlock()
+	s.sess.recvTaken(queued)
+}
+
+// takenLocked returns how much of n bytes leaving the queue the session
+// gets back: none once the queue is detached from its budget.
+func (s *Stream) takenLocked(n int) int {
+	if s.recvDetached {
+		return 0
+	}
+	return n
 }
 
 // popRecvLocked removes the head frame, which the caller has taken.
@@ -126,8 +153,9 @@ func (s *Stream) Read(b []byte) (int, error) {
 		head.Release()
 		s.popRecvLocked()
 	}
+	taken := s.takenLocked(n)
 	s.recvLock.Unlock()
-	s.sess.recvTaken(n)
+	s.sess.recvTaken(taken)
 	return n, nil
 }
 
@@ -148,8 +176,9 @@ func (s *Stream) WaitReadBuffer() (*buf.Buffer, error) {
 	buffer := s.recvBufs[s.recvHead]
 	s.popRecvLocked()
 	options := s.readOptions
+	taken := s.takenLocked(buffer.Len())
 	s.recvLock.Unlock()
-	s.sess.recvTaken(buffer.Len())
+	s.sess.recvTaken(taken)
 	return withHeadroom(buffer, options), nil
 }
 
@@ -163,6 +192,7 @@ func (s *Stream) WaitReadBuffers() ([]*buf.Buffer, error) {
 	clear(s.recvBufs)
 	s.recvBufs, s.recvHead = s.recvBufs[:0], 0
 	options := s.readOptions
+	detached := s.recvDetached
 	s.recvLock.Unlock()
 	s.readBatch = batch
 	var n int
@@ -170,7 +200,9 @@ func (s *Stream) WaitReadBuffers() ([]*buf.Buffer, error) {
 		n += buffer.Len()
 		batch[i] = withHeadroom(buffer, options)
 	}
-	s.sess.recvTaken(n)
+	if !detached {
+		s.sess.recvTaken(n)
+	}
 	return batch, nil
 }
 

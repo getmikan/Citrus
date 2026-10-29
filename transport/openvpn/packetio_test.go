@@ -784,3 +784,44 @@ func TestDroppedDataPacketDoesNotMarkSendActivity(t *testing.T) {
 		t.Fatalf("dropped data packet updated send activity to %d", got)
 	}
 }
+
+type datagramsConn struct {
+	readResultConn
+	datagrams [][]byte
+}
+
+func (c *datagramsConn) Read(b []byte) (int, error) {
+	if len(c.datagrams) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(b, c.datagrams[0])
+	c.datagrams = c.datagrams[1:]
+	return n, nil
+}
+
+// Every datagram comes back in a buffer of its own size, which later reads
+// do not overwrite: the packets are queued, and a 64 KiB buffer for each
+// would be held by every small one in the queues.
+func TestDatagramPacketIOReturnsPacketSizedCopies(t *testing.T) {
+	first := []byte{opcodeKeyID(PDataV2, 0), 1, 2, 3}
+	second := []byte{opcodeKeyID(PDataV2, 0), 4, 5}
+	packetIO := NewDatagramPacketIO(&datagramsConn{datagrams: [][]byte{first, second}})
+
+	got1, err := packetIO.ReadPacket()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2, err := packetIO.ReadPacket()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got1, first) || !bytes.Equal(got2, second) {
+		t.Fatalf("read %x, %x; want %x, %x", got1, got2, first, second)
+	}
+	if cap(got1) != len(first) || cap(got2) != len(second) {
+		t.Fatalf("packet capacities %d, %d for %d, %d bytes", cap(got1), cap(got2), len(first), len(second))
+	}
+	if _, err := packetIO.ReadPacket(); !errors.Is(err, io.EOF) {
+		t.Fatalf("read after the datagrams = %v, want EOF", err)
+	}
+}

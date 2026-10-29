@@ -91,6 +91,11 @@ func selectTableByProbe(r *bufio.Reader, cfg *ProtocolConfig, tables []*sudoku.T
 	const (
 		maxProbeBytes = 64 * 1024
 		readChunk     = 4 * 1024
+		// Every round decodes the whole probe again for each candidate, so a
+		// client that sends a few bytes per read would cost O(n²) before it
+		// authenticates. Bound the bytes decoded per candidate across rounds:
+		// a real ClientHello is a few KiB and takes a round or a few.
+		maxProbeWork = 4 * maxProbeBytes
 	)
 	if len(tables) == 0 {
 		return nil, nil, fmt.Errorf("no table candidates")
@@ -116,6 +121,7 @@ func selectTableByProbe(r *bufio.Reader, cfg *ProtocolConfig, tables []*sudoku.T
 	}
 
 	tmp := make([]byte, readChunk)
+	probeWork := 0
 	for {
 		if len(candidates) == 1 {
 			tail, err := drainBuffered(r)
@@ -145,12 +151,16 @@ func selectTableByProbe(r *bufio.Reader, cfg *ProtocolConfig, tables []*sudoku.T
 			// Definitive mismatch: drop table.
 		}
 		candidates = next
+		probeWork += len(probe)
 
 		if len(candidates) == 0 || !needMore {
 			return nil, probe, fmt.Errorf("handshake table selection failed")
 		}
 		if len(probe) >= maxProbeBytes {
 			return nil, probe, fmt.Errorf("handshake probe exceeded %d bytes", maxProbeBytes)
+		}
+		if probeWork >= maxProbeWork {
+			return nil, probe, fmt.Errorf("handshake probe exceeded %d decoded bytes", maxProbeWork)
 		}
 
 		n, err := r.Read(tmp)

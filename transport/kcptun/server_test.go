@@ -204,3 +204,117 @@ func TestKCPTunSessionLimitRejectsAnotherPeer(t *testing.T) {
 	default:
 	}
 }
+
+// Close closes the sessions the client opened, and the client opens no new
+// ones after it.
+func TestKCPTunClientCloseClosesSessions(t *testing.T) {
+	cfg := Config{Key: "kcptun-close-test-key", Mode: "fast3", SmuxVer: 2, Conn: 2}
+	_, addr := startTestServer(t, cfg, func(conn net.Conn) { defer conn.Close(); _, _ = io.Copy(conn, conn) })
+	dial := func(context.Context) (net.PacketConn, net.Addr, error) {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			return nil, nil, err
+		}
+		return pc, net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addr)), nil
+	}
+	c := NewClient(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var sessions []*smux.Session
+	for n := 0; n < 2; n++ {
+		stream, err := c.OpenStream(ctx, dial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		sessions = append(sessions, c.muxes[n].session)
+	}
+
+	c.Close()
+	for n, session := range sessions {
+		if !session.IsClosed() {
+			t.Fatalf("session %d open after Close", n)
+		}
+	}
+	if _, err := c.OpenStream(ctx, dial); err == nil {
+		t.Fatal("OpenStream succeeded after Close")
+	}
+}
+
+// Close does not wait for a dial in progress: it ends it.
+func TestKCPTunClientCloseEndsDial(t *testing.T) {
+	c := NewClient(Config{Key: "kcptun-close-test-key", Mode: "fast3", SmuxVer: 2})
+	dialing := make(chan struct{})
+	dial := func(ctx context.Context) (net.PacketConn, net.Addr, error) {
+		close(dialing)
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}
+	opened := make(chan error, 1)
+	go func() {
+		_, err := c.OpenStream(context.Background(), dial)
+		opened <- err
+	}()
+	<-dialing
+
+	closed := make(chan struct{})
+	go func() { c.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close waits for the dial")
+	}
+	select {
+	case err := <-opened:
+		if err == nil {
+			t.Fatal("OpenStream succeeded across Close")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("OpenStream still dialing after Close")
+	}
+}
+
+// Close also closes, through the scavenger, the expired sessions that the
+// client replaced and that still drain.
+func TestKCPTunClientCloseClosesExpiredSessions(t *testing.T) {
+	cfg := Config{Key: "kcptun-close-test-key", Mode: "fast3", SmuxVer: 2, Conn: 1, AutoExpire: 1}
+	_, addr := startTestServer(t, cfg, func(conn net.Conn) { defer conn.Close(); _, _ = io.Copy(conn, conn) })
+	dial := func(context.Context) (net.PacketConn, net.Addr, error) {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			return nil, nil, err
+		}
+		return pc, net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addr)), nil
+	}
+	c := NewClient(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stream, err := c.OpenStream(ctx, dial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	expired := c.muxes[0].session
+
+	time.Sleep(1100 * time.Millisecond) // past AutoExpire
+	next, err := c.OpenStream(ctx, dial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	if c.muxes[0].session == expired {
+		t.Fatal("the expired session was not replaced")
+	}
+	if expired.IsClosed() {
+		t.Fatal("the expired session closed before its scavenge TTL")
+	}
+
+	c.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for !expired.IsClosed() {
+		if time.Now().After(deadline) {
+			t.Fatal("expired session open after Close")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
