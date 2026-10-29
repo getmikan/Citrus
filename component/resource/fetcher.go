@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -164,7 +165,7 @@ func (f *Fetcher[V]) loadBuf(buf []byte, hash utils.HashType, updateFile bool) (
 		return lo.Empty[V](), true, nil
 	}
 
-	contents, err := f.parser(buf)
+	contents, err := f.parse(buf)
 	if err != nil {
 		f.backoff.AddAttempt() // add a failed attempt to backoff
 		return lo.Empty[V](), false, err
@@ -184,6 +185,19 @@ func (f *Fetcher[V]) loadBuf(buf []byte, hash utils.HashType, updateFile bool) (
 	}
 
 	return contents, false, nil
+}
+
+// parse runs the parser and turns a panic into an error. The buffer comes
+// from a remote or user-supplied file, so a parser bug on malformed input
+// must fail this load instead of taking down the process (and, for a file
+// fetched again on every start, keeping it in a crash loop).
+func (f *Fetcher[V]) parse(buf []byte) (contents V, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			contents, err = lo.Empty[V](), fmt.Errorf("parse %s: %v", f.name, r)
+		}
+	}()
+	return f.parser(buf)
 }
 
 func (f *Fetcher[V]) Close() error {
