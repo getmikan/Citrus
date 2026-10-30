@@ -1838,9 +1838,9 @@ proxies: # socks5
   #   tlsrec: "1+s"              # split the ClientHello into TLS records here
   #   split: "2"                 # optional: send it in separate TCP writes
   #   split-delay: 0             # ms between those writes, 0-1000
-  #   split-wait: sent           # sent | acked: before each further piece, wait until the kernel reports the earlier bytes sent/acknowledged (macOS: acked only)
+  #   split-wait: sent           # sent | acked: before each further piece, wait until the kernel reports the earlier bytes sent/acknowledged (macOS: acked only; Android: sent is checked per connection)
   #   split-wait-timeout: 2000   # ms per wait (also bounds disorder), 0-60000, default 2000
-  #   disorder: true             # the first split piece goes out with hop limit 1 and is retransmitted later (needs split)
+  #   disorder: true             # the first split piece goes out with hop limit 1 and is retransmitted later (needs split; Android: checked per connection)
   #   oob: true                  # one urgent byte after the first split piece (needs split); with disorder: disoob
   #   oob-byte: "a"              # that byte, one ASCII character, default "a"
   #   random:                    # random cuts per connection, added to tlsrec/split
@@ -1849,7 +1849,7 @@ proxies: # socks5
   #     split:
   #       - { from: 1, to: 120 } # count and min-piece default to 1
   #     seed: 0                  # 0: a new seed per connection; another value repeats the same cuts (tests, bug reports)
-  #   fake:                      # Windows, Linux, Android: the first transmission of the prefix (or of the split piece ending at it) carries a low-TTL decoy
+  #   fake:                      # Windows, Linux, Android (checked per connection): the first transmission of the prefix (or of the split piece ending at it) carries a low-TTL decoy
   #     ttl: 4                   # hop limit of the decoy; with auto-ttl the fallback (0: no fallback, the connection fails)
   #     auto-ttl: { delta: 1, min: 3, max: 20 } # TTL = hops to the server - delta, from the SYN-ACK; observable on Linux/Android over IPv6 only; {} = these defaults
   #     prefix: -1               # end of the fake piece after record splitting, negative from the end
@@ -1867,8 +1867,10 @@ proxies: # socks5
   #     quic-only: true          # burst only before datagrams that look like a QUIC Initial
   #   # interface-name, routing-mark and ip-version work as for direct.
   #   # tfo, mptcp and dialer-proxy are refused. A method this OS does not
-  #   # implement is a config error that says why. A suitable TTL depends on
-  #   # the network.
+  #   # implement is a config error that says why. On Android, split-wait sent,
+  #   # disorder and fake need TCP_INFO unsent bytes (Linux 4.6+): accepted,
+  #   # and a connection whose socket lacks them fails before sending. A
+  #   # suitable TTL depends on the network.
 proxy-groups:
   # url-test 将按照 url 测试结果使用延迟最低节点
   - name: "auto"

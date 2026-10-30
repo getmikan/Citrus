@@ -91,23 +91,27 @@ func TestDesyncMethodOptionValidation(t *testing.T) {
 // otherwise errors that name the OS and wrap the library's error.
 func TestDesyncMethodsOnThisOS(t *testing.T) {
 	caps := desync.PlatformCapabilities()
+	// Android lists these as conditional: accepted, decided per socket.
+	sent := caps.Ack.Sent || desyncConditional(caps, "split-wait-sent")
+	disorder := caps.Disorder.Supported || desyncConditional(caps, "disorder")
+	fake := caps.FakeTCP || desyncConditional(caps, "fake-tcp")
 	for _, tc := range []struct {
 		name      string
 		option    DesyncOption
 		supported bool
 		sentinel  error
 	}{
-		{"disorder", DesyncOption{Split: "1+s", Disorder: true, SplitWaitTimeout: 500}, caps.Disorder.Supported, desync.ErrDisorderUnsupported},
+		{"disorder", DesyncOption{Split: "1+s", Disorder: true, SplitWaitTimeout: 500}, disorder, desync.ErrDisorderUnsupported},
 		{"oob", DesyncOption{Split: "1+s", OOB: true, OOBByte: "z"}, caps.OOB, desync.ErrOOBUnsupported},
-		{"disoob", DesyncOption{Split: "1+s", Disorder: true, OOB: true}, caps.Disorder.Supported && caps.OOB, nil},
-		{"split-wait sent", DesyncOption{Split: "1+s", SplitWait: "sent"}, caps.Ack.Sent, desync.ErrSplitWaitUnsupported},
+		{"disoob", DesyncOption{Split: "1+s", Disorder: true, OOB: true}, disorder && caps.OOB, nil},
+		{"split-wait sent", DesyncOption{Split: "1+s", SplitWait: "sent"}, sent, desync.ErrSplitWaitUnsupported},
 		{"split-wait acked", DesyncOption{Split: "1+s", SplitWait: "acked", SplitWaitTimeout: 1000}, caps.Ack.Acked, desync.ErrSplitWaitUnsupported},
-		{"fake decoy", DesyncOption{TLSRec: "1+s", Fake: &DesyncFakeOption{TTL: 4, SNI: []string{"www.example.com", "cdn-##.example.net"}, Randomize: true, Offset: 2}}, caps.FakeTCP, desync.ErrFakeUnsupported},
-		{"fake from-original", DesyncOption{Fake: &DesyncFakeOption{TTL: 4, SNI: []string{"www.example.com"}, FromOriginal: true}}, caps.FakeTCP, desync.ErrFakeUnsupported},
-		{"fake with split", DesyncOption{Split: "1+s", Disorder: true, Fake: &DesyncFakeOption{TTL: 4}}, caps.FakeTCP, desync.ErrFakeUnsupported},
-		{"fake random split", DesyncOption{Random: &DesyncRandomOption{Split: []DesyncRandomCut{randomCut("1", "8", 1, 1)}}, Fake: &DesyncFakeOption{TTL: 4}}, caps.FakeTCP, desync.ErrFakeUnsupported},
-		{"fake auto-ttl fallback", DesyncOption{TLSRec: "1+s", Fake: &DesyncFakeOption{TTL: 4, AutoTTL: &DesyncAutoTTLOption{Delta: 2, Min: 2, Max: 30}}}, caps.FakeTCP, desync.ErrFakeUnsupported},
-		{"fake auto-ttl only", DesyncOption{TLSRec: "1+s", Fake: &DesyncFakeOption{AutoTTL: &DesyncAutoTTLOption{}}}, caps.FakeTCP && (caps.AutoTTL.IPv4 || caps.AutoTTL.IPv6), nil},
+		{"fake decoy", DesyncOption{TLSRec: "1+s", Fake: &DesyncFakeOption{TTL: 4, SNI: []string{"www.example.com", "cdn-##.example.net"}, Randomize: true, Offset: 2}}, fake, desync.ErrFakeUnsupported},
+		{"fake from-original", DesyncOption{Fake: &DesyncFakeOption{TTL: 4, SNI: []string{"www.example.com"}, FromOriginal: true}}, fake, desync.ErrFakeUnsupported},
+		{"fake with split", DesyncOption{Split: "1+s", Disorder: true, Fake: &DesyncFakeOption{TTL: 4}}, fake, desync.ErrFakeUnsupported},
+		{"fake random split", DesyncOption{Random: &DesyncRandomOption{Split: []DesyncRandomCut{randomCut("1", "8", 1, 1)}}, Fake: &DesyncFakeOption{TTL: 4}}, fake, desync.ErrFakeUnsupported},
+		{"fake auto-ttl fallback", DesyncOption{TLSRec: "1+s", Fake: &DesyncFakeOption{TTL: 4, AutoTTL: &DesyncAutoTTLOption{Delta: 2, Min: 2, Max: 30}}}, fake, desync.ErrFakeUnsupported},
+		{"fake auto-ttl only", DesyncOption{TLSRec: "1+s", Fake: &DesyncFakeOption{AutoTTL: &DesyncAutoTTLOption{}}}, fake && (caps.AutoTTL.IPv4 || caps.AutoTTL.IPv6), nil},
 		{"udp quic", DesyncOption{UDP: &DesyncUDPOption{TTL: 4, Template: "quic", SNI: "www.example.com", QUICOnly: true}}, caps.FakeUDP, desync.ErrUDPFakeUnsupported},
 		{"udp quic-only zero", DesyncOption{UDP: &DesyncUDPOption{TTL: 4, Template: "zero", QUICOnly: true}}, caps.FakeUDP, desync.ErrUDPFakeUnsupported},
 	} {
@@ -158,6 +162,25 @@ var (
 			"auto-ttl-ipv4": "Linux records no received TTL for an outgoing IPv4 TCP connection",
 		},
 	}
+	// Android in v0.2.1: SIOCOUTQNSD is denied to apps, so the methods that
+	// need unsent bytes are not claimed but listed in Conditional (and in
+	// Unsupported); a socket decides them through TCP_INFO.
+	desyncCapsAndroid = desync.Capabilities{
+		OS: "android", FakeUDP: true, TTLControl: true, OOB: true,
+		Ack:     desync.AckCapability{Mechanism: "SIOCOUTQ", Acked: true, Reliable: true},
+		AutoTTL: desync.AutoTTLCapability{Mechanism: "IPV6_RECVHOPLIMIT/IPV6_2292PKTOPTIONS", IPv6: true},
+		Unsupported: map[string]string{
+			"auto-ttl-ipv4":   "Linux records no received TTL for an outgoing IPv4 TCP connection",
+			"split-wait-sent": desyncAndroidReason,
+			"fake-tcp":        desyncAndroidReason,
+			"disorder":        desyncAndroidReason,
+		},
+		Conditional: map[string]string{
+			"split-wait-sent": desyncAndroidReason,
+			"fake-tcp":        desyncAndroidReason,
+			"disorder":        desyncAndroidReason,
+		},
+	}
 	desyncCapsNone = desync.Capabilities{
 		OS: "freebsd",
 		Unsupported: map[string]string{
@@ -168,6 +191,73 @@ var (
 		},
 	}
 )
+
+const desyncAndroidReason = "Android does not let apps read SIOCOUTQNSD; unsent bytes are read from TCP_INFO tcpi_notsent_bytes (Linux 4.6+) when the socket provides it, so this is decided per socket: see ProbeCapabilities"
+
+// A method the OS decides per socket (Conditional) is accepted, even though
+// it is also listed as unsupported; the same caps without Conditional reject
+// it, so the acceptance comes from Conditional alone.
+func TestDesyncConditionalMethods(t *testing.T) {
+	accepted := map[string]DesyncOption{
+		"split-wait sent":       {Split: "1+s", SplitWait: "sent", SplitWaitTimeout: 500},
+		"split-wait acked":      {Split: "1+s", SplitWait: "acked"},
+		"disorder":              {Split: "1+s", Disorder: true},
+		"disoob":                {Split: "1+s", Disorder: true, OOB: true},
+		"fake":                  {TLSRec: "1+s", Fake: &DesyncFakeOption{TTL: 4, SNI: []string{"www.example.com"}}},
+		"fake auto-ttl":         {TLSRec: "1+s", Fake: &DesyncFakeOption{TTL: 4, AutoTTL: &DesyncAutoTTLOption{}}},
+		"fake disorder sent":    {Split: "1+s", Disorder: true, SplitWait: "sent", Fake: &DesyncFakeOption{TTL: 4}},
+		"fake random split oob": {Random: &DesyncRandomOption{Split: []DesyncRandomCut{randomCut("1", "8", 1, 1)}}, OOB: true, Fake: &DesyncFakeOption{TTL: 4}},
+		"udp":                   {UDP: &DesyncUDPOption{TTL: 4, Template: "quic"}},
+	}
+	for name, option := range accepted {
+		option.Name = name
+		d, err := newDesync(option, desyncCapsAndroid)
+		if assert.NoError(t, err, name) {
+			assert.Equal(t, option.SplitWait == "sent", d.tcp.SplitWait == desync.SplitWaitSent, name)
+			assert.Equal(t, option.Disorder, d.tcp.Disorder, name)
+			assert.Equal(t, option.Fake != nil, d.tcp.Fake != nil, name)
+		}
+	}
+
+	strict := desyncCapsAndroid
+	strict.Conditional = nil
+	for _, tc := range []struct {
+		name     string
+		option   DesyncOption
+		sentinel error
+		message  string
+	}{
+		{"split-wait sent", DesyncOption{Split: "1+s", SplitWait: "sent"}, desync.ErrSplitWaitUnsupported, "split-wait sent is not supported on android (SIOCOUTQ observes only acked)"},
+		{"disorder", DesyncOption{Split: "1+s", Disorder: true}, desync.ErrDisorderUnsupported, "disorder is not supported on android (Android does not let apps read SIOCOUTQNSD"},
+		{"fake", DesyncOption{TLSRec: "1+s", Fake: &DesyncFakeOption{TTL: 4}}, desync.ErrFakeUnsupported, "fake is not supported on android (Android does not let apps read SIOCOUTQNSD"},
+	} {
+		_, err := newDesync(tc.option, strict)
+		if assert.Error(t, err, tc.name) {
+			assert.ErrorIs(t, err, tc.sentinel, tc.name)
+			assert.Contains(t, err.Error(), tc.message, tc.name)
+		}
+	}
+
+	// Conditional does not lift the checks that do not depend on the socket.
+	for _, tc := range []struct {
+		name     string
+		option   DesyncOption
+		sentinel error
+		message  string
+	}{
+		{"auto-ttl ipv4-only", DesyncOption{BasicOption: BasicOption{IPVersion: C.IPv4Only}, TLSRec: "1+s", Fake: &DesyncFakeOption{AutoTTL: &DesyncAutoTTLOption{}}}, desync.ErrAutoTTLUnsupported, "on android (Linux records no received TTL"},
+		{"disorder without split", DesyncOption{TLSRec: "1+s", Disorder: true}, nil, "disorder needs split positions"},
+		{"split-wait without split", DesyncOption{TLSRec: "1+s", SplitWait: "sent"}, nil, "split-wait needs split positions"},
+	} {
+		_, err := newDesync(tc.option, desyncCapsAndroid)
+		if assert.Error(t, err, tc.name) {
+			if tc.sentinel != nil {
+				assert.ErrorIs(t, err, tc.sentinel, tc.name)
+			}
+			assert.Contains(t, err.Error(), tc.message, tc.name)
+		}
+	}
+}
 
 func TestDesyncUnsupportedPerOS(t *testing.T) {
 	autoOnly := &DesyncFakeOption{AutoTTL: &DesyncAutoTTLOption{}}
