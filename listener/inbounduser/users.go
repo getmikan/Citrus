@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/log"
 )
 
 // Entry is a user of a Set as the handshakes see it.
@@ -115,6 +116,18 @@ func NoFlow(protocol string, users []C.InboundUser) error {
 		}
 	}
 	return nil
+}
+
+// WarnEmptySecrets logs a warning for each user of a configuration whose
+// secret is empty: no secret is needed to log in as that user (a Hysteria2
+// client that sends no auth at all gets in as one). The users API refuses
+// such a user; a configuration still loads, with this warning.
+func WarnEmptySecrets(listener string, users []C.InboundUser) {
+	for _, user := range users {
+		if user.Secret == "" {
+			log.Warnln("[Inbound] %s: user %q has an empty secret, so none is needed to log in as this user; set one", listener, user.Name)
+		}
+	}
 }
 
 // FromMap converts a name -> secret map of a configuration to users, sorted
