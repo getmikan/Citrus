@@ -41,6 +41,20 @@ func TestIsPublicIP(t *testing.T) {
 		"::127.0.0.1":          false,
 		"fec0::1":              false,
 		"64:ff9b:1::5db8:d822": false,
+		// a zone names an interface and does not change the verdict
+		"2606:4700::1111%x":       true,
+		"64:ff9b::5db8:d822%eth0": true,
+		"64:ff9b::a00:1%x":        false,
+		"64:ff9b::7f00:1%1":       false,
+		"2002:a9fe:a9fe::1%eth0":  false,
+		"2001:db8::1%x":           false,
+		"64:ff9b:1::5db8:d822%x":  false,
+		"::127.0.0.1%x":           false,
+		"fec0::1%x":               false,
+		"100::1%x":                false,
+		"fe80::1%eth0":            false,
+		"::1%lo":                  false,
+		"fd12:3456::1%x":          false,
 	}
 	for input, want := range testCases {
 		if got := IsPublicIP(netip.MustParseAddr(input)); got != want {

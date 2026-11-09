@@ -41,9 +41,11 @@ var (
 
 // IsPublicIP reports whether addr is a globally routable unicast address that is
 // not a cloud metadata service. Addresses that embed an IPv4 address (IPv4-mapped,
-// NAT64 and 6to4) are judged by the embedded address.
+// NAT64 and 6to4) are judged by the embedded address. An IPv6 zone is ignored: it
+// names an interface, not another address (and netip.Prefix.Contains is false for
+// any address with one, which would let it skip the ranges below).
 func IsPublicIP(addr netip.Addr) bool {
-	addr = addr.Unmap()
+	addr = addr.Unmap().WithZone("")
 	if !addr.IsValid() {
 		return false
 	}
