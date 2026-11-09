@@ -82,7 +82,7 @@ func TestPollUploadRejectsOversizedBody(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.pollPush(b, token, 1, bytes.NewReader(bytes.Repeat([]byte{'\n'}, maxUploadBytes+1)))
+		s.push(b, token, 1, bytes.NewReader(bytes.Repeat([]byte{'\n'}, maxUploadBytes+1)), -1, pollCodec)
 	}()
 	_ = a.SetReadDeadline(time.Now().Add(time.Second))
 	response, err := io.ReadAll(a)
