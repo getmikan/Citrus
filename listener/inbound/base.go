@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -203,7 +204,9 @@ func (o BaseOption) Additions() []inbound.Addition {
 		}
 		additions = append(additions, inbound.WithEgressGuard(guard))
 	}
-	return additions
+	// every connection of the listener appends its user to these: no spare
+	// capacity, or the appends of two connections share one array
+	return slices.Clip(additions)
 }
 
 func (o BaseOption) ListenConfig() C.InboundListenConfig {

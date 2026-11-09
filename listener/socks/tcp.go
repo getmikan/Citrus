@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
@@ -185,7 +186,8 @@ func HandleSocks4(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, addition
 		return
 	}
 	defer release()
-	additions = append(additions, inbound.WithInUser(user))
+	// a copy: the additions are shared by all the connections of the listener
+	additions = append(slices.Clip(additions), inbound.WithInUser(user))
 	tunnel.HandleTCPConn(inbound.NewSocket(socks5.ParseAddr(addr), conn, C.SOCKS4, additions...))
 }
 
@@ -214,6 +216,6 @@ func HandleSocks5(conn net.Conn, tunnel C.Tunnel, store auth.AuthStore, addition
 		io.Copy(io.Discard, conn)
 		return
 	}
-	additions = append(additions, inbound.WithInUser(user))
+	additions = append(slices.Clip(additions), inbound.WithInUser(user))
 	tunnel.HandleTCPConn(inbound.NewSocket(target, conn, C.SOCKS5, additions...))
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/metacubex/mihomo/common/structure"
 	C "github.com/metacubex/mihomo/constant"
 	IN "github.com/metacubex/mihomo/listener/inbound"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 )
 
 func ParseListener(mapping map[string]any) (C.InboundListener, error) {
@@ -172,6 +173,13 @@ func ParseListener(mapping map[string]any) (C.InboundListener, error) {
 		listener, err = IN.NewTrustTunnel(trusttunnelOption)
 	default:
 		return nil, fmt.Errorf("unsupport proxy type: %s", proxyType)
+	}
+	if err == nil {
+		// the listeners whose users the users API manages: before Listen
+		// these are the users of the configuration
+		if lister, ok := listener.(interface{ Users() []C.InboundUser }); ok {
+			inbounduser.WarnEmptySecrets(listener.Name(), lister.Users())
+		}
 	}
 	return listener, err
 }

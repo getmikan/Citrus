@@ -381,18 +381,18 @@ func TestV3WildcardSNISelection(t *testing.T) {
 	defaultHandshake := HandshakeConfig{Server: "default.example:443"}
 	customHandshake := HandshakeConfig{Server: "custom-upstream.example:443"}
 	testCases := []struct {
-		name          string
-		mode          WildcardSNI
-		serverName    string
-		authenticated bool
-		want          string
+		name       string
+		mode       WildcardSNI
+		serverName string
+		want       string
 	}{
-		{name: "off-authenticated", mode: WildcardSNIOff, serverName: "other.example", authenticated: true, want: defaultHandshake.Server},
-		{name: "authed-authenticated", mode: WildcardSNIAuthed, serverName: "other.example", authenticated: true, want: "other.example:443"},
-		{name: "authed-fallback", mode: WildcardSNIAuthed, serverName: "other.example", authenticated: false, want: defaultHandshake.Server},
-		{name: "all-authenticated", mode: WildcardSNIAll, serverName: "other.example", authenticated: true, want: "other.example:443"},
-		{name: "all-unauthenticated", mode: WildcardSNIAll, serverName: "other.example", authenticated: false, want: defaultHandshake.Server},
-		{name: "custom-fallback", mode: WildcardSNIOff, serverName: "custom.example", authenticated: false, want: customHandshake.Server},
+		{name: "off", mode: WildcardSNIOff, serverName: "other.example", want: defaultHandshake.Server},
+		{name: "authed", mode: WildcardSNIAuthed, serverName: "other.example", want: "93.184.216.34:443"},
+		{name: "all", mode: WildcardSNIAll, serverName: "other.example", want: "93.184.216.34:443"},
+		{name: "authed-private", mode: WildcardSNIAuthed, serverName: "private.example", want: defaultHandshake.Server},
+		{name: "authed-localhost", mode: WildcardSNIAuthed, serverName: "localhost", want: defaultHandshake.Server},
+		{name: "authed-ip", mode: WildcardSNIAuthed, serverName: "10.0.0.1", want: defaultHandshake.Server},
+		{name: "custom", mode: WildcardSNIAuthed, serverName: "custom.example", want: customHandshake.Server},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -400,8 +400,17 @@ func TestV3WildcardSNISelection(t *testing.T) {
 				handshake:              defaultHandshake,
 				handshakeForServerName: map[string]HandshakeConfig{"custom.example": customHandshake},
 				wildcardSNI:            testCase.mode,
+				lookupIP: func(_ context.Context, host string) ([]netip.Addr, error) {
+					switch host {
+					case "other.example":
+						return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+					case "private.example":
+						return []netip.Addr{netip.MustParseAddr("10.0.0.1")}, nil
+					}
+					return nil, errors.New("no such host")
+				},
 			}
-			if got := serverConfig.selectV3Handshake(testCase.serverName, testCase.authenticated).Server; got != testCase.want {
+			if got := serverConfig.authenticatedV3Handshake(context.Background(), testCase.serverName).Server; got != testCase.want {
 				t.Fatalf("selected server = %q, want %q", got, testCase.want)
 			}
 		})
@@ -558,6 +567,102 @@ func TestV3WildcardSNIAllFallbackDial(t *testing.T) {
 			}
 			if serverResult := receiveServerResult(t, result); !errors.Is(serverResult.err, ErrFallbackCompleted) {
 				t.Fatalf("server error = %v, want %v", serverResult.err, ErrFallbackCompleted)
+			}
+			want := testCase.want
+			if want == "" {
+				want = camouflageAddr
+			}
+			dialedMu.Lock()
+			defer dialedMu.Unlock()
+			if len(dialed) != 1 || dialed[0] != want {
+				t.Fatalf("dialed %q, want [%q]", dialed, want)
+			}
+		})
+	}
+}
+
+// An authenticated client under wildcard-sni authed or all picks the handshake
+// server through its SNI as well, and when that server does not answer like a
+// TLS 1.3 server the connection is relayed to it as is: the name must be a
+// public host name with public addresses only, and the vetted address is
+// dialed. Any other name goes to the default handshake server.
+func TestV3WildcardSNIAuthenticatedDial(t *testing.T) {
+	testCases := []struct {
+		name       string
+		mode       WildcardSNI
+		serverName string
+		want       string // empty means the default handshake server
+	}{
+		{name: "authed-localhost", mode: WildcardSNIAuthed, serverName: "localhost"},
+		{name: "authed-private", mode: WildcardSNIAuthed, serverName: "private.example.com"},
+		{name: "authed-internal", mode: WildcardSNIAuthed, serverName: "metadata.google.internal"},
+		{name: "authed-public", mode: WildcardSNIAuthed, serverName: "public.example.com", want: "93.184.216.34:443"},
+		{name: "all-private", mode: WildcardSNIAll, serverName: "private.example.com"},
+		{name: "all-public", mode: WildcardSNIAll, serverName: "public.example.com", want: "93.184.216.34:443"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			camouflageAddr := startCamouflageServer(t, false)
+			var (
+				dialedMu sync.Mutex
+				dialed   []string
+			)
+			serverConfig, err := NewServerConfig(
+				3,
+				"",
+				[]User{{Name: "test-user", Password: testPassword}},
+				HandshakeConfig{
+					Server: camouflageAddr,
+					DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+						dialedMu.Lock()
+						dialed = append(dialed, address)
+						dialedMu.Unlock()
+						return (&net.Dialer{}).DialContext(ctx, network, camouflageAddr)
+					},
+				},
+				nil,
+				true,
+				testCase.mode,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			serverConfig.lookupIP = func(_ context.Context, host string) ([]netip.Addr, error) {
+				switch host {
+				case "private.example.com":
+					return []netip.Addr{netip.MustParseAddr("192.168.0.10")}, nil
+				case "public.example.com":
+					return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+				}
+				return nil, errors.New("no such host")
+			}
+			frontendAddr, result := startServer(t, serverConfig)
+
+			rawClient, err := net.Dial("tcp", frontendAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rawClient.Close()
+			setTestDeadline(t, rawClient)
+			client, err := NewShadowTLS(context.Background(), rawClient, &ShadowTLSOption{
+				Password:       testPassword,
+				Host:           testCase.serverName,
+				SkipCertVerify: true,
+				Version:        3,
+			})
+			if err != nil {
+				t.Fatalf("client handshake: %v", err)
+			}
+			if _, err = client.Write([]byte("hello")); err != nil {
+				t.Fatalf("client write: %v", err)
+			}
+			serverResult := receiveServerResult(t, result)
+			if serverResult.err != nil {
+				t.Fatalf("server handshake: %v", serverResult.err)
+			}
+			_ = serverResult.conn.Close()
+			if serverResult.user != "test-user" {
+				t.Fatalf("authenticated user = %q, want test-user", serverResult.user)
 			}
 			want := testCase.want
 			if want == "" {
