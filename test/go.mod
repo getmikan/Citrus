@@ -15,6 +15,7 @@ replace github.com/metacubex/mihomo => ../
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/Nemu-x/desync v0.2.1-0.20261029232908-673cbefddb80 // indirect
 	github.com/RyuaNerin/go-krypto v1.3.0 // indirect
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 // indirect
 	github.com/akutz/memconn v0.1.0 // indirect

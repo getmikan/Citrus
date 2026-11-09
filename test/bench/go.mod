@@ -17,6 +17,7 @@ replace github.com/metacubex/utls => github.com/getmikan/utls v1.8.9-0.202610201
 replace github.com/metacubex/http => github.com/getmikan/http v0.1.8-citrus.2
 
 require (
+	github.com/Nemu-x/desync v0.2.1-0.20261029232908-673cbefddb80 // indirect
 	github.com/RyuaNerin/go-krypto v1.3.0 // indirect
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 // indirect
 	github.com/ajg/form v1.7.1 // indirect
