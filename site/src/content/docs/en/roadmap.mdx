@@ -24,16 +24,24 @@ The details, with a link to every PR, are in the [changelog](/Citrus/en/changelo
 - **Client compatibility.** Automated tests: mihomo v1.19.31 and v1.19.32 clients against a Citrus server on every protocol, see [Compatibility](/Citrus/en/compatibility/).
 - **Go 1.26.** The minimum Go version is 1.26, so `golang.org/x/net`, `x/crypto` and `x/text` are on current releases with their security fixes. The separate builds on old Go versions (`-go120` to `-go125`) are gone; see [Migrating from mihomo](/Citrus/en/migration/#platforms-and-builds).
 - **Forks.** utls `v1.8.8-citrus.1`–`.3`, tls `v0.1.8-citrus.1`, http `v0.1.8-citrus.1`–`.2`; utls and tls have `dev` commits after these tags (download, memory). The new smux fork stops a caller's buffer from being sent after an error, and the restls-client-go fork fixes its record-counter races; neither has a tag yet.
-- **Documentation.** The site in two languages: getting started, configuration, controller, users, limits, metrics, events, chains, migrating from mihomo.
+- **Desync outbound.** `type: desync` is a DIRECT connection for networks with DPI filtering: it changes how the first TLS ClientHello or QUIC Initial is sent, not what the server receives. Splits and reordering, out-of-band data, fakes with an automatic TTL, waiting for the send to be acknowledged, ClientHello and QUIC decoys; what the OS cannot do, the core reports instead of skipping it silently. Built on the [desync](https://github.com/Nemu-x/desync) library v0.2, it works on Windows, Linux, macOS and Android ([#163](https://github.com/getmikan/Citrus/pull/163), [#172](https://github.com/getmikan/Citrus/pull/172), [#180](https://github.com/getmikan/Citrus/pull/180)); see [Desync outbound](/Citrus/en/start/desync/).
+- **Fallbacks as in Xray.** VLESS and Trojan hand streams that are not theirs to a fallback by SNI, ALPN and path ([#159](https://github.com/getmikan/Citrus/pull/159)), with a `fallback-page` for ws, grpc and xhttp ([#153](https://github.com/getmikan/Citrus/pull/153)); see [VLESS and Trojan fallbacks](/Citrus/en/start/fallbacks/). XHTTP over HTTP/3 on the VLESS inbound ([#160](https://github.com/getmikan/Citrus/pull/160)).
+- **The server stays out of places it should not reach.** `egress-guard` keeps inbound users off private, local and special addresses, cloud metadata included ([#162](https://github.com/getmikan/Citrus/pull/162)); see [Server without root](/Citrus/en/start/server-profile/). Root certificates: `tls.ca-roots` picks the source, and CAs used for state TLS interception are denied by default ([#161](https://github.com/getmikan/Citrus/pull/161)); see [Security](/Citrus/en/security/#root-certificates).
+- **Speed groups.** `speed-group` shares one speed limit between several users, with `SetLimits` and `OnLeave` in the Go API ([#151](https://github.com/getmikan/Citrus/pull/151)); see [User limits](/Citrus/en/start/user-limits/).
+- **A second audit of the whole core.** Networking and DNS, adapters, inbounds, TUN and the dialer, transports, rules and the tunnel, updates and the controller; every finding is closed with a fix ([#166](https://github.com/getmikan/Citrus/pull/166)–[#171](https://github.com/getmikan/Citrus/pull/171), [#176](https://github.com/getmikan/Citrus/pull/176)–[#178](https://github.com/getmikan/Citrus/pull/178)). Among them: self-update replaces the core atomically and rolls back on failure, Mux.Cool sessions are isolated, and a failed inbound reload is rolled back. On Windows the core reports when Forwarding or WeakHostSend is on for the TUN egress interface ([#157](https://github.com/getmikan/Citrus/pull/157)).
+- **More automated tests.** sing-box client and server against Citrus ([#158](https://github.com/getmikan/Citrus/pull/158)), the whole inbound test suite under the race detector ([#150](https://github.com/getmikan/Citrus/pull/150)).
+- **MikanApp on Citrus.** The app is built with the Citrus core; its About screen names the core after the core itself — Citrus or Mihomo.
+- **The mikan panel on Citrus.** The panel's `go.mod` replaces the core with Citrus, and utls, tls, http, smux and restls-client-go with the getmikan forks; VMess is gone from the panel.
+- **Documentation.** The site in two languages: getting started, configuration, controller, users, limits, metrics, events, chains, fallbacks, desync, the server profile, migrating from mihomo.
 
 ## In progress
 
-- **MikanApp on Citrus.** The app is built with the Citrus core; its About screen names the core after the core itself — Citrus or Mihomo.
-- **Moving the Mikan panel to Citrus.** The panel embeds the core as a library, and the move depends on the first release:
-  - replace utls, tls, http and smux in the panel's `go.mod` with the getmikan forks, as Citrus does;
-  - take events from `/events` instead of polling `/traffic/users`, `/limits/users` and the other endpoints;
-  - set a controller `secret`: without one the core will not open the controller on a network address;
-  - move custom node configs that use VMess, which Citrus removed, to VLESS.
+- **Release `v1.0.0-beta.3`.** Everything done since the second beta is only in `dev` so far. Before the release: the changelog for [#149](https://github.com/getmikan/Citrus/pull/149)–[#180](https://github.com/getmikan/Citrus/pull/180).
+- **Sync from mihomo.** 17 new mihomo commits conflict with Citrus in ten files (Sudoku, Shadowsocks, `go.mod`, the link converter, `docs/config.yaml`) and are being merged by hand. The weekly workflow cannot report this itself: the organization does not let GitHub Actions open pull requests or issues.
+- **The mikan panel on Citrus: what is left.**
+  - PQ REALITY in the panel's inbounds (`mldsa65-seed`, `require-x25519mlkem768`) and `pqv=` in subscription links;
+  - REALITY's `max-time-difference` is now in milliseconds — check what the panel writes;
+  - the panel's e2e and slice tests on a Citrus image instead of mihomo v1.19.31.
 - **A live check.** A test node on Citrus and a phone checklist: connecting with every protocol in the subscription, network switches and airplane mode, speed, stats and limits in the panel.
 - **English docs on par with Russian.** The site pages exist in both languages; next are the comments in `docs/config.yaml`, which are still mostly in Chinese, as in mihomo.
 
@@ -44,9 +52,19 @@ The details, with a link to every PR, are in the [changelog](/Citrus/en/changelo
 - **Verify downloaded dashboards and geodata.**
 - **Further hardening.** More reviews and audits as the code grows.
 
+## For the mikan panel and apps
+
+Tasks from the mikan development plan that depend on the core. The number in brackets is the task's number in that plan.
+
+- **Paid access after a subscription ends (13).** An expired user gets a limited connection instead of a stub: only Telegram, payment pages and the subscription page, with a small traffic and speed limit. The node must cut everything else, not rules in the client. Citrus has the `IN-USER` rule; it needs checking together with the limits across the whole scenario.
+- **A special mode for MikanApp and Kabosu (E2).** The panel recognises its own apps by `citrus/<version>` in the User-Agent and gives them everything Citrus can do: PQ REALITY, protocols mihomo lacks, desync.
+- **Desync in MikanApp.** A Desync-only profile, automatic strategy selection per service and desync on top of a subscription already work in the app MikanApp was forked from; bring them over.
+- **Citrus for app developers (E4).** Ready builds for embedding: an Android AAR, an iOS xcframework, a desktop library; documentation and a "Powered by Citrus" mark.
+- **A Citrus page on the mikan site (19).** What the core can do and how it differs, with links to the measurements and the core comparison.
+
 ## Needs a decision
 
-- **Weekly sync from mihomo.** The workflow is ready and tested, but to let it open PRs the repository settings must allow GitHub Actions to create pull requests.
 - **A sing-quic fork.** Hysteria2 padding costs about 4% CPU per stream; fixing it needs a fork of sing-quic.
 - **The TUIC stream limit.** The TUIC server accepts at most 2048 streams per QUIC connection; a sing-box client, which does not wait for stream credit, gets errors past that.
-- **Release tags for the smux, tls and utls forks.** smux has no tags yet, and tls and utls have `dev` commits after their `-citrus` tags.
+- **A sing-mux sub-stream limit.** Limit the number of sub-streams in Citrus's own handler without forking sing-mux.
+- **Release tags for the forks.** smux and restls-client-go have no `-citrus` tags, and utls and tls each have 11 `dev` commits after their last tag; Citrus takes all four by pseudo-version.
