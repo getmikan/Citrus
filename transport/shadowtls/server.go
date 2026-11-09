@@ -213,7 +213,7 @@ func (s *ServerConfig) serverV3(ctx context.Context, conn net.Conn) (net.Conn, s
 		return nil, "", fmt.Errorf("shadow-tls: extract server name: %w", sniErr)
 	}
 	log.Debugln("[ShadowTLS] client hello verify success")
-	handshakeConfig := s.selectV3Handshake(serverName, true)
+	handshakeConfig := s.authenticatedV3Handshake(ctx, serverName)
 
 	handshakeConn, err := handshakeConfig.dial(ctx)
 	if err != nil {
@@ -290,25 +290,23 @@ func (s *ServerConfig) selectHandshake(clientHello []byte) HandshakeConfig {
 	return s.handshake
 }
 
-// selectV3Handshake picks the handshake server without any network access. Under
-// WildcardSNIAll an unauthenticated client gets the default here; its SNI is only
-// used after the checks in fallbackV3Handshake.
-func (s *ServerConfig) selectV3Handshake(serverName string, authenticated bool) HandshakeConfig {
+// authenticatedV3Handshake picks the handshake server of an authenticated
+// client. Under WildcardSNIAuthed and WildcardSNIAll the client chooses it
+// through the SNI, and when it does not answer like a TLS 1.3 server the
+// connection is relayed to it as is: the same checks as for a fallback apply,
+// so that a user cannot reach the server's own network through it.
+func (s *ServerConfig) authenticatedV3Handshake(ctx context.Context, serverName string) HandshakeConfig {
 	if custom, found := s.handshakeForServerName[serverName]; found {
 		return custom
 	}
-	handshakeConfig := s.handshake
-	if authenticated && (s.wildcardSNI == WildcardSNIAuthed || s.wildcardSNI == WildcardSNIAll) {
-		handshakeConfig.Server = net.JoinHostPort(serverName, "443")
+	if s.wildcardSNI != WildcardSNIAuthed && s.wildcardSNI != WildcardSNIAll {
+		return s.handshake
 	}
-	return handshakeConfig
+	return s.wildcardV3Handshake(ctx, serverName)
 }
 
 // fallbackV3Handshake picks the server that an unauthenticated client is relayed
-// to. Under WildcardSNIAll the client chooses it through the SNI, so the name must
-// be a public host name whose addresses are all public, and the vetted address is
-// dialed instead of the name, which a second lookup could rebind to an internal
-// address. Anything else falls back to the default handshake server.
+// to: under WildcardSNIAll the one its SNI names, see wildcardV3Handshake.
 func (s *ServerConfig) fallbackV3Handshake(ctx context.Context, serverName string) HandshakeConfig {
 	if custom, found := s.handshakeForServerName[serverName]; found {
 		return custom
@@ -316,9 +314,17 @@ func (s *ServerConfig) fallbackV3Handshake(ctx context.Context, serverName strin
 	if s.wildcardSNI != WildcardSNIAll {
 		return s.handshake
 	}
+	return s.wildcardV3Handshake(ctx, serverName)
+}
+
+// wildcardV3Handshake is the handshake server that a client names through the
+// SNI. The name must be a public host name whose addresses are all public, and
+// the vetted address is dialed instead of the name, which a second lookup could
+// rebind to an internal address. Anything else gets the default handshake server.
+func (s *ServerConfig) wildcardV3Handshake(ctx context.Context, serverName string) HandshakeConfig {
 	addr, err := s.resolvePublicServerName(ctx, serverName)
 	if err != nil {
-		log.Debugln("[ShadowTLS] wildcard SNI %q refused for fallback, using the default handshake server: %v", serverName, err)
+		log.Debugln("[ShadowTLS] wildcard SNI %q refused, using the default handshake server: %v", serverName, err)
 		return s.handshake
 	}
 	handshakeConfig := s.handshake
