@@ -2400,6 +2400,9 @@ listeners:
     #     password: 4w0GKJ9U3Ox7CIXGU4A3LDQAqP6qrp/tUi/ilpOR9p4=
     #   - name: bob
     #     password: 8m1YtiNyvAhdhbS8mSPg0oPp0xV7NpByOXH+P9WITOY=
+    # mux-option: # sing-mux (smux / yamux / h2mux) 入站选项，trojan / vless / hysteria2 / tuic 等入站相同
+    #   padding: false # 为 true 时拒绝未启用 padding 的客户端
+    #   max-streams: 1024 # 单个 mux 连接同时打开的子流上限 (TCP 与 UDP 合计)，超出的新子流在接受时立即关闭，连接和其他子流不受影响；0 为默认值 1024
     # simple-obfs:
     #   enable: false # 设置为true时开启
     #   mode: http # Available: http, tls
