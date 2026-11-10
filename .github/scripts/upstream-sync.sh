@@ -205,9 +205,10 @@ if ! diff -q "$WORK/replace.base" "$WORK/replace.new" >/dev/null; then
 fi
 
 # Branding.
-grep -q 'const Name = "citrus"' constant/path.go ||
+# gofmt aligns the "=" in const blocks, so allow any spacing around it.
+grep -Eq '^[[:space:]]*(const[[:space:]]+)?Name[[:space:]]*=[[:space:]]*"citrus"' constant/path.go ||
 	echo "- \`constant/path.go\` no longer has \`Name = \"citrus\"\`." >>"$WARNINGS"
-grep -q 'MihomoName = "citrus"' constant/version.go ||
+grep -Eq '^[[:space:]]*MihomoName[[:space:]]*=[[:space:]]*"citrus"' constant/version.go ||
 	echo "- \`constant/version.go\` no longer has \`MihomoName = \"citrus\"\`." >>"$WARNINGS"
 
 # Files Citrus deleted (present at the merge base, gone from the base branch)
