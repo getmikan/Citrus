@@ -3,11 +3,82 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (146 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (177 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
-The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, `v1.0.0-beta.2`, is built from `dev` as described on this page.
+The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), is built from `dev` up to [#133](https://github.com/getmikan/Citrus/pull/133). The changes for the third beta since #149 are in the first section below.
 
 What changes behaviour for existing configs is collected on [Migrating from mihomo](/Citrus/en/migration/).
+
+## v1.0.0-beta.3 (not released yet)
+
+What has been merged into `dev` since [#149](https://github.com/getmikan/Citrus/pull/149) and goes into the third beta. [#182](https://github.com/getmikan/Citrus/pull/182) is still open but goes into it too. #130 and #134–#148 were merged after the `v1.0.0-beta.2` tag and also go into the third beta; they are listed in the areas below.
+
+### Desync outbound
+
+- [#163](https://github.com/getmikan/Citrus/pull/163) The `type: desync` outbound: a direct connection whose first TLS ClientHello is transformed by the [desync](https://github.com/Nemu-x/desync) library (`tlsrec`, `split`, `split-delay`, and on Windows `fake` and a UDP burst). The global DIRECT is unchanged; rules and groups pick it like DIRECT, and fallback or url-test with a VPN node as backup switch over when desync does not get through. Relay fast paths cannot bypass the wrapper, the egress guard applies to it, and `/proxies` shows the `Desync` type and a `desync` object. See [Desync](/Citrus/en/start/desync/).
+- [#172](https://github.com/getmikan/Citrus/pull/172) desync v0.1.0: `split-wait`, `disorder`, `oob`, `random`; `fake` gains `auto-ttl`, its own SNIs, randomization and an offset; `udp` gains a QUIC template and `quic-only`. Fake now also works on Linux/Android and together with split, the UDP burst on Windows, Linux and macOS. Each method is checked against what the OS supports, an unsupported one is a config error with the reason; `/proxies` shows the last fake TTL.
+- [#180](https://github.com/getmikan/Citrus/pull/180) Android: `fake`, `disorder` and `split-wait: sent`, which the library checks on each connection (SELinux keeps apps from reading a socket's unsent bytes), are no longer refused when the config loads. desync is bumped to the `main` commit that becomes v0.2.1.
+
+### Fallbacks and the fallback page
+
+- [#153](https://github.com/getmikan/Citrus/pull/153) `fallback-page` for VLESS and Trojan on HTTP transports (WebSocket, gRPC, XHTTP): requests that are not the inbound's own get an HTML page at `/` instead of a bare 404.
+- [#159](https://github.com/getmikan/Citrus/pull/159) `fallbacks` for VLESS and Trojan on plain TCP, as in Xray: a foreign stream after TLS goes to `dest` (a port, `host:port` or a unix socket, `xver` for PROXY protocol), chosen by SNI, ALPN and path. Port 443 can be shared with a site, and Xray configs with fallbacks carry over. See [Fallbacks](/Citrus/en/start/fallbacks/).
+
+### XHTTP over HTTP/3
+
+- [#160](https://github.com/getmikan/Citrus/pull/160) The VLESS inbound with `xhttp-config` takes `alpn`, like `tlsSettings.alpn` in Xray: `[h3]` is XHTTP over QUIC on UDP only, `h3` together with `h2`/`http/1.1` adds UDP on the same port as TCP. Every XHTTP mode works over h3, each stream has a header deadline; configs that cannot work (REALITY, a unix socket, `proxy-protocol` with h3 and others) are refused.
+
+### Egress guard
+
+- [#162](https://github.com/getmikan/Citrus/pull/162) `egress-guard` (on by default): users of server inbounds cannot reach private and local networks, the host's own addresses or cloud metadata through DIRECT. The resolved addresses are checked right before connect, so DNS rebinding and IP4P do not get past it; UDP datagrams to blocked addresses are dropped. `allow-ips` opens single addresses or ports, and each listener has its own `egress-guard`. Client inbounds are not checked. A server whose users went to the LAN or to the host's localhost needs `allow-ips` or `egress-guard.enable: false`. See [Server without root](/Citrus/en/start/server-profile/).
+
+### Root certificates
+
+- [#161](https://github.com/getmikan/Citrus/pull/161) The Mozilla bundle lives in the repository (`make ca-bundle` checks curl's SHA-256) instead of being copied from the runner at build time. `tls.ca-roots: both | bundle | system` (default `both`, as before) and `tls.ca-denylist` (on by default): chains through Russian Trusted Root/Sub CA and the Kazakh interception roots are refused. The certificate pool is built before the proxies, so `ca-roots` and `custom-certifactes` reach them on the first start and on reload; sudoku wss, XDrive and the H3 DoH probe verify through it too.
+
+### Limits
+
+- [#151](https://github.com/getmikan/Citrus/pull/151) Limits: `speed-group`, one speed shared by several users on any inbounds; a new speed without resetting the bucket; `SetLimits` for many limits at once and `SetOnLeave` for traffic by destination in an embedding application.
+- [#152](https://github.com/getmikan/Citrus/pull/152) Limits docs: a `speed-group` in the default limit (`user: "*"`) puts every user of the inbound without a limit of their own on one shared speed.
+
+### Server hardening
+
+- [#155](https://github.com/getmikan/Citrus/pull/155) Fixes from a full scan of the server side: controller transport and authentication, exact DoH routing, peer identity for SSH, OpenVPN and Realm, SSRF through redirects, Ed25519-signed self-update manifests with key rotation, expiry and anti-rollback, SHA-256 pins for GEO, UI installation through `os.Root`, rule-provider budgets, NTP isolation, secrets redacted from argv and provider URLs.
+- [#156](https://github.com/getmikan/Citrus/pull/156) The `geox-sha256` pin is optional: without it remote GeoIP/GeoSite/MMDB/ASN load again (after #155 the core with the default config did not load GeoSite), with it a database with another hash is refused. `geodata-allow-unsigned` is gone.
+
+### Second core audit
+
+- [#166](https://github.com/getmikan/Citrus/pull/166) `common/`: the handshake listener behind REALITY, ShadowTLS, JLS and restls no longer dies for good when sockets run out (EMFILE, ENOBUFS); temporary Accept errors are retried with back-off, and the same for the PROXY protocol listener; passwords are compared in constant time; an overflow in `ReadAllLimit` is fixed.
+- [#167](https://github.com/getmikan/Citrus/pull/167) DNS: `LookupIP4P` no longer panics on some IPv4 addresses or rewrites Teredo addresses; DHCP errors are not cached for an hour; an upstream OPT record does not go to a client that did not ask for it; a race in fake-ip; an unauthenticated DNSCrypt reply is dropped.
+- [#168](https://github.com/getmikan/Citrus/pull/168) `adapter/`: the XDrive `local` and `template` modes are refused for proxies from subscriptions (they allowed requests to localhost and the LAN and writes to any path on disk); ssh and openvpn without an identity policy in a subscription are skipped instead of failing it; WireGuard keeps its devices behind smux on reload.
+- [#169](https://github.com/getmikan/Citrus/pull/169) `listener/`: a failed reload no longer leaves an inbound closed after the rollback; a failing constructor closes whatever it opened; every inbound's accept loop uses a shared back-off instead of spinning at 100% CPU; keep-alive and a constant-time token check in Hysteria2 Realm; SOCKS5 UDP takes the inbound's users into account.
+- [#170](https://github.com/getmikan/Citrus/pull/170) TUN: `auto-redirect` without `auto-route` is a config error instead of a nil panic; the loop detector catches system/mixed stack loops after the sniffer replaced the address; DNS hijack relays are capped; a failed CAS no longer zeroes `routing-mark`; a stack whose Start failed is closed.
+- [#171](https://github.com/getmikan/Citrus/pull/171) Transports: AnyTLS no longer leaks its receive budget on a local close (the session froze); ShadowQUIC does not hang on Close; MASQUE no longer leaks the request stream when CONNECT fails; kcptun `Close` closes its sessions; the TUIC stream counter does not go negative; a CPU budget for the Sudoku probe; OpenVPN no longer holds 64 KiB per queued datagram.
+- [#176](https://github.com/getmikan/Citrus/pull/176) Mux.Cool: one stream's deadline no longer breaks the whole session, an empty session closes after 16 s as in Xray, a 30 s write watchdog; XHTTP drops upload packets with an already read seq; the VLESS Encryption 0-RTT ticket survives a read deadline and Close; ShadowTLS v3 relays a ClientHello without SNI to the handshake server.
+- [#177](https://github.com/getmikan/Citrus/pull/177) Rules and tunnel: a broken MRS DomainSet no longer crashes the core, a provider parser panic becomes a load error; the destination host is lowercased and loses the root dot, so `DOMAIN,youtube.com` also matches `YouTube.COM.`; `match()` does not hold the config lock while resolving; a UDP session's process is looked up once.
+- [#178](https://github.com/getmikan/Citrus/pull/178) Self-update: an atomic core replace with rollback, ARM32 and loong64 support, the right asset for 386 softfloat; MMDB updates without munmap under live lookups; the GEO updater survives a failure, the old UI stays until the new one is fully copied; the controller restarts its listener after a failed reload, `/storage` refuses a key it cannot store, restart and upgrade are refused with a config from stdin; a redirect target keeps its host name.
+
+### Fixes and dependencies
+
+- [#157](https://github.com/getmikan/Citrus/pull/157) Windows: TUN with `auto-route` notices Forwarding and WeakHostSend on the egress adapter (ICS and the mobile hotspot turn them on, and then the core's sockets go into its own TUN). The core only logs a warning and sends a `tun.forwarding` event to `/events`; it does not change the adapter.
+- [#183](https://github.com/getmikan/Citrus/pull/183) The egress guard judges an IPv6 address without its zone (`address%x` got past it); ShadowTLS with `wildcard-sni` vets the SNI of an authenticated client too (it could reach localhost and private hosts on 443); with `egress-guard` on a listener a Trojan or Mieru UDP session no longer moves to another user; a warning in the log for a user with an empty password. `x/net`, brotli and `x/crypto` updated (govulncheck findings), and undici and zod on the site (Dependabot alerts).
+
+### Sync with mihomo
+
+- [#182](https://github.com/getmikan/Citrus/pull/182) (open) Sync with mihomo Alpha: Snell v6 (inbound and outbound), TUN `dns-mode` and an auto-route fix, a Shadowsocks password generator, mieru idle close, the rewritten Sudoku transport with the Citrus limits ported onto it. Fixes: SOCKS domain length overflow, bytes after the HTTP CONNECT response, ssh, easytier, tfo-go on Go 1.26.9+. Not taken: the multi-user Shadowsocks inbound with a `users` map (in Citrus `users` is the SS2022 list with stats and limits) and the VMess share-link changes.
+
+### Tests, CI and docs
+
+- [#149](https://github.com/getmikan/Citrus/pull/149) Changelog brought up to #130–#138, roadmap after the post-beta.2 work.
+- [#150](https://github.com/getmikan/Citrus/pull/150) An independent Linux CI job for the complete inbound suite with the race detector, including concurrent subtests in one process. Logs are preserved as artifacts; protocol-isolated checks remain enabled.
+- [#154](https://github.com/getmikan/Citrus/pull/154) The changelog PR count after #150 and #152.
+- [#158](https://github.com/getmikan/Citrus/pull/158) Interop with sing-box v1.14.4 in CI: the sing-box client against the Citrus server (VLESS, REALITY, Trojan, SS2022, Hysteria2, TUIC v5, AnyTLS) and the Citrus client against the sing-box server. On the way the loop detector stopped refusing legitimate connections of proxy inbounds.
+- [#164](https://github.com/getmikan/Citrus/pull/164) Bench: Xray pinned to v26.10.21 (the v26.10.17 release is gone), the memory baseline recomputed on the new runner image.
+- [#165](https://github.com/getmikan/Citrus/pull/165) The DNSCrypt test picks random port pairs (reserved ranges on Windows).
+- [#173](https://github.com/getmikan/Citrus/pull/173) The XHTTP test waits for `onClose` after a read deadline.
+- [#174](https://github.com/getmikan/Citrus/pull/174) The TrustTunnel fallback tests set users before `Start`.
+- [#175](https://github.com/getmikan/Citrus/pull/175) The inbound H3 tests tell reserved Windows ports from taken ones.
+- [#179](https://github.com/getmikan/Citrus/pull/179) `TestInboundUserStats` reports a failed transfer right away instead of a counter mismatch.
 
 ## Infrastructure, CI and docs
 
@@ -35,7 +106,6 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#132](https://github.com/getmikan/Citrus/pull/132) Changelog brought up to the second beta, v1.0.0-beta.2.
 - [#134](https://github.com/getmikan/Citrus/pull/134) News post on the second beta, the roadmap after it.
 - [#135](https://github.com/getmikan/Citrus/pull/135) Test and site dependencies: the Docker client in tests moved to `moby/moby`, `postcss-selector-parser` bumped — the Dependabot alerts are closed.
-- [#150](https://github.com/getmikan/Citrus/pull/150) Added an independent Linux CI job for the complete inbound suite with the race detector, including concurrent subtests in one process. Logs are preserved as artifacts; protocol-isolated checks remain enabled.
 
 ## Removed legacy
 
@@ -73,7 +143,6 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 - [#136](https://github.com/getmikan/Citrus/pull/136) PROXY protocol v1 and v2 on the TCP inbounds (`proxy-protocol`, `proxy-protocol-trusted`): the client address from the header of a front end such as an SNI router on 443.
 - [#146](https://github.com/getmikan/Citrus/pull/146) Default User-Agent `clash.meta/<version> citrus/<version>`: panels still recognise mihomo by the start of the string, Citrus stands out by the `citrus/` token.
 - [#147](https://github.com/getmikan/Citrus/pull/147) Added `core: "citrus"` to controller `GET /version`, preserving the existing `meta` and `version` fields for panels.
-- [#151](https://github.com/getmikan/Citrus/pull/151) Limits: `speed-group`, one speed shared by several users on any inbounds; a new speed without resetting the bucket; `SetLimits` for many limits at once and `SetOnLeave` for traffic by destination in an embedding application.
 
 ## Performance
 
