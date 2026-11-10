@@ -5,6 +5,9 @@ import "github.com/metacubex/mihomo/listener/sing"
 type MuxOption struct {
 	Padding bool          `inbound:"padding,omitempty"`
 	Brutal  BrutalOptions `inbound:"brutal,omitempty"`
+	// MaxStreams caps the open sub-streams of one mux connection
+	// (0: sing.DefaultMuxMaxStreams)
+	MaxStreams int `inbound:"max-streams,omitempty"`
 }
 
 type BrutalOptions struct {
@@ -21,5 +24,6 @@ func (m MuxOption) Build() sing.MuxOption {
 			Up:      m.Brutal.Up,
 			Down:    m.Brutal.Down,
 		},
+		MaxStreams: m.MaxStreams,
 	}
 }
