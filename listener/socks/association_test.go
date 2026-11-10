@@ -1,7 +1,9 @@
 package socks
 
 import (
+	"math/rand/v2"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -43,9 +45,10 @@ func newSocksPair(t *testing.T, store auth.AuthStore) (*Listener, *UDPListener, 
 	additions := []inbound.Addition{inbound.WithInName("test-socks")}
 
 	// The UDP listener shares the TCP listener's port, as the real inbounds do.
-	// Free TCP ports come out sequentially and a run of them can fall inside an
-	// excluded UDP range on Windows, so take a free UDP port first and open TCP
-	// on it, falling back to the other order.
+	// Windows hands out ephemeral ports in sequence and excludes UDP and TCP
+	// ports in blocks of 100 (Hyper-V and others), several blocks in a row,
+	// so even 20 tries of port 0 can all land in excluded ports. Try random
+	// ports below the ephemeral range, where those blocks are not placed.
 	newTCP := func(listen string) (*Listener, error) {
 		return NewWithConfig(LC.AuthServer{Enable: true, Listen: listen, AuthStore: store}, inbound.NewListenConfig(), tunnel, additions...)
 	}
@@ -55,20 +58,15 @@ func newSocksPair(t *testing.T, store auth.AuthStore) (*Listener, *UDPListener, 
 	var tcp *Listener
 	var udp *UDPListener
 	var err error
-	for i := 0; i < 20; i++ {
-		udp, err = newUDP("127.0.0.1:0")
-		require.NoError(t, err)
-		if tcp, err = newTCP(udp.Address()); err == nil {
+	for i := 0; i < 50; i++ {
+		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(20000+rand.IntN(20000)))
+		if udp, err = newUDP(addr); err != nil {
+			continue
+		}
+		if tcp, err = newTCP(addr); err == nil {
 			break
 		}
 		_ = udp.Close()
-
-		tcp, err = newTCP("127.0.0.1:0")
-		require.NoError(t, err)
-		if udp, err = newUDP(tcp.Address()); err == nil {
-			break
-		}
-		_ = tcp.Close()
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() {
