@@ -332,6 +332,13 @@ func fixMetadata(metadata *C.Metadata) {
 		metadata.DstIP = ip.Unmap()
 		metadata.Host = ""
 	}
+	// an IPv6 zone names an interface of this host, which the user of a
+	// server inbound has no business naming: dropped, so the guard, the
+	// loopback detector, the NAT table and the statistics see one spelling
+	// of the address
+	if metadata.DstIP.Zone() != "" && (egress.IsServerInbound(metadata.Type) || metadata.EgressGuard == C.EgressGuardOn) {
+		metadata.DstIP = metadata.DstIP.WithZone("")
+	}
 }
 
 func needLookupIP(metadata *C.Metadata) bool {

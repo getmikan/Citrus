@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 
@@ -38,7 +39,9 @@ type boundKey struct {
 }
 
 func HandleConn(c net.Conn, tunnel C.Tunnel, store auth.AuthStore, additions ...inbound.Addition) {
-	additions = append(additions, inbound.Placeholder) // Add a placeholder for InUser
+	// a placeholder for InUser, in a copy: the additions are shared by all the
+	// connections of the listener, and each one writes its user into the slot
+	additions = append(slices.Clip(additions), inbound.Placeholder)
 	inUserIdx := len(additions) - 1
 	client := newClient(c, tunnel, additions)
 	defer client.CloseIdleConnections()

@@ -175,6 +175,42 @@ func TestCheckAddrOwnAddress(t *testing.T) {
 	assert.NoError(t, g.CheckAddrPort(on443("1.1.1.1")))
 }
 
+// An IPv6 zone names an interface of this host and changes nothing for a
+// global address, the socket ignores it there. A destination with a zone is
+// judged by its address: this host's public IPv6, NAT64 or 6to4 of a private
+// address and the other reserved ranges are refused with any zone, for a
+// connection and for a datagram.
+func TestCheckAddrZone(t *testing.T) {
+	own := netip.MustParseAddr("2606:2800:220:1:248:1893:25c8:1946") // standing in for the server's public IPv6
+	oldIsLocal := isLocalIP
+	isLocalIP = func(addr netip.Addr) bool { return addr == own }
+	t.Cleanup(func() { isLocalIP = oldIsLocal })
+	withOptions(t, Options{Enable: true, AllowAddrPorts: []netip.AddrPort{netip.AddrPortFrom(own, 443)}})
+	g := For(&C.Metadata{Type: C.VLESS})
+
+	for _, s := range []string{
+		own.String() + "%x", own.String() + "%1", own.String() + "%eth0", // this host
+		"64:ff9b::7f00:1%x",       // NAT64 of 127.0.0.1
+		"64:ff9b::a9fe:a9fe%eth0", // NAT64 of 169.254.169.254
+		"2002:a00:1::1%x",         // 6to4 of 10.0.0.1
+		"2001:db8::1%x", "64:ff9b:1::5db8:d822%x", "::127.0.0.1%x", "fec0::1%x",
+		"::1%lo", "fe80::1%eth0", "fd00:ec2::254%x",
+	} {
+		ap := netip.AddrPortFrom(netip.MustParseAddr(s), 22)
+		assert.ErrorIs(t, g.CheckAddrPort(ap), ErrBlocked, s)
+		assert.ErrorIs(t, g.checkNetAddr(net.UDPAddrFromAddrPort(ap)), ErrBlocked, "datagram to %s", s)
+	}
+
+	assert.NoError(t, g.CheckAddrPort(netip.AddrPortFrom(own.WithZone("x"), 443)), "the allowed port of this host")
+	assert.NoError(t, g.CheckAddrPort(on443("2606:4700::1111%x")), "a public address of another host")
+
+	raw := &fakePacketConn{}
+	pc := NewPacketConn(raw, g)
+	_, err := pc.WriteTo([]byte("query"), &net.UDPAddr{IP: own.AsSlice(), Zone: "x", Port: 53})
+	assert.NoError(t, err)
+	assert.Empty(t, raw.written, "a datagram to this host with a zone must be dropped")
+}
+
 // fakePacketConn records the datagrams written to it and hands out queued ones.
 type fakePacketConn struct {
 	net.PacketConn
