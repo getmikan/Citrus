@@ -1,4 +1,4 @@
-//go:build !android && !ios
+//go:build linux && !android
 
 // Package gcballast raises the garbage collector's heap goal of a server
 // build. Importing it is enough.
@@ -29,9 +29,11 @@ import (
 // the heap metrics and against GOMEMLIMIT, so it is left out when GOGC or
 // GOMEMLIMIT is set: whoever tunes the GC gets exactly what they set.
 //
-// It is for servers only: android and ios builds (this file's build tags)
-// and the embedded Android app (features.CMFA) go without it. On a phone the
-// memory matters more and the rate of new connections is low.
+// It is for servers only, and servers run Linux: Android (this file's build
+// tags), the embedded Android app (features.CMFA) and every other OS go
+// without it (gcballast_other.go). On a phone the memory matters more, and a
+// desktop client on Windows or macOS never sees the rate of new connections
+// the ballast is there for.
 const gcBallastSize = 8 << 20
 
 var gcBallast []byte

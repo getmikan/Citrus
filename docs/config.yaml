@@ -979,7 +979,7 @@ proxies: # socks5
       public-key: xxx
       short-id: xxx # optional
       # support-x25519mlkem768: true # 默认开启 (Xray v26.9.8+ 服务端要求), 仅旧版服务端需设为 false; 无 X25519MLKEM768 的 client-fingerprint 会自动注入
-      # client-version: 26.10.10 # optional, 上报给服务端的 Xray 版本 (minClientVer/maxClientVer), 默认 26.10.10
+      # client-version: 26.11.9 # optional, 上报给服务端的 Xray 版本 (minClientVer/maxClientVer), 默认 26.11.9
       # mldsa65-verify: xxx # optional, Xray 的 mldsa65Verify (分享链接 pqv), base64url 编码的 ML-DSA-65 公钥
     client-fingerprint: chrome # cannot be empty
 
@@ -2705,8 +2705,8 @@ listeners:
       # mldsa65-seed: xxx # Xray 的 mldsa65Seed (可由 xray mldsa65 生成), 对临时证书做 ML-DSA-65 签名; 客户端的 mldsa65-verify (分享链接 pqv) 填对应公钥
       #                   # 注意: dest 的证书链需足够长 (约 3.5 KB 以上) 以容纳签名, 否则握手失败
       # require-x25519mlkem768: true # 仅接受带 X25519MLKEM768 key share 的客户端 (同 Xray v26.9.8+ 服务端); 旧客户端 / support-x25519mlkem768: false 将被回落到 dest
-      # min-client-ver: 26.9.8 # 客户端上报的 Xray 版本下限 (Citrus 客户端默认上报 26.10.10, 见 reality-opts.client-version)
-      # max-client-ver: 26.10.10 # 版本上限
+      # min-client-ver: 26.9.8 # 客户端上报的 Xray 版本下限 (Citrus 客户端默认上报 26.11.9, 见 reality-opts.client-version)
+      # max-client-ver: 26.11.9 # 版本上限
       #下列两个 limit 为选填，可对未通过验证的回落连接限速，bytesPerSec 默认为 0 即不启用
       #回落限速是一种特征，不建议启用，如果您是面板/一键脚本开发者，务必让这些参数随机化
       limit-fallback-upload:
