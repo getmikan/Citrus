@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (192 pull request’а), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (193 pull request’а), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), — из `dev` до [#133](https://github.com/getmikan/Citrus/pull/133). Изменения для третьей беты с #149 собраны в первом разделе ниже.
 
@@ -90,6 +90,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#186](https://github.com/getmikan/Citrus/pull/186) Флейки inbound-тестов: тест UDP-пользователя SOCKS переотправляет первый датаграм, тесты XHTTP H3 берут порт, свободный и для TCP, и для UDP (на Windows порты резервируются блоками).
 - [#190](https://github.com/getmikan/Citrus/pull/190) Тесты UDP-ассоциации SOCKS берут случайный порт ниже эфемерного диапазона (на Windows порты резервируются блоками).
 - [#193](https://github.com/getmikan/Citrus/pull/193) Совместимость с Xray перенесена на v26.11.9: interop-проверка идёт против этой версии (её отпечаток `chrome` по умолчанию теперь Chrome 155), клиент REALITY по умолчанию сообщает `26.11.9` вместо `26.10.10`.
+- [#196](https://github.com/getmikan/Citrus/pull/196) Под `-race` конкурентный подтест Sudoku пропускается: race-рантайм задерживает старт горутин почти на 2 с и упирается в 2-секундный таймаут первых SETTINGS HTTP/2, без `-race` подтест проходит.
 
 ## Инфраструктура, CI и документация
 

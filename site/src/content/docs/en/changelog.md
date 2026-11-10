@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (192 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (193 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), is built from `dev` up to [#133](https://github.com/getmikan/Citrus/pull/133). The changes for the third beta since #149 are in the first section below.
 
@@ -90,6 +90,7 @@ What has been merged into `dev` since [#149](https://github.com/getmikan/Citrus/
 - [#186](https://github.com/getmikan/Citrus/pull/186) Inbound test flakes: the SOCKS UDP user test resends its first datagram, the XHTTP H3 tests take a port free for both TCP and UDP (Windows reserves ports in blocks).
 - [#190](https://github.com/getmikan/Citrus/pull/190) The SOCKS UDP association tests take a random port below the ephemeral range (Windows reserves ports in blocks).
 - [#193](https://github.com/getmikan/Citrus/pull/193) Xray compatibility moved to v26.11.9: the interop job runs against it (its default `chrome` fingerprint is now Chrome 155), and a REALITY client reports `26.11.9` by default instead of `26.10.10`.
+- [#196](https://github.com/getmikan/Citrus/pull/196) The concurrent Sudoku subtest is skipped under `-race`: the race runtime delays goroutine start-up by almost 2 s and runs into the 2 s HTTP/2 first-SETTINGS timeout; without `-race` the subtest passes.
 
 ## Infrastructure, CI and docs
 
