@@ -35,8 +35,8 @@ permissions:
 env:
   # Pinned Xray-core release. To bump: change both values; the hash is the
   # SHA2-256 line of Xray-linux-64.zip.dgst on the release page.
-  XRAY_VERSION: v26.10.21
-  XRAY_SHA256: 0eec3ed4163c273d8c8bf821f7d219e257921cf584aa3fb970715e458e631978
+  XRAY_VERSION: v26.11.9
+  XRAY_SHA256: b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82
 
 jobs:
   interop:

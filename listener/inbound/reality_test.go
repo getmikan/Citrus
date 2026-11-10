@@ -140,7 +140,7 @@ func TestInboundVless_RealityPQ(t *testing.T) {
 	t.Run("MaxClientVer", func(t *testing.T) {
 		inboundOptions := inboundOptions
 		inboundOptions.RealityConfig.MaxClientVer = "26.9.8"
-		testInboundVlessRealityRejected(t, inboundOptions, outboundOptions) // the default client version is 26.10.10
+		testInboundVlessRealityRejected(t, inboundOptions, outboundOptions) // the default client version is 26.11.9
 		outboundOptions := outboundOptions
 		outboundOptions.RealityOpts.ClientVersion = "26.9.8"
 		t.Run("Accepted", func(t *testing.T) {

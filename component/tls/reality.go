@@ -34,7 +34,7 @@ const RealityMaxShortIDLen = 8
 
 // RealityDefaultClientVersion is the Xray-core version a REALITY client reports to the server
 // by default, servers can reject clients outside their minClientVer..maxClientVer range.
-const RealityDefaultClientVersion = "26.10.10"
+const RealityDefaultClientVersion = "26.11.9"
 
 type RealityConfig struct {
 	PublicKey     *ecdh.PublicKey
