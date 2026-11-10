@@ -164,7 +164,7 @@ func TestInboundSnell_JLS(t *testing.T) {
 }
 
 func TestInboundSnell_V6(t *testing.T) {
-	for _, mode := range []string{"default", "unshaped", "unsafe-raw"} {
+	for _, mode := range []string{"default", "unshaped"} {
 		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
@@ -329,4 +329,9 @@ func TestInboundSnell_V6_Validation(t *testing.T) {
 	assert.Error(t, newInbound(inbound.SnellOption{Version: 4, Mode: "unshaped"}), "mode is v6 only")
 	assert.Error(t, newInbound(inbound.SnellOption{Version: 7}), "unknown version must be rejected")
 	assert.NoError(t, newInbound(inbound.SnellOption{Version: 6, Mode: "unshaped"}))
+
+	// unsafe-raw never uses the psk: an inbound in it would be an open proxy
+	assert.ErrorIs(t, newInbound(inbound.SnellOption{Version: 6, Mode: "unsafe-raw"}), C.ErrRemovedProtocol)
+	_, err := outbound.NewSnell(outbound.SnellOption{Name: "snell_unsafe_raw", Server: "127.0.0.1", Port: 1, Psk: userUUID, Version: 6, Mode: "unsafe-raw"})
+	assert.ErrorIs(t, err, C.ErrRemovedProtocol)
 }
