@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/shadowsocks/shadowaead"
 )
 
@@ -19,8 +20,9 @@ import (
 // salt is scattered inside a padded block, every record carries an unencrypted
 // prefix that doubles as the header's AAD, padding is interleaved with the
 // payload ciphertext and record sizes follow a shaped schedule. The `unshaped`
-// mode drops the profile layer and the `unsafe-raw` mode drops the crypto as
-// well; both must match the server's configured mode.
+// mode drops the profile layer; it must match the server's configured mode.
+// Upstream's `unsafe-raw` mode, which drops the crypto as well, is rejected by
+// ParseV6Mode; the raw record code below stays only for the tests.
 
 type V6Mode int
 
@@ -30,6 +32,16 @@ const (
 	V6ModeUnsafeRaw
 )
 
+// ErrV6UnsafeRawRemoved is returned for `mode: unsafe-raw`. It wraps
+// C.ErrRemovedProtocol, so providers skip such a proxy with a warning.
+var ErrV6UnsafeRawRemoved error = v6RemovedError("snell v6 mode unsafe-raw was removed from Citrus: it does not use the psk, use default or unshaped")
+
+type v6RemovedError string
+
+func (e v6RemovedError) Error() string { return string(e) }
+
+func (e v6RemovedError) Unwrap() error { return C.ErrRemovedProtocol }
+
 func ParseV6Mode(name string) (V6Mode, error) {
 	switch name {
 	case "", "default":
@@ -37,7 +49,9 @@ func ParseV6Mode(name string) (V6Mode, error) {
 	case "unshaped":
 		return V6ModeUnshaped, nil
 	case "unsafe-raw":
-		return V6ModeUnsafeRaw, nil
+		// unsafe-raw never uses the PSK: no authentication and no encryption,
+		// so a server in this mode is an open proxy.
+		return 0, ErrV6UnsafeRawRemoved
 	default:
 		return 0, fmt.Errorf("snell v6 unknown mode: %s", name)
 	}

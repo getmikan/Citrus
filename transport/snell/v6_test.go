@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/shadowsocks/shadowaead"
 
 	"github.com/stretchr/testify/require"
@@ -24,11 +25,13 @@ var v6TestModes = map[string]V6Mode{
 const v6TestPSK = "snell-v6-test-psk-0123456789"
 
 func TestV6ParseMode(t *testing.T) {
-	for _, name := range []string{"", "default", "unshaped", "unsafe-raw"} {
+	for _, name := range []string{"", "default", "unshaped"} {
 		_, err := ParseV6Mode(name)
 		require.NoError(t, err, name)
 	}
-	_, err := ParseV6Mode("bogus")
+	_, err := ParseV6Mode("unsafe-raw")
+	require.ErrorIs(t, err, C.ErrRemovedProtocol)
+	_, err = ParseV6Mode("bogus")
 	require.Error(t, err)
 	require.Equal(t, "unshaped", V6ModeUnshaped.String())
 }
