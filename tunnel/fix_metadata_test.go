@@ -34,6 +34,33 @@ func TestFixMetadataNormalizesHost(t *testing.T) {
 	}
 }
 
+// An IPv6 zone names an interface of this host, which the user of a server
+// inbound (or of a listener with egress-guard: true) has no business naming:
+// it is dropped, so the guard, the loopback detector, the NAT table and the
+// statistics see one spelling of the address. A local client keeps it: it
+// may name an interface of its own host.
+func TestFixMetadataDropsZoneOfRemoteUsers(t *testing.T) {
+	for _, metadata := range []*C.Metadata{
+		{Type: C.VLESS, Host: "2001:db8::1%x"},
+		{Type: C.TROJAN, DstIP: netip.MustParseAddr("2001:db8::1%eth0")},
+		{Type: C.HYSTERIA2, Host: "2001:db8::1%1"},
+		{Type: C.VLESS, EgressGuard: C.EgressGuardOff, Host: "2001:db8::1%x"},
+		{Type: C.SOCKS5, EgressGuard: C.EgressGuardOn, Host: "2001:db8::1%x"},
+	} {
+		typ := metadata.Type
+		fixMetadata(metadata)
+		if metadata.Host != "" || metadata.DstIP != netip.MustParseAddr("2001:db8::1") {
+			t.Errorf("%s: got host %q, ip %s", typ, metadata.Host, metadata.DstIP)
+		}
+	}
+
+	local := &C.Metadata{Type: C.SOCKS5, Host: "fe80::1%eth0"}
+	fixMetadata(local)
+	if local.DstIP != netip.MustParseAddr("fe80::1%eth0") {
+		t.Errorf("local client: ip %s, want the zone kept", local.DstIP)
+	}
+}
+
 // mappingEnhancer is a redir-host mapper that remembers one query name exactly
 // as the client spelled it.
 type mappingEnhancer struct {

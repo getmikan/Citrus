@@ -151,7 +151,10 @@ func (g *Guard) CheckAddrPort(ap netip.AddrPort) error {
 	if o == nil {
 		return nil
 	}
-	addr := ap.Addr().Unmap()
+	// an IPv6 zone only names an interface of this host, and the socket
+	// ignores it for an address that is not link-local: the address is
+	// judged without it, or "<this host's IPv6>%x" would pass for another host
+	addr := ap.Addr().Unmap().WithZone("")
 	if !addr.IsValid() {
 		// a socket sends to the unspecified address, this host, in its place
 		return &BlockedError{Target: "an invalid address", Reason: "not an IP address", Inbound: g.inbound}

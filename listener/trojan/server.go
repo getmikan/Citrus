@@ -437,7 +437,9 @@ func (l *Listener) authenticate(conn net.Conn, client net.Addr, armed bool, addi
 	if !bound {
 		return nil, nil, nil, false
 	}
-	additions = append(additions, inbound.WithInUser(entry.Name()))
+	// the additions are the listener's, shared by all its connections: a
+	// copy, or another connection's user would land in the same slot
+	additions = append(slices.Clip(additions), inbound.WithInUser(entry.Name()))
 
 	var crlf [2]byte
 	if _, err := io.ReadFull(conn, crlf[:]); err != nil {

@@ -6,6 +6,7 @@ import (
 	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/shadowquic"
 	"github.com/metacubex/mihomo/log"
 )
@@ -75,6 +76,9 @@ func NewShadowQuic(options *ShadowQuicOption) (*ShadowQuic, error) {
 	if err != nil {
 		return nil, err
 	}
+	inbounduser.WarnEmptySecrets(options.Name(), utils.Map(options.Users, func(user ShadowQuicUser) C.InboundUser {
+		return C.InboundUser{Name: user.Username, Secret: user.Password}
+	}))
 	return &ShadowQuic{
 		Base:   base,
 		config: options,

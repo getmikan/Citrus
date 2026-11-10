@@ -8,6 +8,7 @@ import (
 	N "github.com/metacubex/mihomo/common/net"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/inner"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/transport/shadowtls"
@@ -34,9 +35,13 @@ func New(config LC.ShadowTLS, tunnel C.Tunnel) (*Builder, error) {
 		}
 	}
 	users := make([]shadowtls.User, len(config.Users))
+	inboundUsers := make([]C.InboundUser, len(config.Users))
 	for i, user := range config.Users {
 		users[i] = shadowtls.User{Name: user.Name, Password: user.Password}
+		inboundUsers[i] = C.InboundUser{Name: user.Name, Secret: user.Password}
 	}
+	// a ShadowTLS user becomes the user of the connection (Snell takes it)
+	inbounduser.WarnEmptySecrets("shadow-tls", inboundUsers)
 	var wildcardSNI shadowtls.WildcardSNI
 	switch config.WildcardSNI {
 	case "authed":
