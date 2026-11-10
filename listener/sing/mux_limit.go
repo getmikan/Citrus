@@ -3,6 +3,7 @@ package sing
 import (
 	"context"
 	"errors"
+	"math"
 	"net"
 	"sync/atomic"
 	"time"
@@ -101,6 +102,9 @@ type muxStream struct {
 func (s *muxStream) expire() {
 	if s.state.CompareAndSwap(muxStreamPending, muxStreamExpired) {
 		s.streams.release()
+		// close it too: an h2mux stream takes no read deadline, and its
+		// goroutine would otherwise wait for a header until the session ends
+		_ = s.conn.Close()
 	}
 }
 
@@ -115,6 +119,9 @@ func withMuxStreams(ctx context.Context, max int, source M.Socksaddr) context.Co
 	}
 	if max <= 0 {
 		max = DefaultMuxMaxStreams
+	}
+	if max > math.MaxInt32 {
+		max = math.MaxInt32
 	}
 	return context.WithValue(ctx, muxStreamsKey{}, &muxStreams{max: int32(max), source: source})
 }
@@ -131,7 +138,9 @@ func (h *ListenerHandler) newMuxStreamContext(ctx context.Context, conn net.Conn
 	if !streams.acquire() {
 		s.state.Store(muxStreamRefused)
 		streams.logRefused()
-		_ = conn.Close() // the client sees the sub-stream closed
+		// the client sees the sub-stream closed; not in the accept loop, as an
+		// smux Close may wait for a client that stopped reading
+		go conn.Close()
 		return context.WithValue(ctx, muxStreamKey{}, s)
 	}
 	// h2mux streams have no read deadline; http2 caps them at 250 per

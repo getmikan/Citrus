@@ -260,3 +260,21 @@ func TestMuxStreamsDefault(t *testing.T) {
 		t.Fatal("a nested mux connection got a counter of its own")
 	}
 }
+
+func TestMuxStreamsMaxBounds(t *testing.T) {
+	for _, tc := range []struct {
+		max  int
+		want int32
+	}{
+		{-5, DefaultMuxMaxStreams},
+		{1 << 40, 1<<31 - 1}, // would wrap negative and refuse every sub-stream
+	} {
+		s := withMuxStreams(context.Background(), tc.max, M.Socksaddr{}).Value(muxStreamsKey{}).(*muxStreams)
+		if s.max != tc.want {
+			t.Fatalf("max-streams %d: max %d, want %d", tc.max, s.max, tc.want)
+		}
+		if !s.acquire() {
+			t.Fatalf("max-streams %d: the first sub-stream was refused", tc.max)
+		}
+	}
+}
