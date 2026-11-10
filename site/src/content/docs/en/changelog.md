@@ -65,7 +65,7 @@ What has been merged into `dev` since [#149](https://github.com/getmikan/Citrus/
 
 ### Sync with mihomo
 
-- [#182](https://github.com/getmikan/Citrus/pull/182) (open) Sync with mihomo Alpha: Snell v6 (inbound and outbound), TUN `dns-mode` and an auto-route fix, a Shadowsocks password generator, mieru idle close, the rewritten Sudoku transport with the Citrus limits ported onto it. Fixes: SOCKS domain length overflow, bytes after the HTTP CONNECT response, ssh, easytier, tfo-go on Go 1.26.9+. Not taken: the multi-user Shadowsocks inbound with a `users` map (in Citrus `users` is the SS2022 list with stats and limits) and the VMess share-link changes.
+- [#182](https://github.com/getmikan/Citrus/pull/182) (open) Sync with mihomo Alpha: Snell v6 (inbound and outbound), TUN `dns-mode` and an auto-route fix, a Shadowsocks password generator, mieru idle close, the rewritten Sudoku transport with the Citrus limits ported onto it. Fixes: SOCKS domain length overflow, bytes after the HTTP CONNECT response, ssh, easytier, tfo-go on Go 1.26.9+. Not taken: the multi-user Shadowsocks inbound with a `users` map (in Citrus `users` is the SS2022 list with stats and limits) and the VMess share-link changes. Changed after the review: the Snell v6 `mode: unsafe-raw` is rejected, because it never uses the PSK — no authentication and no encryption, so an inbound in it is an open proxy; on Linux without `auto-route` an empty `dns-mode` means `native`, so systemd-resolved keeps sending DNS into the tunnel as before. Note: TUN with `auto-route` and a prefix without a DNS address (for example, a single `/32` and no IPv6) now fails to start; it used to start without DNS.
 
 ### Tests, CI and docs
 
