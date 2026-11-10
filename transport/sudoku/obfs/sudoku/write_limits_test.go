@@ -43,7 +43,7 @@ func TestLargeWritesUseBoundedChunks(t *testing.T) {
 				table := NewTable("large-write-regression", "prefer_ascii")
 				raw := &limitedWriteConn{}
 				writer := testObfsConn(packed, raw, table, padding)
-				payload := make([]byte, 2*maxWriteChunk+17)
+				payload := make([]byte, 2*maxEncodedWriteSize+17)
 				for n := range payload {
 					payload[n] = byte(n)
 				}
@@ -51,7 +51,7 @@ func TestLargeWritesUseBoundedChunks(t *testing.T) {
 				if err != nil || n != len(payload) {
 					t.Fatalf("Write = %d, %v", n, err)
 				}
-				if raw.calls < 3 || raw.largest > 9*maxWriteChunk+64 {
+				if raw.calls < 3 || raw.largest > maxEncodedWriteSize {
 					t.Fatalf("unbounded encoded write: calls=%d largest=%d", raw.calls, raw.largest)
 				}
 				reader := testObfsConn(packed, &mockConn{readBuf: raw.writeBuf}, table, padding)
@@ -89,11 +89,22 @@ func TestEncodedShortWritesAreCompleted(t *testing.T) {
 
 func TestChunkFailureReportsCompletedInput(t *testing.T) {
 	for _, packed := range []bool{false, true} {
+		table := NewTable("failed-write-regression", "prefer_ascii")
 		raw := &limitedWriteConn{failAt: 2}
-		writer := testObfsConn(packed, raw, NewTable("failed-write-regression", "prefer_ascii"), 0)
-		n, err := writer.Write(make([]byte, maxWriteChunk+1))
-		if n != maxWriteChunk || !errors.Is(err, io.ErrClosedPipe) {
+		writer := testObfsConn(packed, raw, table, 0)
+		payload := make([]byte, 2*maxEncodedWriteSize)
+		for i := range payload {
+			payload[i] = byte(i)
+		}
+		n, err := writer.Write(payload)
+		if n <= 0 || n >= len(payload) || !errors.Is(err, io.ErrClosedPipe) {
 			t.Fatalf("Write = %d, %v", n, err)
+		}
+		// The reported count is exactly the input whose encoding reached the wire.
+		reader := testObfsConn(packed, &mockConn{readBuf: raw.writeBuf}, table, 0)
+		got, _ := io.ReadAll(reader)
+		if !bytes.Equal(got, payload[:n]) {
+			t.Fatalf("packed=%v: decoded %d bytes, Write reported %d", packed, len(got), n)
 		}
 	}
 }

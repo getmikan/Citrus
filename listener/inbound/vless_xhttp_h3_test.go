@@ -83,19 +83,34 @@ func TestInboundVless_XHTTP_H3_Encryption(t *testing.T) {
 // address.
 func listenVlessXHTTP(t *testing.T, tunnel *TestTunnel, port string, alpn []string, mode string) (*inbound.Vless, netip.AddrPort) {
 	t.Helper()
-	inboundOptions, _ := xhttpH3Config(mode, alpn)()
-	inboundOptions.BaseOption = inbound.BaseOption{NameStr: "vless_inbound", Listen: "127.0.0.1", Port: port}
-	inboundOptions.Users = []inbound.VlessUser{{Username: "test", UUID: userUUID}}
-	in, err := inbound.NewVless(&inboundOptions)
-	require.NoError(t, err)
-	// With port 0 and alpn h3 plus h2 the UDP side binds the number the
-	// system gave TCP, which may sit in a range Windows reserved for UDP:
-	// that bind is refused (not in use), so the inbound is started again.
+	// The UDP side binds the port of the TCP side. With port 0 the system
+	// picks a TCP port that may sit in a range Windows reserved for UDP, and
+	// Windows hands out ports in sequence, so retrying with port 0 keeps
+	// landing in the same reserved block. Take a port free for both instead,
+	// and try another one if the bind is still refused.
+	var in *inbound.Vless
+	var err error
 	for attempt := 0; ; attempt++ {
+		listenPort := port
+		if port == "0" {
+			p, ok := freeTCPAndUDPPort(t)
+			if !ok && attempt < 49 {
+				continue
+			}
+			if ok {
+				listenPort = strconv.Itoa(p)
+			}
+		}
+		inboundOptions, _ := xhttpH3Config(mode, alpn)()
+		inboundOptions.BaseOption = inbound.BaseOption{NameStr: "vless_inbound", Listen: "127.0.0.1", Port: listenPort}
+		inboundOptions.Users = []inbound.VlessUser{{Username: "test", UUID: userUUID}}
+		in, err = inbound.NewVless(&inboundOptions)
+		require.NoError(t, err)
 		err = in.Listen(tunnel)
-		if err == nil || port != "0" || attempt == 7 || !bindRefused(err) {
+		if err == nil || port != "0" || attempt >= 49 || !bindRefused(err) {
 			break
 		}
+		_ = in.Close()
 	}
 	require.NoError(t, err)
 	addrPort, err := netip.ParseAddrPort(in.Address())

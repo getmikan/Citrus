@@ -43,6 +43,9 @@ type ListenerConfig struct {
 type MuxOption struct {
 	Padding bool          `yaml:"padding" json:"padding,omitempty"`
 	Brutal  BrutalOptions `yaml:"brutal" json:"brutal,omitempty"`
+	// MaxStreams caps the open sub-streams of one mux connection;
+	// 0 means DefaultMuxMaxStreams.
+	MaxStreams int `yaml:"max-streams" json:"max-streams,omitempty"`
 }
 
 type BrutalOptions struct {
@@ -55,6 +58,9 @@ type ListenerHandler struct {
 	ListenerConfig
 	handlerId  uuid.UUID
 	muxService *mux.Service
+
+	muxRequestTimeout time.Duration
+	muxReleaseGrace   time.Duration
 }
 
 func UpstreamMetadata(metadata M.Metadata) M.Metadata {
@@ -73,15 +79,17 @@ func ConvertMetadata(metadata *C.Metadata) M.Metadata {
 }
 
 func NewListenerHandler(lc ListenerConfig) (h *ListenerHandler, err error) {
-	h = &ListenerHandler{ListenerConfig: lc}
+	h = &ListenerHandler{
+		ListenerConfig:    lc,
+		muxRequestTimeout: muxStreamRequestTimeout,
+		muxReleaseGrace:   muxStreamReleaseGrace,
+	}
 	h.handlerId = utils.NewUUIDV4()
 	h.muxService, err = mux.NewService(mux.ServiceOptions{
-		NewStreamContext: func(ctx context.Context, conn net.Conn) context.Context {
-			return ctx
-		},
-		Logger:  log.SingInfoToDebugLogger, // convert sing-mux info log to debug
-		Handler: h,
-		Padding: lc.MuxOption.Padding,
+		NewStreamContext: h.newMuxStreamContext,                // counts the sub-streams against the cap
+		Logger:           muxLogger{log.SingInfoToDebugLogger}, // convert sing-mux info log to debug
+		Handler:          h,
+		Padding:          lc.MuxOption.Padding,
 		Brutal: mux.BrutalOptions{
 			Enabled:    lc.MuxOption.Brutal.Enabled,
 			SendBPS:    utils.StringToBps(lc.MuxOption.Brutal.Up),
@@ -106,6 +114,7 @@ func (h *ListenerHandler) IsSpecialFqdn(fqdn string) bool {
 func (h *ListenerHandler) ParseSpecialFqdn(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
 	switch metadata.Destination.Fqdn {
 	case mux.Destination.Fqdn:
+		ctx = withMuxStreams(ctx, h.MuxOption.MaxStreams, metadata.Source)
 		return h.muxService.NewConnection(ctx, conn, UpstreamMetadata(metadata))
 	case vmess.MuxDestination.Fqdn:
 		return vmess.HandleMuxConnection(ctx, conn, metadata, h)
@@ -124,6 +133,12 @@ func (h *ListenerHandler) ParseSpecialFqdn(ctx context.Context, conn net.Conn, m
 }
 
 func (h *ListenerHandler) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
+	release, err := enterMuxStream(ctx)
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer release()
 	conn, cMetadata, err := h.connectionMetadata(ctx, conn, metadata)
 	if cMetadata == nil {
 		return err
@@ -164,6 +179,12 @@ func (h *ListenerHandler) connectionMetadata(ctx context.Context, conn net.Conn,
 }
 
 func (h *ListenerHandler) NewPacketConnection(ctx context.Context, conn network.PacketConn, metadata M.Metadata) error {
+	release, err := enterMuxStream(ctx)
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer release()
 	if metadata.Destination.Fqdn == packetaddr.SeqPacketMagicAddress {
 		conn = packetaddr.NewConn(bufio.NewNetPacketConn(conn), M.Socksaddr{})
 	}

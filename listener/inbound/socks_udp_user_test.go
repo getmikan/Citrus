@@ -38,7 +38,11 @@ func startUDPEcho(t *testing.T) netip.AddrPort {
 }
 
 // udpRoundTrip opens a UDP association through out and echoes one datagram.
-func udpRoundTrip(out C.ProxyAdapter, echo netip.AddrPort, timeout time.Duration) (net.PacketConn, error) {
+// With resend > 0 the datagram is sent again every resend until a reply comes
+// or timeout passes: UDP may drop it, and under -race with the whole inbound
+// suite running a single datagram is sometimes lost. The resends go over the
+// same association, so they stay one flow of the user.
+func udpRoundTrip(out C.ProxyAdapter, echo netip.AddrPort, timeout, resend time.Duration) (net.PacketConn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	pc, err := out.ListenPacketContext(ctx, &C.Metadata{NetWork: C.UDP, DstIP: echo.Addr(), DstPort: echo.Port()})
@@ -46,16 +50,27 @@ func udpRoundTrip(out C.ProxyAdapter, echo netip.AddrPort, timeout time.Duration
 		return nil, err
 	}
 	payload := []byte("citrus-socks-udp")
-	_ = pc.SetDeadline(time.Now().Add(timeout))
-	if _, err = pc.WriteTo(payload, net.UDPAddrFromAddrPort(echo)); err != nil {
-		_ = pc.Close()
-		return nil, err
-	}
+	deadline := time.Now().Add(timeout)
 	buf := make([]byte, 1024)
-	n, _, err := pc.ReadFrom(buf)
-	if err != nil {
-		_ = pc.Close()
-		return nil, err
+	var n int
+	for {
+		if _, err = pc.WriteTo(payload, net.UDPAddrFromAddrPort(echo)); err != nil {
+			_ = pc.Close()
+			return nil, err
+		}
+		readUntil := deadline
+		if resend > 0 && time.Now().Add(resend).Before(deadline) {
+			readUntil = time.Now().Add(resend)
+		}
+		_ = pc.SetDeadline(readUntil)
+		n, _, err = pc.ReadFrom(buf)
+		if err == nil {
+			break
+		}
+		if ne, ok := err.(net.Error); !ok || !ne.Timeout() || !readUntil.Before(deadline) {
+			_ = pc.Close()
+			return nil, err
+		}
 	}
 	if string(buf[:n]) != string(payload) {
 		_ = pc.Close()
@@ -110,15 +125,16 @@ func TestInboundSocksUDPUser(t *testing.T) {
 	require.NoError(t, err)
 	echo := startUDPEcho(t)
 
-	first, err := udpRoundTrip(out, echo, 5*time.Second)
+	first, err := udpRoundTrip(out, echo, 10*time.Second, 500*time.Millisecond)
 	require.NoError(t, err)
 	defer first.Close()
 	stat, ok := um.Get(statistic.UserKey{Inbound: name, User: "alice"})
 	require.True(t, ok, "the UDP flow was not counted for its user")
 	require.Equal(t, int64(1), stat.Conns)
 
-	// max-conns 1: a second UDP flow of alice is refused
-	second, err := udpRoundTrip(out, echo, time.Second)
+	// max-conns 1: a second UDP flow of alice is refused. No resends here:
+	// each refused datagram would count as another rejection.
+	second, err := udpRoundTrip(out, echo, time.Second, 0)
 	if second != nil {
 		_ = second.Close()
 	}
