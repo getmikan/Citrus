@@ -6,7 +6,7 @@ description: Which mihomo and Xray clients work with a Citrus server, what the a
 Two integration suites in `test/interop` check Citrus. Both run real binaries of other projects against Citrus built from the branch, and both run in CI on every PR that touches transports, TLS, listeners or outbounds.
 
 - **mihomo clients → Citrus server.** Official mihomo releases as the client, the way the apps of Mikan users work (Mikan, ClashFest, Clash Verge and the like).
-- **Xray ↔ Citrus.** Xray v26.10.10 in both directions: a Citrus client against an Xray server and an Xray client against a Citrus server.
+- **Xray ↔ Citrus.** Xray v26.11.9 in both directions: a Citrus client against an Xray server and an Xray client against a Citrus server.
 
 The binaries are pinned by version and SHA-256, so a swapped release fails the job.
 
@@ -83,7 +83,7 @@ The first group is the core version. When `global-ua` is set in the config, it i
 
 ## Xray
 
-The suite runs against Xray v26.10.10. Keys come from Xray itself (`xray x25519`, `mldsa65`, `uuid`, `tls ech`), and the REALITY target is a local TLS 1.3 server with a chain over 4 KB, so the ML-DSA-65 signature fits in the certificate.
+The suite runs against Xray v26.11.9. Keys come from Xray itself (`xray x25519`, `mldsa65`, `uuid`, `tls ech`), and the REALITY target is a local TLS 1.3 server with a chain over 4 KB, so the ML-DSA-65 signature fits in the certificate.
 
 | Case | Variants |
 | --- | --- |

@@ -76,7 +76,7 @@ export const strings = {
 			items: [
 				{
 					title: 'Совместимость с Xray',
-					text: 'Пост-квантовый REALITY (X25519MLKEM768 и ML-DSA-65) на клиенте и сервере, XHTTP с поведением и значениями по умолчанию как у Xray, ключи и ссылки ECH в форматах Xray. Всё это проверяют автотесты против Xray v26.10.10.',
+					text: 'Пост-квантовый REALITY (X25519MLKEM768 и ML-DSA-65) на клиенте и сервере, XHTTP с поведением и значениями по умолчанию как у Xray, ключи и ссылки ECH в форматах Xray. Всё это проверяют автотесты против Xray v26.11.9.',
 				},
 				{
 					title: 'Пользователи — часть ядра',
@@ -224,7 +224,7 @@ export const strings = {
 			items: [
 				{
 					title: 'Xray compatibility',
-					text: 'Post-quantum REALITY (X25519MLKEM768 and ML-DSA-65) on the client and the server, XHTTP with Xray’s behaviour and defaults, ECH keys and links in Xray’s formats. Automated tests check all of it against Xray v26.10.10.',
+					text: 'Post-quantum REALITY (X25519MLKEM768 and ML-DSA-65) on the client and the server, XHTTP with Xray’s behaviour and defaults, ECH keys and links in Xray’s formats. Automated tests check all of it against Xray v26.11.9.',
 				},
 				{
 					title: 'Users are part of the core',

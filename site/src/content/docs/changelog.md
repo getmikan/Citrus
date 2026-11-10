@@ -84,6 +84,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#179](https://github.com/getmikan/Citrus/pull/179) `TestInboundUserStats` сразу сообщает об ошибке передачи, а не о расхождении счётчиков.
 - [#184](https://github.com/getmikan/Citrus/pull/184) Скрипт синхронизации с mihomo находит выровненные gofmt константы брендинга и не выдаёт ложное предупреждение.
 - [#186](https://github.com/getmikan/Citrus/pull/186) Флейки inbound-тестов: тест UDP-пользователя SOCKS переотправляет первый датаграм, тесты XHTTP H3 берут порт, свободный и для TCP, и для UDP (на Windows порты резервируются блоками).
+- [#193](https://github.com/getmikan/Citrus/pull/193) Совместимость с Xray перенесена на v26.11.9: interop-проверка идёт против этой версии (её отпечаток `chrome` по умолчанию теперь Chrome 155), клиент REALITY по умолчанию сообщает `26.11.9` вместо `26.10.10`.
 
 ## Инфраструктура, CI и документация
 

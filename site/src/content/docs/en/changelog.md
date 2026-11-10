@@ -84,6 +84,7 @@ What has been merged into `dev` since [#149](https://github.com/getmikan/Citrus/
 - [#179](https://github.com/getmikan/Citrus/pull/179) `TestInboundUserStats` reports a failed transfer right away instead of a counter mismatch.
 - [#184](https://github.com/getmikan/Citrus/pull/184) The mihomo sync script finds the gofmt-aligned branding constants and no longer gives a false warning.
 - [#186](https://github.com/getmikan/Citrus/pull/186) Inbound test flakes: the SOCKS UDP user test resends its first datagram, the XHTTP H3 tests take a port free for both TCP and UDP (Windows reserves ports in blocks).
+- [#193](https://github.com/getmikan/Citrus/pull/193) Xray compatibility moved to v26.11.9: the interop job runs against it (its default `chrome` fingerprint is now Chrome 155), and a REALITY client reports `26.11.9` by default instead of `26.10.10`.
 
 ## Infrastructure, CI and docs
 

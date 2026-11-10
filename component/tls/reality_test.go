@@ -189,7 +189,7 @@ func TestParseRealityClientVersion(t *testing.T) {
 		want    [3]byte
 		ok      bool
 	}{
-		{RealityDefaultClientVersion, [3]byte{26, 10, 10}, true},
+		{RealityDefaultClientVersion, [3]byte{26, 11, 9}, true},
 		{"1.8.2", [3]byte{1, 8, 2}, true},
 		{"25.1", [3]byte{25, 1, 0}, true},
 		{"255.255.255", [3]byte{255, 255, 255}, true},
@@ -360,7 +360,7 @@ func TestRealityHandshake(t *testing.T) {
 		Dest:                  target,
 		ServerNames:           map[string]bool{serverName: true},
 		PrivateKey:            privateKey.Bytes(),
-		MinClientVer:          []byte{26, 10, 10},
+		MinClientVer:          []byte{26, 11, 9},
 		ShortIds:              map[[8]byte]bool{shortID: true},
 		Mldsa65Seed:           mldsa65Seed,
 		RequireX25519MLKEM768: true,
