@@ -39,6 +39,7 @@ Fixes from core/fork reviews and static audits are listed in the [changelog](/Ci
 - UDP through SOCKS5 works only with an open association, bound to its user and port.
 - Changing a user's password or removing the user closes its sessions; empty user names are refused.
 - UDP sessions are keyed by inbound and user, so one user's rules and limits never apply to another.
+- One sing-mux connection (smux, yamux, h2mux) on any inbound that accepts it (Shadowsocks, Trojan, VLESS, Hysteria2, TUIC, ShadowQUIC, Sudoku, AnyTLS, TrustTunnel) holds at most 1024 sub-streams, TCP and UDP together (`mux-option: { max-streams: N }` changes it where the inbound has `mux-option`; 0 and negative values mean 1024). A sub-stream over the cap is closed as soon as it is accepted, while the connection and its other sub-streams keep working; a `warning` line is logged at most once a second per connection. A sub-stream that sends no request header within 15 seconds stops waiting for it, and after 20 seconds it is closed and gives its slot back.
 - A client address from proxy headers is accepted only from the listed `trusted-proxies`.
 - The users of the server inbounds cannot reach the loopback, the private networks, the cloud metadata services or this host through `DIRECT`, whatever the rules say: the [egress guard](/Citrus/en/start/server-profile/#egress-guard).
 
