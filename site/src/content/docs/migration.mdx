@@ -73,6 +73,7 @@ VMess (вместе с mKCP, mekya и TLSMirror), ShadowsocksR, Hysteria v1, TUI
 ## Исходящие
 
 - **REALITY по умолчанию шлёт X25519MLKEM768.** Для старых серверов задайте `reality-opts.support-x25519mlkem768: false`.
+- **`client-fingerprint: chrome` — это Chrome 155**, как в Xray-core 26.11.9 (mihomo шлёт Chrome 133). В hello добавились схемы подписи ML-DSA и расширение `trust_anchors`. `chrome155` и `hellochrome_155` задают его явно; `chrome133` и `hellochrome_133` оставляют прежний hello.
 - **XHTTP:** без `reuse-settings` соединения разделяются, как в Xray (кроме HTTP/1.1); `h-max-request-times: "1"` отключает это. При данных в заголовках или cookie без `uplink-data-key` клиент шлёт `X-Data-N` и `x_data_N`, как Xray; если смешиваете версии, задайте `uplink-data-key` явно с обеих сторон.
 - **SSH без `host-key`** по-прежнему подключается, но пишет в лог предупреждение и ключ сервера в формате authorized_keys, чтобы его можно было закрепить. `skip-host-key-check: true` явно разрешает любой ключ и убирает предупреждение.
 - **OpenVPN** без проверки имени сервера пишет предупреждение. Новые `verify-x509-name`, `verify-x509-type` и `verify-server-name` включают проверку.

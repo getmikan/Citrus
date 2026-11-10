@@ -127,7 +127,7 @@ func TestRealityClientHelloX25519MLKEM768(t *testing.T) {
 // The real post-quantum parrots go out untouched, the classical ones get a key share injected
 // (android and 360 are TLS 1.2 only fingerprints without key_share, unusable for REALITY).
 func TestRealityClientHelloParrots(t *testing.T) {
-	for _, name := range []string{"chrome", "firefox", "safari", "hellofirefox_148", "hellosafari_26_3", "hellochrome_131"} {
+	for _, name := range []string{"chrome", "chrome155", "chrome133", "hellochrome_155", "firefox", "safari", "hellofirefox_148", "hellosafari_26_3", "hellochrome_131"} {
 		fingerprint := fingerprints[name]
 		uConn := buildTestRealityHello(t, fingerprint, &RealityConfig{})
 		if uConn.ClientHelloID != fingerprint {

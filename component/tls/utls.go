@@ -78,12 +78,13 @@ var randomFingerprint = once.OnceValue(func() UClientHelloID {
 	return fingerprint
 })
 
-// chrome (Chrome 133), hellochrome_131, firefox (Firefox 148) and safari (Safari 26.3, both from
-// the getmikan/utls fork) carry an X25519MLKEM768 key share of their own; chrome_pq* carry the
-// obsolete X25519Kyber768Draft00; ios, android, edge, 360, qq and the older versions are classical
-// ones. REALITY injects an X25519MLKEM768 key share into those, see UClientWithX25519MLKEM768.
+// chrome (Chrome 155), chrome133, hellochrome_131, firefox (Firefox 148) and safari (Safari 26.3;
+// those three from the getmikan/utls fork) carry an X25519MLKEM768 key share of their own;
+// chrome_pq* carry the obsolete X25519Kyber768Draft00; ios, android, edge, 360, qq and the older
+// versions are classical ones. REALITY injects an X25519MLKEM768 key share into those, see
+// UClientWithX25519MLKEM768.
 var fingerprints = map[string]UClientHelloID{
-	"chrome":  utls.HelloChrome_Auto,
+	"chrome":  utls.HelloChrome_Auto, // Chrome 155
 	"firefox": utls.HelloFirefox_Auto,
 	"safari":  utls.HelloSafari_Auto,
 	"ios":     utls.HelloIOS_Auto,
@@ -92,6 +93,10 @@ var fingerprints = map[string]UClientHelloID{
 	"360":     utls.Hello360_Auto,
 	"qq":      utls.HelloQQ_Auto,
 	"random":  {},
+
+	// pinned Chrome versions
+	"chrome155": utls.HelloChrome_155,
+	"chrome133": utls.HelloChrome_133,
 
 	// classical fingerprints without X25519MLKEM768
 	"chrome120":  utls.HelloChrome_120,
@@ -115,6 +120,7 @@ var fingerprints = map[string]UClientHelloID{
 	"hellochrome_120":                  utls.HelloChrome_120,
 	"hellochrome_131":                  utls.HelloChrome_131,
 	"hellochrome_133":                  utls.HelloChrome_133,
+	"hellochrome_155":                  utls.HelloChrome_155,
 	"helloios_13":                      utls.HelloIOS_13,
 	"helloios_14":                      utls.HelloIOS_14,
 	"helloedge_106":                    utls.HelloEdge_Auto, // HelloEdge_106 seems to be incompatible with utls

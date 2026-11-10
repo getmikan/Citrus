@@ -909,7 +909,7 @@ proxies: # socks5
     # certificate: ./client.crt # 证书 PEM 格式，或者 证书的路径
     # private-key: ./client.key # 证书对应的私钥 PEM 格式，或者私钥路径
     # fingerprint: xxxx # 配置指纹将实现 SSL Pining 效果, 可使用 openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem 获取
-    # client-fingerprint: random # Available: "chrome","firefox","safari","random","none"
+    # client-fingerprint: random # Available: "chrome" (Chrome 155),"chrome133","firefox","safari","random","none"
     # ech-opts:
     #   enable: true # 必须手动开启
     #   # 如果config为空则通过dns解析，不为空则通过该值指定，格式为经过base64编码的ech参数（dig +short TYPE65 tls-ech.dev）
@@ -1017,7 +1017,7 @@ proxies: # socks5
     udp: true
     tls: true
     network: ws
-    # client-fingerprint: random # Available: "chrome","firefox","safari","random","none"
+    # client-fingerprint: random # Available: "chrome" (Chrome 155),"chrome133","firefox","safari","random","none"
     servername: example.com # priority over wss host
     # skip-cert-verify: true
     # name-cert-verify: example.com # 仅修改证书 DNSName 校验目标，不修改 SNI
@@ -1208,7 +1208,7 @@ proxies: # socks5
     server: server
     port: 443
     password: yourpsk
-    # client-fingerprint: random # Available: "chrome","firefox","safari","random","none"
+    # client-fingerprint: random # Available: "chrome" (Chrome 155),"chrome133","firefox","safari","random","none"
     # fingerprint: xxxx # 配置指纹将实现 SSL Pining 效果, 可使用 openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem 获取
     # 下面两项如果填写则开启 mTLS（需要同时填写）
     # certificate: ./client.crt # 证书 PEM 格式，或者 证书的路径

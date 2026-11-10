@@ -73,8 +73,8 @@ github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876 h1:K+AdGZRxqkfrP+P8G
 github.com/getmikan/smux v0.0.0-20261017193300-1d830d820876/go.mod h1:/yI4OiGOSn0SURhZdJF3CbtPg3nwK700bG8TZLMBvAg=
 github.com/getmikan/tls v0.1.8-citrus.1 h1:YR2EesUPoucmkm5h11tkrZ+47EfMoXTQUNNgRELaRaM=
 github.com/getmikan/tls v0.1.8-citrus.1/go.mod h1:0XeVdL0cBw+8i5Hqy3lVeP9IyD/LFTq02ExvHM6rzEM=
-github.com/getmikan/utls v1.8.9-0.20261020173537-32502cba39f4 h1:GTKgtvW1YgWskLapevH0d09oJPVzZRf8Tou2S22SvWM=
-github.com/getmikan/utls v1.8.9-0.20261020173537-32502cba39f4/go.mod h1:gxkPJpm+5l3rStQM59z70up244h0tv4TlSkB5dlakjU=
+github.com/getmikan/utls v1.8.9-0.20261110211018-540608d73ec9 h1:sFb1YW/44jKNhgQwAwoFw9DpoL9OfJIxkSuwAsNkiVw=
+github.com/getmikan/utls v1.8.9-0.20261110211018-540608d73ec9/go.mod h1:gxkPJpm+5l3rStQM59z70up244h0tv4TlSkB5dlakjU=
 github.com/github/fakeca v0.1.0 h1:Km/MVOFvclqxPM9dZBC4+QE564nU4gz4iZ0D9pMw28I=
 github.com/github/fakeca v0.1.0/go.mod h1:+bormgoGMMuamOscx7N91aOuUST7wdaJ2rNjeohylyo=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
