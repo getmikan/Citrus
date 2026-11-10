@@ -402,7 +402,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		GSO:                                   options.GSO,
 		Inet4Address:                          options.Inet4Address,
 		Inet6Address:                          options.Inet6Address,
-		DNSMode:                               options.DNSMode,
+		DNSMode:                               defaultDNSMode(runtime.GOOS, options),
 		AutoRoute:                             options.AutoRoute,
 		IPRoute2TableIndex:                    tableIndex,
 		IPRoute2RuleIndex:                     ruleIndex,
@@ -724,4 +724,25 @@ func (l *Listener) Config() LC.Tun {
 
 func (l *Listener) Address() string {
 	return l.addrStr
+}
+
+// defaultDNSMode keeps the DNS behaviour Citrus had before sing-tun's
+// dns-mode. An empty dns-mode now means hijack with auto-route and disabled
+// without it, but on Linux the older sing-tun pointed systemd-resolved at the
+// TUN DNS address whatever auto-route said. Without that, a Linux setup with
+// manual routing (auto-route: false) would quietly send DNS to the uplink
+// resolvers, outside the tunnel. So on Linux without auto-route an empty
+// dns-mode becomes native, but only when the TUN prefix has a DNS address, as
+// before; otherwise sing-tun's default (disabled) stays and TUN starts without
+// DNS instead of failing.
+func defaultDNSMode(goos string, options LC.Tun) string {
+	if options.DNSMode != "" || goos != "linux" || options.AutoRoute {
+		return options.DNSMode
+	}
+	for _, prefixes := range [][]netip.Prefix{options.Inet4Address, options.Inet6Address} {
+		if len(prefixes) > 0 && tun.HasNextAddress(prefixes[0], 1) {
+			return tun.DNSModeNative
+		}
+	}
+	return options.DNSMode
 }
