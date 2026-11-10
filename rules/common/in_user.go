@@ -9,16 +9,16 @@ import (
 
 type InUser struct {
 	Base
-	users   []string
+	// users is a set: the list of a rule can be long (the users a panel moved
+	// to a restricted mode), and it is checked for every connection.
+	users   map[string]struct{}
 	adapter string
 	payload string
 }
 
 func (u *InUser) Match(metadata *C.Metadata, helper C.RuleMatchHelper) (bool, string) {
-	for _, user := range u.users {
-		if metadata.InUser == user {
-			return true, u.adapter
-		}
+	if _, ok := u.users[metadata.InUser]; ok {
+		return true, u.adapter
 	}
 	return false, ""
 }
@@ -36,13 +36,14 @@ func (u *InUser) Payload() string {
 }
 
 func NewInUser(iUsers, adapter string) (*InUser, error) {
-	users := strings.Split(iUsers, "/")
-	for i, user := range users {
+	list := strings.Split(iUsers, "/")
+	users := make(map[string]struct{}, len(list))
+	for _, user := range list {
 		user = strings.TrimSpace(user)
 		if len(user) == 0 {
 			return nil, fmt.Errorf("in user couldn't be empty")
 		}
-		users[i] = user
+		users[user] = struct{}{}
 	}
 
 	return &InUser{

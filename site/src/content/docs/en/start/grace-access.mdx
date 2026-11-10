@@ -1,0 +1,121 @@
+---
+title: Access after a subscription ends
+description: Limited access for a user whose subscription ended — only Telegram, payment and the subscription page, at a low speed and with a small quota. Enforced on the node, with no rules in the client.
+---
+
+When a subscription ends, the user does not have to be cut off completely: they can keep a narrow access to Telegram, the payment pages and the subscription page, at a low speed and with a small quota. The restriction is enforced on the node: the client config does not change and cannot get around it.
+
+There is no dedicated feature for this: the mode is built from [user limits](/Citrus/en/start/user-limits/), the `IN-USER` rule and `PUT /rules`.
+
+## Why not `expire-at`
+
+`expire-at` is checked in the tunnel after the rules and refuses **every** connection of the user, the allowed destinations included. So a user in the grace mode has no `expire-at`: the panel decides itself when the subscription ended and moves the user to this mode, by changing the user's limit and adding the user to the list in the rules.
+
+## Config
+
+```yaml
+rule-providers:
+  grace-allow:            # what the grace mode can reach
+    type: inline
+    behavior: classical
+    payload:
+      # Telegram
+      - DOMAIN-SUFFIX,telegram.org
+      - DOMAIN-SUFFIX,t.me
+      - DOMAIN-SUFFIX,telegram.me
+      - DOMAIN-SUFFIX,telegra.ph
+      - DOMAIN-SUFFIX,telesco.pe
+      - DOMAIN-SUFFIX,cdn-telegram.org
+      - IP-CIDR,91.105.192.0/23
+      - IP-CIDR,91.108.4.0/22
+      - IP-CIDR,91.108.8.0/22
+      - IP-CIDR,91.108.12.0/22
+      - IP-CIDR,91.108.16.0/22
+      - IP-CIDR,91.108.20.0/22
+      - IP-CIDR,91.108.56.0/22
+      - IP-CIDR,149.154.160.0/20
+      - IP-CIDR,185.76.151.0/24
+      - IP-CIDR6,2001:67c:4e8::/48
+      - IP-CIDR6,2001:b28:f23c::/48
+      - IP-CIDR6,2001:b28:f23d::/48
+      - IP-CIDR6,2001:b28:f23f::/48
+      - IP-CIDR6,2a0a:f280::/32
+      # payment and the subscription page
+      - DOMAIN-SUFFIX,panel.example.com
+      - DOMAIN-SUFFIX,pay.example.com
+      # the client's DNS, if it resolves through the tunnel
+      - DST-PORT,53
+
+user-limits:
+  # the grace limit: no expire-at
+  - { inbound: vless-in, user: alice, speed-up: 64K, speed-down: 128K, quota: 200M }
+
+rules:
+  - AND,((IN-USER,alice/bob),(RULE-SET,grace-allow,no-resolve)),DIRECT
+  - IN-USER,alice/bob,REJECT
+  # ... the other rules of the node
+  - MATCH,DIRECT
+```
+
+- `IN-USER` takes a list of names separated by `/`; the list is checked in constant time, so it can hold thousands of users.
+- The first rule lets the listed users reach the allowed destinations, the second refuses everything else of theirs. These rules do not touch the other users.
+- `no-resolve` keeps the node from resolving a domain for the sake of `IP-CIDR`: a connection to a domain is checked against the domain rules, one to an IP against `IP-CIDR`.
+- The domain rules match when the client sends a domain (most clients do). Telegram matches by `IP-CIDR` anyway. If a client sends only IPs, a [sniffer](https://wiki.metacubex.one/en/config/sniff/) on the node can recover the domain, but only with `override-destination: true`: without it the rules check the domain from the SNI while the connection goes to the original IP, so a grace user reaches any server by putting `web.telegram.org` in the SNI.
+- `DST-PORT,53` is for the clients that send their DNS queries through the tunnel: without it they cannot even find the address of Telegram. Any traffic gets through port 53, but only within the grace speed and quota; if the clients resolve by themselves, drop the line. Narrower than the whole port is a list of known resolvers: `AND,((DST-PORT,53),(IP-CIDR,1.1.1.1/32))`, one per address your clients use.
+- The name in `IN-USER` is the user name on any inbound. If a name exists on several inbounds and only one should be restricted, add `IN-NAME,vless-in` to the `AND`.
+- A limit is set for the pair of an inbound and a user: if the user connects to several inbounds, set the limit on each.
+
+## Moving a user to the grace mode without a restart
+
+The panel makes four requests to the `external-controller`:
+
+```bash
+API=http://127.0.0.1:9090; AUTH="Authorization: Bearer $SECRET"
+
+# 1. the grace limit; it replaces the previous one as a whole, expire-at is gone
+curl -X PUT -H "$AUTH" "$API/limits/users?inbound=vless-in&user=alice" \
+  -d '{"speed-up": "64K", "speed-down": "128K", "quota": "200M"}'
+
+# 2. the quota from zero: PUT keeps the traffic used during the subscription
+curl -X POST -H "$AUTH" "$API/limits/users/reset-quota?inbound=vless-in&user=alice"
+
+# 3. the rules with the user on the list (the whole rules list)
+curl -X PUT -H "$AUTH" "$API/rules" -d '{"rules": [
+  "AND,((IN-USER,alice/bob),(RULE-SET,grace-allow,no-resolve)),DIRECT",
+  "IN-USER,alice/bob,REJECT",
+  "MATCH,DIRECT"]}'
+
+# 4. close the user's open connections
+curl -X DELETE -H "$AUTH" "$API/connections?inbound=vless-in&user=alice"
+```
+
+- New rules apply to new connections; the open ones stay as they were. Step 4 closes them and the client reconnects under the new rules. The speed and the quota apply to the open connections at once.
+- Between steps 1 and 2 a user who used more than the grace quota hits it for a moment; that is harmless.
+- When the user pays, the panel does the same the other way: the regular limit (`PUT /limits/users`, `reset-quota` if needed) and the rules without the user on the list. There is no need to close connections: the new ones follow the regular rules anyway.
+- When the user runs out of the grace quota, the user's connections are closed and new ones are refused, Telegram included, until the quota is reset or raised.
+
+## After a config reload
+
+`PUT /rules` and `PUT /limits/users` live in memory: a config reload brings back the rules and limits of the config. So the panel writes the same state into the node config too: the `IN-USER` list in `rules` and the grace limits in `user-limits`, as in the example above.
+
+## The list in a rule provider
+
+Instead of changing `rules`, the list can live in a rule provider of its own; then `rules` never change:
+
+```yaml
+rule-providers:
+  grace-users:
+    type: http                 # or file
+    url: https://panel.example.com/nodes/node-1/grace-users.txt
+    behavior: classical
+    format: text
+    interval: 3600
+  grace-allow: { ... }         # as above
+
+rules:
+  - AND,((RULE-SET,grace-users),(RULE-SET,grace-allow,no-resolve)),DIRECT
+  - RULE-SET,grace-users,REJECT
+  - MATCH,DIRECT
+```
+
+The file holds lines like `IN-USER,alice` (or one line `IN-USER,alice/bob/…`: it is checked in constant time, while separate lines are checked one by one). An empty file restricts nobody. After changing the list the panel calls `PUT /providers/rules/grace-users` and the node reads it again at once; this call replaces step 3 above, the other steps stay. The list survives a config reload as well.
