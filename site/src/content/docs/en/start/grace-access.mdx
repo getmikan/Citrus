@@ -60,8 +60,8 @@ rules:
 - `IN-USER` takes a list of names separated by `/`; the list is checked in constant time, so it can hold thousands of users.
 - The first rule lets the listed users reach the allowed destinations, the second refuses everything else of theirs. These rules do not touch the other users.
 - `no-resolve` keeps the node from resolving a domain for the sake of `IP-CIDR`: a connection to a domain is checked against the domain rules, one to an IP against `IP-CIDR`.
-- The domain rules match when the client sends a domain (most clients do). If a client sends only IPs, a [sniffer](https://wiki.metacubex.one/en/config/sniff/) on the node can recover the domain; Telegram matches by `IP-CIDR` anyway.
-- `DST-PORT,53` is for the clients that send their DNS queries through the tunnel: without it they cannot even find the address of Telegram. Any traffic gets through port 53, but only within the grace speed and quota; if the clients resolve by themselves, drop the line.
+- The domain rules match when the client sends a domain (most clients do). Telegram matches by `IP-CIDR` anyway. If a client sends only IPs, a [sniffer](https://wiki.metacubex.one/en/config/sniff/) on the node can recover the domain, but only with `override-destination: true`: without it the rules check the domain from the SNI while the connection goes to the original IP, so a grace user reaches any server by putting `web.telegram.org` in the SNI.
+- `DST-PORT,53` is for the clients that send their DNS queries through the tunnel: without it they cannot even find the address of Telegram. Any traffic gets through port 53, but only within the grace speed and quota; if the clients resolve by themselves, drop the line. Narrower than the whole port is a list of known resolvers: `AND,((DST-PORT,53),(IP-CIDR,1.1.1.1/32))`, one per address your clients use.
 - The name in `IN-USER` is the user name on any inbound. If a name exists on several inbounds and only one should be restricted, add `IN-NAME,vless-in` to the `AND`.
 - A limit is set for the pair of an inbound and a user: if the user connects to several inbounds, set the limit on each.
 
