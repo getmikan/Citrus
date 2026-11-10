@@ -9,9 +9,9 @@ import (
 
 func TestActive(t *testing.T) {
 	switch {
-	case runtime.GOOS == "android" || runtime.GOOS == "ios":
+	case runtime.GOOS != "linux":
 		if Active() {
-			t.Fatal("no ballast on android/ios")
+			t.Fatalf("no ballast on %s", runtime.GOOS)
 		}
 	case features.CMFA:
 		if Active() {
