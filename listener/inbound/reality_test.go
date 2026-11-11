@@ -114,7 +114,7 @@ func TestInboundVless_RealityPQ(t *testing.T) {
 	})
 	// the real post-quantum parrots, and the classical ones with an injected X25519MLKEM768 key share
 	for _, fingerprint := range []string{"firefox", "safari", "ios", "edge", "qq", "random", "randomized",
-		"chrome120", "firefox120", "safari16", "hellofirefox_148", "hellosafari_26_3", "hellochrome_131", "helloios_13"} {
+		"chrome133", "chrome120", "firefox120", "safari16", "hellofirefox_148", "hellosafari_26_3", "hellochrome_131", "helloios_13"} {
 		t.Run(fingerprint, func(t *testing.T) {
 			outboundOptions := outboundOptions
 			outboundOptions.ClientFingerprint = fingerprint
