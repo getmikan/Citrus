@@ -25,6 +25,26 @@ func TestChromeFingerprintIsChrome155(t *testing.T) {
 	}
 }
 
+// firefox and safari follow the utls Auto parrots; pin what they are so a utls bump that moves
+// them shows up here.
+func TestFirefoxSafariFingerprints(t *testing.T) {
+	for name, want := range map[string]UClientHelloID{
+		"firefox":           utls.HelloFirefox_148,
+		"hellofirefox_auto": utls.HelloFirefox_148,
+		"hellofirefox_148":  utls.HelloFirefox_148,
+		"firefox120":        utls.HelloFirefox_120,
+		"safari":            utls.HelloSafari_26_3,
+		"hellosafari_auto":  utls.HelloSafari_26_3,
+		"hellosafari_26_3":  utls.HelloSafari_26_3,
+		"safari16":          utls.HelloSafari_16_0,
+	} {
+		got, ok := GetFingerprint(name)
+		if !ok || got != want {
+			t.Errorf("%s: got %v (%v), want %v", name, got.Str(), ok, want.Str())
+		}
+	}
+}
+
 // chromeHello builds the ClientHello of the given fingerprint and returns the extension types
 // and the signature schemes it offers.
 func chromeHello(t *testing.T, name string) ([]uint16, []utls.SignatureScheme) {
