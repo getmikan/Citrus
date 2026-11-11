@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (183 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (193 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), is built from `dev` up to [#133](https://github.com/getmikan/Citrus/pull/133). The changes for the third beta since #149 are in the first section below.
 
@@ -65,6 +65,8 @@ What has been merged into `dev` since [#149](https://github.com/getmikan/Citrus/
 - [#157](https://github.com/getmikan/Citrus/pull/157) Windows: TUN with `auto-route` notices Forwarding and WeakHostSend on the egress adapter (ICS and the mobile hotspot turn them on, and then the core's sockets go into its own TUN). The core only logs a warning and sends a `tun.forwarding` event to `/events`; it does not change the adapter.
 - [#183](https://github.com/getmikan/Citrus/pull/183) The egress guard judges an IPv6 address without its zone (`address%x` got past it); ShadowTLS with `wildcard-sni` vets the SNI of an authenticated client too (it could reach localhost and private hosts on 443); with `egress-guard` on a listener a Trojan or Mieru UDP session no longer moves to another user; a warning in the log for a user with an empty password. `x/net`, brotli and `x/crypto` updated (govulncheck findings), and undici and zod on the site (Dependabot alerts).
 - [#188](https://github.com/getmikan/Citrus/pull/188) A race in provider updates: `hash` and `updatedAt` are read and written under one lock when an API update runs alongside the periodic one.
+- [#192](https://github.com/getmikan/Citrus/pull/192) The GC ballast is allocated in Linux builds only: desktop clients on Windows and macOS never see the stream of new connections it exists for, and do not need up to 8 MB of extra garbage between GC cycles.
+- [#194](https://github.com/getmikan/Citrus/pull/194) `client-fingerprint: chrome` (and an empty REALITY fingerprint) is now Chrome 155, as in Xray 26.11.9: GREASE and ML-DSA in `signature_algorithms` and the trust anchors extension (0xca34). The profile is ported into the utls fork from refraction-networking/utls and checked against a capture of Chrome 155.0.8059.40. New names `chrome155` and `hellochrome_155`; the previous profile is `chrome133` (`hellochrome_133`).
 
 ### Sync with mihomo
 
@@ -83,8 +85,12 @@ What has been merged into `dev` since [#149](https://github.com/getmikan/Citrus/
 - [#175](https://github.com/getmikan/Citrus/pull/175) The inbound H3 tests tell reserved Windows ports from taken ones.
 - [#179](https://github.com/getmikan/Citrus/pull/179) `TestInboundUserStats` reports a failed transfer right away instead of a counter mismatch.
 - [#184](https://github.com/getmikan/Citrus/pull/184) The mihomo sync script finds the gofmt-aligned branding constants and no longer gives a false warning.
+- [#181](https://github.com/getmikan/Citrus/pull/181) Roadmap: the mihomo sync, the sing-mux limit and access after a subscription ends are done.
+- [#185](https://github.com/getmikan/Citrus/pull/185) The changelog of the third beta.
 - [#186](https://github.com/getmikan/Citrus/pull/186) Inbound test flakes: the SOCKS UDP user test resends its first datagram, the XHTTP H3 tests take a port free for both TCP and UDP (Windows reserves ports in blocks).
+- [#190](https://github.com/getmikan/Citrus/pull/190) The SOCKS UDP association tests take a random port below the ephemeral range (Windows reserves ports in blocks).
 - [#193](https://github.com/getmikan/Citrus/pull/193) Xray compatibility moved to v26.11.9: the interop job runs against it (its default `chrome` fingerprint is now Chrome 155), and a REALITY client reports `26.11.9` by default instead of `26.10.10`.
+- [#196](https://github.com/getmikan/Citrus/pull/196) The concurrent Sudoku subtest is skipped under `-race`: the race runtime delays goroutine start-up by almost 2 s and runs into the 2 s HTTP/2 first-SETTINGS timeout; without `-race` the subtest passes.
 
 ## Infrastructure, CI and docs
 
@@ -265,6 +271,7 @@ Citrus replaces five mihomo libraries with its own forks through `replace` in `g
 ### [getmikan/utls](https://github.com/getmikan/utls)
 
 - `v1.8.9-0.20261020173537-32502cba39f4`: REALITY/JLS fixes from [fork PR 3](https://github.com/getmikan/utls/pull/3), pinned in [#141](https://github.com/getmikan/Citrus/pull/141); a `dev` commit, not a release tag.
+- `v1.8.9-0.20261110224923-a6dee38a3c8d`: the Chrome 155 fingerprint from [fork PR 4](https://github.com/getmikan/utls/pull/4) and [fork PR 5](https://github.com/getmikan/utls/pull/5), pinned in [#194](https://github.com/getmikan/Citrus/pull/194); a `dev` commit.
 
 - `v1.8.8-citrus.1`: the server side of post-quantum REALITY (ML-DSA-65 signature, X25519MLKEM768 requirement), Firefox 148 and Safari 26.3 fingerprints ([#10](https://github.com/getmikan/Citrus/pull/10)).
 - `v1.8.8-citrus.2`: bug fixes from a code review: session resumption, ECH, server minimum version, compressed certificates, HKDF ([#55](https://github.com/getmikan/Citrus/pull/55)).

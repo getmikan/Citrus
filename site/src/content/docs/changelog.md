@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (183 pull request’а), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (193 pull request’а), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), — из `dev` до [#133](https://github.com/getmikan/Citrus/pull/133). Изменения для третьей беты с #149 собраны в первом разделе ниже.
 
@@ -65,6 +65,8 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#157](https://github.com/getmikan/Citrus/pull/157) Windows: TUN с `auto-route` замечает Forwarding и WeakHostSend на исходящем адаптере (их включают ICS и мобильный хотспот, и тогда сокеты ядра уходят в собственный TUN). Ядро только пишет предупреждение и шлёт событие `tun.forwarding` в `/events`, настройки адаптера не меняет.
 - [#183](https://github.com/getmikan/Citrus/pull/183) Egress guard проверяет IPv6-адрес без зоны (`адрес%x` его обходил); ShadowTLS с `wildcard-sni` проверяет SNI и у авторизованного клиента (через него можно было дойти до localhost и частных хостов на 443); с `egress-guard` на listener'е UDP-сессия Trojan или Mieru больше не переходит к другому пользователю; предупреждение в логе о пользователе с пустым паролем. Обновлены `x/net`, brotli и `x/crypto` (закрыты находки govulncheck), на сайте — undici и zod (предупреждения Dependabot).
 - [#188](https://github.com/getmikan/Citrus/pull/188) Гонка в обновлении провайдеров: `hash` и `updatedAt` читаются и пишутся под одной блокировкой, когда обновление через API идёт одновременно с периодическим.
+- [#192](https://github.com/getmikan/Citrus/pull/192) GC-балласт выделяется только в сборках для Linux: десктопные клиенты на Windows и macOS не получают поток новых соединений, ради которого он нужен, а лишний мусор между циклами GC до 8 МБ им ни к чему.
+- [#194](https://github.com/getmikan/Citrus/pull/194) `client-fingerprint: chrome` (и пустой отпечаток REALITY) теперь Chrome 155, как в Xray 26.11.9: GREASE и ML-DSA в `signature_algorithms`, расширение trust anchors (0xca34). Профиль перенесён в форк utls из refraction-networking/utls и сверен со снимком Chrome 155.0.8059.40. Новые имена `chrome155` и `hellochrome_155`, прежний профиль — `chrome133` (`hellochrome_133`).
 
 ### Синхронизация с mihomo
 
@@ -83,8 +85,12 @@ description: Все влитые в Citrus pull request’ы по темам, с
 - [#175](https://github.com/getmikan/Citrus/pull/175) H3-тесты входящих отличают зарезервированные порты Windows от занятых.
 - [#179](https://github.com/getmikan/Citrus/pull/179) `TestInboundUserStats` сразу сообщает об ошибке передачи, а не о расхождении счётчиков.
 - [#184](https://github.com/getmikan/Citrus/pull/184) Скрипт синхронизации с mihomo находит выровненные gofmt константы брендинга и не выдаёт ложное предупреждение.
+- [#181](https://github.com/getmikan/Citrus/pull/181) Дорожная карта: синхронизация с mihomo, лимит sing-mux и доступ после окончания подписки — сделано.
+- [#185](https://github.com/getmikan/Citrus/pull/185) Журнал изменений третьей беты.
 - [#186](https://github.com/getmikan/Citrus/pull/186) Флейки inbound-тестов: тест UDP-пользователя SOCKS переотправляет первый датаграм, тесты XHTTP H3 берут порт, свободный и для TCP, и для UDP (на Windows порты резервируются блоками).
+- [#190](https://github.com/getmikan/Citrus/pull/190) Тесты UDP-ассоциации SOCKS берут случайный порт ниже эфемерного диапазона (на Windows порты резервируются блоками).
 - [#193](https://github.com/getmikan/Citrus/pull/193) Совместимость с Xray перенесена на v26.11.9: interop-проверка идёт против этой версии (её отпечаток `chrome` по умолчанию теперь Chrome 155), клиент REALITY по умолчанию сообщает `26.11.9` вместо `26.10.10`.
+- [#196](https://github.com/getmikan/Citrus/pull/196) Под `-race` конкурентный подтест Sudoku пропускается: race-рантайм задерживает старт горутин почти на 2 с и упирается в 2-секундный таймаут первых SETTINGS HTTP/2, без `-race` подтест проходит.
 
 ## Инфраструктура, CI и документация
 
@@ -265,6 +271,7 @@ Citrus подменяет пять библиотек mihomo своими фор
 ### [getmikan/utls](https://github.com/getmikan/utls)
 
 - `v1.8.9-0.20261020173537-32502cba39f4`: исправления REALITY/JLS из [PR 3 форка](https://github.com/getmikan/utls/pull/3), подключены в [#141](https://github.com/getmikan/Citrus/pull/141); это коммит `dev`, не релизный тег.
+- `v1.8.9-0.20261110224923-a6dee38a3c8d`: отпечаток Chrome 155 из [PR 4](https://github.com/getmikan/utls/pull/4) и [PR 5](https://github.com/getmikan/utls/pull/5) форка, подключён в [#194](https://github.com/getmikan/Citrus/pull/194); коммит `dev`.
 
 - `v1.8.8-citrus.1`: серверная сторона пост-квантового REALITY (подпись ML-DSA-65, требование X25519MLKEM768), отпечатки Firefox 148 и Safari 26.3 ([#10](https://github.com/getmikan/Citrus/pull/10)).
 - `v1.8.8-citrus.2`: исправления ошибок после ревью кода: возобновление сессий, ECH, минимальная версия сервера, сжатые сертификаты, HKDF ([#55](https://github.com/getmikan/Citrus/pull/55)).
