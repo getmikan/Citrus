@@ -3,11 +3,15 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (194 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (195 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), is built from `dev` up to [#133](https://github.com/getmikan/Citrus/pull/133). The changes for the third beta since #149 are in the first section below.
 
 What changes behaviour for existing configs is collected on [Migrating from mihomo](/Citrus/en/migration/).
+
+## After v1.0.0-beta.3 (not released yet)
+
+- [#199](https://github.com/getmikan/Citrus/pull/199) The getmikan/utls fork is rebuilt on metacubex/utls `v1.9.0-alpha.1` (required by mihomo v1.19.34): a Go 1.26 crypto/tls base, the `UQUICConn` transport parameter fix, ALPN compression in ECH only for standard ClientHellos. The fork's changes are carried over (Chrome 155, post-quantum REALITY, TLS record coalescing, TLS and ECH fixes); Firefox 148, Safari 26.3 and the chain re-check on session resumption now come from upstream. Fingerprints are unchanged: the ClientHello of every `client-fingerprint` was compared with the old fork, and `chrome` is still Chrome 155.
 
 ## v1.0.0-beta.3 (not released yet)
 
@@ -273,6 +277,7 @@ Citrus replaces five mihomo libraries with its own forks through `replace` in `g
 
 - `v1.8.9-0.20261020173537-32502cba39f4`: REALITY/JLS fixes from [fork PR 3](https://github.com/getmikan/utls/pull/3), pinned in [#141](https://github.com/getmikan/Citrus/pull/141); a `dev` commit, not a release tag.
 - `v1.8.9-0.20261110224923-a6dee38a3c8d`: the Chrome 155 fingerprint from [fork PR 4](https://github.com/getmikan/utls/pull/4) and [fork PR 5](https://github.com/getmikan/utls/pull/5), pinned in [#194](https://github.com/getmikan/Citrus/pull/194); a `dev` commit.
+- `v0.0.0-20261111095853-b60cfbd40b44`: the fork on metacubex/utls `v1.9.0-alpha.1` from [fork PR 6](https://github.com/getmikan/utls/pull/6), pinned in [#199](https://github.com/getmikan/Citrus/pull/199); a `dev-1.9` commit.
 
 - `v1.8.8-citrus.1`: the server side of post-quantum REALITY (ML-DSA-65 signature, X25519MLKEM768 requirement), Firefox 148 and Safari 26.3 fingerprints ([#10](https://github.com/getmikan/Citrus/pull/10)).
 - `v1.8.8-citrus.2`: bug fixes from a code review: session resumption, ECH, server minimum version, compressed certificates, HKDF ([#55](https://github.com/getmikan/Citrus/pull/55)).
