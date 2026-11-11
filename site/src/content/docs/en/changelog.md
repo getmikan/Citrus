@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (195 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (196 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), is built from `dev` up to [#133](https://github.com/getmikan/Citrus/pull/133). The changes for the third beta since #149 are in the first section below.
 
@@ -12,6 +12,7 @@ What changes behaviour for existing configs is collected on [Migrating from miho
 ## After v1.0.0-beta.3 (not released yet)
 
 - [#199](https://github.com/getmikan/Citrus/pull/199) The getmikan/utls fork is rebuilt on metacubex/utls `v1.9.0-alpha.1` (required by mihomo v1.19.34): a Go 1.26 crypto/tls base, the `UQUICConn` transport parameter fix, ALPN compression in ECH only for standard ClientHellos. The fork's changes are carried over (Chrome 155, post-quantum REALITY, TLS record coalescing, TLS and ECH fixes); Firefox 148, Safari 26.3 and the chain re-check on session resumption now come from upstream. Fingerprints are unchanged: the ClientHello of every `client-fingerprint` was compared with the old fork, and `chrome` is still Chrome 155.
+- [#200](https://github.com/getmikan/Citrus/pull/200) QUIC inbounds on a port range (`port: 20000-40000`) — hysteria2, tuic, shadowquic and the HTTP/3 side of trusttunnel — run one QUIC server for the whole range instead of one per port: the sockets of the ports are joined into one, and a reply leaves from the port the client last sent to. A hysteria2 client that hops ports no longer loses its connection on the first hop. An idle port costs a socket and one goroutine instead of five: 1005 goroutines instead of 5000 on 1000 ports, and 5–8 MiB of memory instead of 100–140 MiB. A single-port inbound is unchanged; hysteria2 with `realm` keeps a server per port as before.
 
 ## v1.0.0-beta.3 (not released yet)
 

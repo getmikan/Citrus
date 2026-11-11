@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"strings"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
+	"github.com/metacubex/mihomo/common/net/fanin"
 	"github.com/metacubex/mihomo/common/sockopt"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/component/ca"
@@ -213,27 +213,39 @@ func New(config LC.Hysteria2Server, lc C.InboundListenConfig, tunnel C.Tunnel, a
 	}
 	service.UpdateUsers(userNameList, userPasswordList)
 
-	for _, addr := range strings.Split(config.Listen, ",") {
-		addr := addr
+	// One QUIC server per host: the ports of a range share it, so a client
+	// that hops ports keeps its connection. The realm's hole punching needs
+	// the *net.UDPConn of a port (and its clients cannot hop), so with a
+	// realm every port keeps its own server.
+	listen := fanin.Listen
+	if realmOptions != nil {
+		listen = fanin.ListenEach
+	}
+	udpListeners, err := listen(context.Background(), lc, config.Listen, reuseUDPAddr)
+	if err != nil {
+		return nil, err
+	}
+	sl.udpListeners = udpListeners
+	for _, ul := range udpListeners {
+		ul := ul
 		_service := *service
 		service := &_service // make a copy
 
-		ul, err := lc.ListenPacket(context.Background(), "udp", addr)
-		if err != nil {
+		if realmOptions != nil {
+			// registering with the realm waits for the realm server
+			sl.services = append(sl.services, service)
+			go func() {
+				_ = service.Start(ul)
+			}()
+			continue
+		}
+		// Start only opens the QUIC listener: run it here, so that Close
+		// does not race with it and an error is not lost
+		if err := service.Start(ul); err != nil {
 			_ = sl.Close()
 			return nil, err
 		}
-
-		if err := sockopt.UDPReuseaddr(ul); err != nil {
-			log.Warnln("Failed to Reuse UDP Address: %s", err)
-		}
-
-		sl.udpListeners = append(sl.udpListeners, ul)
 		sl.services = append(sl.services, service)
-
-		go func() {
-			_ = service.Start(ul)
-		}()
 	}
 
 	return sl, nil
@@ -257,13 +269,19 @@ func (l *Listener) Close() error {
 	return retErr
 }
 
+func reuseUDPAddr(pc net.PacketConn) {
+	if err := sockopt.UDPReuseaddr(pc); err != nil {
+		log.Warnln("Failed to Reuse UDP Address: %s", err)
+	}
+}
+
 func (l *Listener) Config() string {
 	return l.config.String()
 }
 
 func (l *Listener) AddrList() (addrList []net.Addr) {
 	for _, lis := range l.udpListeners {
-		addrList = append(addrList, lis.LocalAddr())
+		addrList = append(addrList, fanin.LocalAddrs(lis)...)
 	}
 	return
 }

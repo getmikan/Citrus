@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (195 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (196 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), — из `dev` до [#133](https://github.com/getmikan/Citrus/pull/133). Изменения для третьей беты с #149 собраны в первом разделе ниже.
 
@@ -12,6 +12,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 ## После v1.0.0-beta.3 (ещё не выпущено)
 
 - [#199](https://github.com/getmikan/Citrus/pull/199) Форк getmikan/utls пересобран на metacubex/utls `v1.9.0-alpha.1` (её требует mihomo v1.19.34): база crypto/tls из Go 1.26, исправление транспортных параметров `UQUICConn`, сжатие ALPN в ECH только для стандартных ClientHello. Изменения форка перенесены (Chrome 155, пост-квантовый REALITY, склейка TLS-записей, исправления TLS и ECH); Firefox 148, Safari 26.3 и перепроверка цепочки при возобновлении сессии теперь из upstream. Отпечатки не изменились: ClientHello всех `client-fingerprint` сверены со старым форком, `chrome` — по-прежнему Chrome 155.
+- [#200](https://github.com/getmikan/Citrus/pull/200) QUIC-входящие с диапазоном портов (`port: 20000-40000`) — hysteria2, tuic, shadowquic и HTTP/3 у trusttunnel — держат один QUIC-сервер на весь диапазон, а не по серверу на порт: сокеты портов сведены в один, ответ уходит с порта, на который клиент писал последним. Port hopping клиента hysteria2 больше не рвёт соединение на первом прыжке. Простаивающий порт стоит сокет и одну горутину вместо пяти: на 1000 портах 1005 горутин вместо 5000 и 5–8 МиБ памяти вместо 100–140 МиБ. Входящий с одним портом не изменился; hysteria2 с `realm` держит сервер на порт, как раньше.
 
 ## v1.0.0-beta.3 (ещё не выпущена)
 
