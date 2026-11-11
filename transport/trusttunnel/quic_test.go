@@ -5,7 +5,7 @@ import "testing"
 // Request streams are opened before Proxy-Authorization is checked, so the
 // HTTP/3 server must not advertise an effectively unlimited stream count.
 func TestServerQUICConfigStreamLimit(t *testing.T) {
-	cfg := serverQUICConfig()
+	cfg := serverQUICConfig(false)
 	if cfg.MaxIncomingStreams != serverMaxIncomingStreams {
 		t.Fatalf("MaxIncomingStreams = %d, want %d", cfg.MaxIncomingStreams, serverMaxIncomingStreams)
 	}

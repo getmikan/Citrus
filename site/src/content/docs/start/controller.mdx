@@ -3,34 +3,41 @@ title: Безопасность контроллера
 description: Когда API контроллера нужен secret, как он защищён от веб-страниц и что в нём меняет перезагрузка конфига.
 ---
 
-API контроллера (`external-controller`, `external-controller-tls`, `external-controller-unix`, `external-controller-pipe`) может менять конфиг, правила, пользователей входящих, перезапускать и обновлять ядро. Его единственный ключ — `secret`: все пути, кроме [проверок здоровья](/Citrus/start/metrics/), файлов `/ui` и пути DoH, требуют `Authorization: Bearer <secret>` (вебсокет из браузера может передать его как `?token=`).
+API контроллера (`external-controller`, `external-controller-tls`, `external-controller-unix`, `external-controller-pipe`) может менять конфиг, правила, пользователей входящих, перезапускать и обновлять ядро. Его единственный ключ — `secret`: все пути, кроме [проверок здоровья](/Citrus/start/metrics/), файлов `/ui` и пути DoH, требуют `Authorization: Bearer <secret>` (WebSocket из браузера использует [одноразовый билет](/Citrus/security/#websocket-контроллера); основной секрет в `?token=` требует явной опции совместимости).
 
 ## Secret на сетевом адресе
 
-Ядро не запускает `external-controller` и `external-controller-tls` на не-loopback адресе без `secret`: `0.0.0.0:9090`, `:9090` и адреса локальной сети отклоняются с ошибкой в логе, а `PUT /configs` с таким конфигом отвечает 400 и ничего не применяет. Остальное ядро запускается как обычно.
+Любому TCP-контроллеру нужен ключ, включая loopback. Обычный HTTP `external-controller` по умолчанию разрешён только на loopback: на удалённом адресе bearer-secret шёл бы открытым текстом. Отказ пишется в лог, а `PUT /configs` отвечает 400 и ничего не применяет.
 
 Без secret работают:
 
-- loopback-адреса: `127.0.0.1:9090`, `[::1]:9090`, `localhost:9090`;
 - `external-controller-unix` и `external-controller-pipe` — их защищают права файла и ACL канала;
 - `external-controller-tls` с `tls.client-auth-type: require-and-verify` (или с заданным `tls.client-auth-cert`): ключом служит сертификат клиента.
 
-`external-controller-allow-insecure: true` (или `-ext-ctl-allow-insecure`, `CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true`) отключает проверку — для сети, закрытой иначе. Не рекомендуется.
-
-Обычный HTTP `external-controller` на не-loopback адресе с secret запускается, но с предупреждением: secret идёт открытым текстом. Для удалённого доступа используйте `external-controller-tls`.
+`external-controller-allow-insecure: true` (или `-ext-ctl-allow-insecure`, `CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true`) — явный legacy opt-in для TCP без secret или удалённого plaintext HTTP с bearer. Для удалённого доступа используйте `external-controller-tls`.
 
 ## Веб-страницы и контроллер без secret
 
-Loopback-контроллер без secret доступен любой веб-странице, которую открыл пользователь: при CORS по умолчанию (`allow-origins: ["*"]`, `allow-private-network: true`) страница может читать и менять его, а DNS rebinding обходит same-origin. Поэтому tcp/tls-контроллер без secret:
+TCP-контроллер без secret существует только в явном insecure-режиме либо с проверенным клиентским TLS-сертификатом. Для второго случая browser guard остаётся дополнительной защитой:
 
 - отвечает только на запросы, где `Host` — IP-адрес или `localhost`;
 - отклоняет запросы с заголовком `Origin` (все кросс-доменные запросы и вебсокеты из браузера), если источник не сам контроллер (встроенный `/ui`) и не указан явно в `external-controller-cors.allow-origins`; `"*"` не считается.
 
-Программы (скрипты, панели, `curl`) не шлют `Origin`, их это не касается. Дашборду на внешнем сайте, например MetaCubeXD, нужен `secret` или его источник в `allow-origins`. У контроллера с secret и при `external-controller-allow-insecure: true` такой защиты нет.
+Программы (скрипты, панели, `curl`) не шлют `Origin`. Дашборду на внешнем сайте нужен `secret` или проверенный клиентский сертификат, а при необходимости — явный источник в `allow-origins`. Insecure-режим отключает эту защиту.
 
 ## Перезагрузка конфига
 
-`PUT /configs`, `SIGHUP` (`systemctl reload citrus`) и перезапуск применяют настройки контроллера из нового конфига: `secret`, адреса, `tls`, `external-controller-cors`, `external-ui`. Если что-то из них изменилось, листенеры контроллера перезапускаются (ответ на `PUT /configs` уходит раньше), а открытые вебсокет-потоки (`/logs`, `/traffic`, `/memory`, `/connections`, `/events`) закрываются — ничто, разрешённое старым secret, не остаётся открытым. Переопределения из командной строки (`-secret`, `-ext-ctl` и другие) действуют при каждой перезагрузке. Перезагрузка, не меняющая контроллер, его соединения не трогает.
+`PUT /configs`, `SIGHUP` (`systemctl reload citrus`) и перезапуск применяют настройки контроллера из нового конфига: `secret`, адреса, `tls`, `external-controller-cors`, `external-ui`. Если что-то из них изменилось, листенеры контроллера перезапускаются (ответ на `PUT /configs` уходит раньше), а открытые вебсокет-потоки (`/logs`, `/traffic`, `/memory`, `/connections`, `/events`) закрываются — ничто, разрешённое старым secret, не остаётся открытым. Переопределения действуют при каждой перезагрузке. Используйте `-secret-file`: литеральные `-secret`, `-age-secret-key` и `-config` отклоняются, если только `-allow-secret-arguments` явно не возвращает риск утечки через список процессов. Перезагрузка, не меняющая контроллер, его соединения не трогает.
+
+## Версия ядра
+
+`GET /version` отвечает так же, как mihomo, и с одним полем сверху:
+
+```json
+{"meta": true, "version": "v1.0.0-beta.3", "core": "citrus"}
+```
+
+Клиенты mihomo лишнее поле пропускают. Приложение, которое работает с обоими ядрами, может назвать ядро по `core`, а если поля нет — считать его mihomo.
 
 ## Ограничения
 

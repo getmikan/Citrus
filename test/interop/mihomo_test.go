@@ -37,12 +37,12 @@ func needMihomo(t *testing.T) {
 
 const ctlSecret = "interop-secret"
 
-// mihomoCase is one row of the matrix: a Citrus listener and the upstream
-// mihomo proxy that should reach it.
-type mihomoCase struct {
+// serverCase is one row of a client matrix: a Citrus listener and the proxy of
+// a foreign client (upstream mihomo, sing-box) that should reach it.
+type serverCase struct {
 	name   string
 	server obj  // Citrus listener (name, listen and port are filled in)
-	client obj  // upstream mihomo proxy (name, server and port are filled in)
+	client obj  // the client's proxy or outbound (server and port are filled in)
 	udp    bool // also check UDP through the tunnel
 	// user, when set, must have the traffic in /traffic/users; decoy, another
 	// user of the same inbound, must not
@@ -89,7 +89,7 @@ func TestMihomoClientCitrusServer(t *testing.T) {
 		}, clientTLS, extra)
 	}
 
-	cases := []mihomoCase{
+	cases := []serverCase{
 		// --- VLESS + REALITY + vision ---
 		{name: "vless-reality-vision", server: realityServer(nil), client: realityClient(nil),
 			udp: true, user: "alice", decoy: "bob"},
@@ -223,7 +223,17 @@ func TestMihomoClientCitrusServer(t *testing.T) {
 	}
 }
 
-func runMihomoCase(t *testing.T, c mihomoCase) {
+func runMihomoCase(t *testing.T, c serverCase) {
+	runServerCase(t, c, func(t *testing.T, sport, mp int) {
+		proxy := merge(obj{"server": "127.0.0.1", "port": sport}, c.client)
+		startMihomo(t, citrusClient(mp, proxy), mp)
+	})
+}
+
+// runServerCase starts the Citrus listener of c, then the client through
+// startClient (a socks port on mp with the proxy aimed at sport), and checks
+// the traffic, the server's log and, when asked, the per-user statistics.
+func runServerCase(t *testing.T, c serverCase, startClient func(t *testing.T, sport, mp int)) {
 	sport, ctl := freePort(t), freePort(t)
 	listener := merge(obj{"name": "in", "listen": "127.0.0.1", "port": sport}, c.server)
 	srv := citrusServer(listener)
@@ -234,8 +244,7 @@ func runMihomoCase(t *testing.T, c mihomoCase) {
 	srvLog := startCitrus(t, "citrus-server", srv, ctl)
 
 	mp := freePort(t)
-	proxy := merge(obj{"server": "127.0.0.1", "port": sport}, c.client)
-	startMihomo(t, citrusClient(mp, proxy), mp)
+	startClient(t, sport, mp)
 
 	// the server's own log proves the traffic went through its inbound
 	udpSeen := "--> " + udpEchoAddr

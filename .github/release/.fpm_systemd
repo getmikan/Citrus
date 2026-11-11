@@ -13,6 +13,9 @@
 
 .github/release/mihomo.service=/usr/lib/systemd/system/citrus.service
 .github/release/mihomo@.service=/usr/lib/systemd/system/citrus@.service
+.github/release/citrus-server.service=/usr/lib/systemd/system/citrus-server.service
+.github/release/citrus-server.sysusers=/usr/lib/sysusers.d/citrus-server.conf
+docker/server-config.yaml=/usr/share/citrus/server-config.yaml
 
 
 LICENSE=/usr/share/licenses/citrus/LICENSE

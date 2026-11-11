@@ -4,13 +4,18 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+
+	"github.com/metacubex/mihomo/component/auth"
 )
 
 // UDP ASSOCIATE bookkeeping (RFC 1928 §7): a SOCKS5 UDP relay should only carry
 // datagrams for clients that negotiated an association over TCP, and only while
-// that TCP control connection is open. Associations are kept per listener's
-// local port (the TCP and UDP listeners of one inbound share it) and client IP
-// address.
+// that TCP control connection is open. Associations are kept per auth store
+// and listener's local port (the TCP and UDP listeners of one inbound share
+// both) and client IP address. The local IP is not part of the key, since the
+// UDP listener of a wildcard address does not know it, so the store is what
+// keeps an inbound on another IP with the same port and other users from
+// relaying for an association made on this one.
 //
 // An association belongs to the user that authenticated its control
 // connection and to one UDP source port of the client: the port the client
@@ -20,8 +25,9 @@ import (
 // datagram carries the association's user.
 
 type associationKey struct {
-	port uint16
-	ip   netip.Addr
+	store auth.AuthStore
+	port  uint16
+	ip    netip.Addr
 }
 
 type association struct {
@@ -34,7 +40,7 @@ var associations = struct {
 	byKey map[associationKey][]*association
 }{byKey: make(map[associationKey][]*association)}
 
-func newAssociationKey(local, remote net.Addr) (associationKey, netip.AddrPort, bool) {
+func newAssociationKey(store auth.AuthStore, local, remote net.Addr) (associationKey, netip.AddrPort, bool) {
 	localAddr, ok := addrPort(local)
 	if !ok {
 		return associationKey{}, netip.AddrPort{}, false
@@ -43,7 +49,7 @@ func newAssociationKey(local, remote net.Addr) (associationKey, netip.AddrPort, 
 	if !ok {
 		return associationKey{}, netip.AddrPort{}, false
 	}
-	return associationKey{port: localAddr.Port(), ip: remoteAddr.Addr()}, remoteAddr, true
+	return associationKey{store: store, port: localAddr.Port(), ip: remoteAddr.Addr()}, remoteAddr, true
 }
 
 func addrPort(addr net.Addr) (netip.AddrPort, bool) {
@@ -69,12 +75,12 @@ func addrPort(addr net.Addr) (netip.AddrPort, bool) {
 	return netip.AddrPortFrom(ap.Addr().Unmap().WithZone(""), ap.Port()), true
 }
 
-// addAssociation records an association of user for the control connection
-// with the given local and remote addresses. requested is the client address
+// addAssociation records an association of user, authenticated by store, for
+// the control connection with the given local and remote addresses. requested is the client address
 // of the UDP ASSOCIATE request (nil or unspecified when the client did not
 // name it). The returned func removes the association again.
-func addAssociation(local, remote net.Addr, user string, requested *net.UDPAddr) (release func()) {
-	key, remoteAddr, ok := newAssociationKey(local, remote)
+func addAssociation(store auth.AuthStore, local, remote net.Addr, user string, requested *net.UDPAddr) (release func()) {
+	key, remoteAddr, ok := newAssociationKey(store, local, remote)
 	if !ok {
 		return func() {}
 	}
@@ -109,11 +115,11 @@ func addAssociation(local, remote net.Addr, user string, requested *net.UDPAddr)
 	}
 }
 
-// lookupAssociation finds the association a datagram that arrived on local
-// from remote belongs to, and returns its user. A datagram from a port no
+// lookupAssociation finds the association of store a datagram that arrived on
+// local from remote belongs to, and returns its user. A datagram from a port no
 // association holds yet claims the oldest association that has none.
-func lookupAssociation(local, remote net.Addr) (user string, ok bool) {
-	key, remoteAddr, ok := newAssociationKey(local, remote)
+func lookupAssociation(store auth.AuthStore, local, remote net.Addr) (user string, ok bool) {
+	key, remoteAddr, ok := newAssociationKey(store, local, remote)
 	if !ok {
 		return "", false
 	}
@@ -136,10 +142,10 @@ func lookupAssociation(local, remote net.Addr) (user string, ok bool) {
 	return free.user, true
 }
 
-// hasAssociation reports whether any association is open for the client IP
-// of remote on local.
-func hasAssociation(local, remote net.Addr) bool {
-	key, _, ok := newAssociationKey(local, remote)
+// hasAssociation reports whether any association of store is open for the
+// client IP of remote on local.
+func hasAssociation(store auth.AuthStore, local, remote net.Addr) bool {
+	key, _, ok := newAssociationKey(store, local, remote)
 	if !ok {
 		return false
 	}

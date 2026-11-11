@@ -95,6 +95,9 @@ func NewShadowQuic(option ShadowQuicOption) (*ShadowQuic, error) {
 		MinVersion: tls.VersionTLS13,
 		Time:       ntp.Now,
 		RootCAs:    ca.GetCertPool(),
+		VerifyConnection: func(state tls.ConnectionState) error {
+			return ca.CheckChains(state.VerifiedChains)
+		},
 	}
 	if option.ALPN != nil {
 		tlsConfig.NextProtos = option.ALPN

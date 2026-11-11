@@ -3,34 +3,41 @@ title: Controller security
 description: When the controller API needs a secret, how it guards against web pages, and what a config reload changes in it.
 ---
 
-The controller API (`external-controller`, `external-controller-tls`, `external-controller-unix`, `external-controller-pipe`) can change the config, the rules, the inbound users and restart or update the core. The `secret` is its only credential: every path except the [health probes](/Citrus/en/start/metrics/), the `/ui` files and the DoH path needs `Authorization: Bearer <secret>` (a browser websocket may pass it as `?token=`).
+The controller API (`external-controller`, `external-controller-tls`, `external-controller-unix`, `external-controller-pipe`) can change the config, the rules, the inbound users and restart or update the core. The `secret` is its only credential: every path except the [health probes](/Citrus/en/start/metrics/), the `/ui` files and the DoH path needs `Authorization: Bearer <secret>` (browser WebSockets use a [one-time ticket](/Citrus/en/security/#controller-websockets); reusable `?token=` secrets require an explicit compatibility option).
 
 ## Secret on a network address
 
-The core does not start `external-controller` or `external-controller-tls` on a non-loopback address without a `secret`: `0.0.0.0:9090`, `:9090` and LAN addresses are refused with an error in the log, and `PUT /configs` with such a config answers 400 and applies nothing. The rest of the core starts as usual.
+Every TCP controller requires a credential, including loopback. Plain HTTP `external-controller` is restricted to loopback by default; a non-loopback bearer secret would travel in clear text. Refused listeners log an error, and `PUT /configs` answers 400 and applies nothing.
 
 Without a secret these work:
 
-- loopback addresses: `127.0.0.1:9090`, `[::1]:9090`, `localhost:9090`;
 - `external-controller-unix` and `external-controller-pipe`, protected by the file mode and the pipe ACL;
 - `external-controller-tls` with `tls.client-auth-type: require-and-verify` (or with `tls.client-auth-cert` set): the client certificate is the credential.
 
-`external-controller-allow-insecure: true` (or `-ext-ctl-allow-insecure`, `CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true`) turns the check off, for a network that is closed some other way. It is not recommended.
-
-A plain HTTP `external-controller` on a non-loopback address with a secret starts, with a warning: the secret travels in clear text. Use `external-controller-tls` for remote access.
+`external-controller-allow-insecure: true` (or `-ext-ctl-allow-insecure`, `CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true`) is the explicit legacy opt-in for a secretless TCP controller or remote plaintext bearer HTTP. Use `external-controller-tls` for remote access.
 
 ## Web pages and a controller without a secret
 
-A loopback controller without a secret is reachable by any web page the user opens: with the default CORS policy (`allow-origins: ["*"]`, `allow-private-network: true`) the page can read and change it, and DNS rebinding gets around the same-origin policy. So a tcp/tls controller without a secret:
+A TCP controller without a secret exists only in explicit insecure mode or with verified TLS client certificates. The browser guard remains defense in depth for the latter:
 
 - answers only requests whose `Host` is an IP address or `localhost`;
 - refuses requests with an `Origin` header (all cross-origin requests and websockets from a browser) unless the origin is the controller itself (the bundled `/ui`) or is listed literally in `external-controller-cors.allow-origins`; `"*"` does not count.
 
-Programs (scripts, panels, `curl`) send no `Origin` and are not affected. A hosted dashboard such as MetaCubeXD needs a `secret`, or its origin in `allow-origins`. A controller with a secret, and `external-controller-allow-insecure: true`, have no such guard.
+Programs (scripts, panels, `curl`) send no `Origin`. A hosted dashboard such as MetaCubeXD needs a `secret` or verified client certificate, plus its origin in `allow-origins` when applicable. Explicit insecure mode turns this guard off.
 
 ## Reloading the config
 
-`PUT /configs`, `SIGHUP` (`systemctl reload citrus`) and a restart apply the controller settings of the new config: `secret`, the addresses, `tls`, `external-controller-cors`, `external-ui`. When one of them changes, the controller listeners restart (the `PUT /configs` response is sent first) and the open websocket streams (`/logs`, `/traffic`, `/memory`, `/connections`, `/events`) are closed, so nothing authorized by a retired secret stays open. Command line overrides (`-secret`, `-ext-ctl` and the others) apply on every reload. A reload that does not change the controller leaves its connections alone.
+`PUT /configs`, `SIGHUP` (`systemctl reload citrus`) and a restart apply the controller settings of the new config: `secret`, the addresses, `tls`, `external-controller-cors`, `external-ui`. When one of them changes, the controller listeners restart (the `PUT /configs` response is sent first) and the open websocket streams (`/logs`, `/traffic`, `/memory`, `/connections`, `/events`) are closed, so nothing authorized by a retired secret stays open. Command line overrides apply on every reload. Use `-secret-file`; literal `-secret`, `-age-secret-key` and `-config` are refused unless `-allow-secret-arguments` explicitly restores the process-list exposure. A reload that does not change the controller leaves its connections alone.
+
+## Core version
+
+`GET /version` answers as mihomo does, with one more field:
+
+```json
+{"meta": true, "version": "v1.0.0-beta.3", "core": "citrus"}
+```
+
+mihomo clients skip the extra field. An app that works with both cores can name the core by `core`, and take it for mihomo when the field is missing.
 
 ## Limits
 

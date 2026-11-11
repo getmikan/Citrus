@@ -19,6 +19,7 @@ import (
 	"github.com/metacubex/mihomo/component/auth"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/egress"
 	"github.com/metacubex/mihomo/component/eventbus"
 	"github.com/metacubex/mihomo/component/geodata"
 	mihomoHttp "github.com/metacubex/mihomo/component/http"
@@ -94,15 +95,12 @@ func ApplyConfig(cfg *config.Config, force bool) {
 
 	tunnel.OnSuspend()
 
-	ca.ResetCertificate()
-	for _, c := range cfg.TLS.CustomTrustCert {
-		if err := ca.AddCertificate(c); err != nil {
-			log.Warnln("%s\nadd error: %s", c, err.Error())
-		}
-	}
+	// the pool the proxies of cfg were built with, see config.ParseRawConfig
+	ca.SwapRoots(cfg.TLS.Roots)
 
 	updateExperimental(cfg.Experimental)
 	updateMetrics(cfg.Metrics)
+	updateEgressGuard(cfg.EgressGuard)
 	updateUsers(cfg.Users)
 	updateProxies(cfg.Proxies, cfg.Providers)
 	updateRules(cfg.Rules, cfg.SubRules, cfg.RuleProviders)
@@ -189,6 +187,7 @@ func GetGeneral() *config.General {
 		authenticator = auth.Users()
 	}
 
+	geoVerification := geodata.CurrentVerificationPolicy()
 	general := &config.General{
 		Inbound: config.Inbound{
 			Port:              ports.Port,
@@ -219,6 +218,12 @@ func GetGeneral() *config.General {
 			Mmdb:    geodata.MmdbUrl(),
 			ASN:     geodata.ASNUrl(),
 			GeoSite: geodata.GeoSiteUrl(),
+		},
+		GeoXSHA256: config.GeoXSHA256{
+			GeoIp:   geoVerification.GeoIP,
+			Mmdb:    geoVerification.MMDB,
+			ASN:     geoVerification.ASN,
+			GeoSite: geoVerification.GeoSite,
 		},
 		GeoAutoUpdate:     updater.GeoAutoUpdate(),
 		GeoUpdateInterval: updater.GeoUpdateInterval(),
@@ -253,9 +258,7 @@ func GetGeneral() *config.General {
 func updateListeners(general *config.General, listeners map[string]C.InboundListener, force bool) {
 	listener.PatchInboundListeners(listeners, tunnel.Tunnel, true)
 
-	inbound.SetSkipAuthPrefixes(general.SkipAuthPrefixes)
-	inbound.SetAllowedIPs(general.LanAllowedIPs)
-	inbound.SetDisAllowedIPs(general.LanDisAllowedIPs)
+	inbound.SetAccessPolicy(general.SkipAuthPrefixes, general.LanAllowedIPs, general.LanDisAllowedIPs)
 	listener.SetAllowLan(general.AllowLan)
 	listener.SetBindAddress(general.BindAddress)
 
@@ -278,6 +281,13 @@ func updateMetrics(c *config.Metrics) {
 		c = &config.Metrics{}
 	}
 	metrics.SetOptions(metrics.Options{Enable: c.Enable, PerUser: c.PerUser, HealthWithoutAuth: c.HealthWithoutAuth})
+}
+
+func updateEgressGuard(o *egress.Options) {
+	if o == nil {
+		o = &egress.Options{Enable: true}
+	}
+	egress.SetOptions(*o)
 }
 
 func updateTun(general *config.General) {
@@ -468,7 +478,7 @@ func updateUpdater(cfg *config.Config) {
 	updater.SetGeoUpdateInterval(general.GeoUpdateInterval)
 
 	controller := cfg.Controller
-	updater.DefaultUiUpdater = updater.NewUiUpdater(controller.ExternalUI, controller.ExternalUIURL, controller.ExternalUIName)
+	updater.DefaultUiUpdater = updater.NewUiUpdater(controller.ExternalUI, controller.ExternalUIURL, controller.ExternalUIName, controller.ExternalUISHA256, controller.ExternalUIAllowInsecure)
 	updater.DefaultUiUpdater.AutoDownloadUI()
 }
 
@@ -517,6 +527,10 @@ func updateGeneral(general *config.General, logging bool) {
 	geodata.SetGeoSiteUrl(general.GeoXUrl.GeoSite)
 	geodata.SetMmdbUrl(general.GeoXUrl.Mmdb)
 	geodata.SetASNUrl(general.GeoXUrl.ASN)
+	geodata.SetVerificationPolicy(geodata.VerificationPolicy{
+		GeoIP: general.GeoXSHA256.GeoIp, MMDB: general.GeoXSHA256.Mmdb,
+		ASN: general.GeoXSHA256.ASN, GeoSite: general.GeoXSHA256.GeoSite,
+	})
 	mihomoHttp.SetUA(general.GlobalUA)
 	resource.SetETag(general.ETagSupport)
 }

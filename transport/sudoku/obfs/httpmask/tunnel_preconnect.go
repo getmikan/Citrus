@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/metacubex/mihomo/component/ca"
+
 	"github.com/metacubex/tls"
 )
 
@@ -339,9 +341,14 @@ func (d *preconnectDialer) dialTLSFresh(ctx context.Context, network, addr strin
 	dialCtx, cancel := context.WithTimeout(ctx, tunnelTLSHandshakeLimit)
 	defer cancel()
 
-	config := &tls.Config{MinVersion: tls.VersionTLS12}
+	var config *tls.Config
 	if d != nil && d.tlsConfig != nil {
 		config = d.tlsConfig.Clone()
+	} else {
+		var err error
+		if config, err = ca.GetTLSConfig(ca.Option{TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}); err != nil {
+			return nil, err
+		}
 	}
 	if d != nil && addr == d.urlHost {
 		config.ServerName = d.serverName

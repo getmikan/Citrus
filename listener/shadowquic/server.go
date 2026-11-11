@@ -189,6 +189,7 @@ func New(config LC.ShadowQuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, 
 		}
 		ul, err := lc.ListenPacket(context.Background(), "udp", addr)
 		if err != nil {
+			_ = sl.Close()
 			return nil, err
 		}
 		if err := sockopt.UDPReuseaddr(ul); err != nil {
@@ -198,6 +199,7 @@ func New(config LC.ShadowQuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, 
 
 		server, err := shadowquic.NewServer(option, ul)
 		if err != nil {
+			_ = sl.Close() // ul is already in sl.udpListeners
 			return nil, err
 		}
 		sl.servers = append(sl.servers, server)

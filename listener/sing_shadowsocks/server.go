@@ -11,6 +11,7 @@ import (
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/sockopt"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/inbounduser"
@@ -186,6 +187,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 			//UDP
 			ul, err := lc.ListenPacket(context.Background(), "udp", addr)
 			if err != nil {
+				_ = sl.Close() // the earlier addresses
 				return nil, err
 			}
 
@@ -246,6 +248,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 		//TCP
 		l, err := lc.Listen(context.Background(), "tcp", addr)
 		if err != nil {
+			_ = sl.Close() // the earlier addresses
 			return nil, err
 		}
 		if shadowTLSBuilder != nil {
@@ -259,12 +262,9 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 
 		go func() {
 			for {
-				c, err := l.Accept()
+				c, err := accept.Next(l, sl.closed.Load)
 				if err != nil {
-					if sl.closed.Load() {
-						break
-					}
-					continue
+					break
 				}
 
 				go sl.HandleConn(c, tunnel)

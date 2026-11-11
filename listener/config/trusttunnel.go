@@ -14,6 +14,7 @@ type TrustTunnelServer struct {
 	ClientAuthCert       string            `yaml:"client-auth-cert" json:"client-auth-cert,omitempty"`
 	EchKey               string            `yaml:"ech-key" json:"ech-key"`
 	Network              []string          `yaml:"network" json:"network,omitempty"`
+	ZeroRTT              bool              `yaml:"zero-rtt" json:"zero-rtt,omitempty"`
 	CongestionController string            `yaml:"congestion-controller" json:"congestion-controller,omitempty"`
 	CWND                 int               `yaml:"cwnd" json:"cwnd,omitempty"`
 	BBRProfile           string            `yaml:"bbr-profile" json:"bbr-profile,omitempty"`

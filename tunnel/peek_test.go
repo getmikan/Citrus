@@ -30,6 +30,10 @@ func TestMayNeedHandshake(t *testing.T) {
 	group := func(next C.Proxy) C.Proxy { return fakeProxy{Proxy: direct, typ: C.Selector, next: next} }
 
 	assert.False(t, tunnel.MayNeedHandshake(direct, metadata))
+	desync, err := adapter.ParseProxy(map[string]any{"name": "desync", "type": "desync", "tlsrec": "1+s"})
+	assert.NoError(t, err)
+	assert.False(t, tunnel.MayNeedHandshake(desync, metadata))
+	assert.False(t, tunnel.MayNeedHandshake(group(desync), metadata), "a group picking desync")
 	assert.False(t, tunnel.MayNeedHandshake(reject, metadata))
 	assert.True(t, tunnel.MayNeedHandshake(vless, metadata))
 	assert.False(t, tunnel.MayNeedHandshake(group(group(direct)), metadata), "a group picking DIRECT")

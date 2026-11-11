@@ -26,6 +26,7 @@ func startRealmListener(t *testing.T, config LC.Hysteria2RealmServer) (*Listener
 	t.Helper()
 	config.Listen = "127.0.0.1:0"
 	config.Token = "realm-token"
+	config.AllowInsecure = true
 	if config.RealmNamePattern == "" {
 		config.RealmNamePattern = DefaultRealmNamePattern
 	}
@@ -33,6 +34,22 @@ func startRealmListener(t *testing.T, config LC.Hysteria2RealmServer) (*Listener
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close() })
 	return l, "http://" + l.AddrList()[0].String()
+}
+
+func TestRealmPlaintextRequiresExplicitLoopbackOptIn(t *testing.T) {
+	base := LC.Hysteria2RealmServer{Listen: "127.0.0.1:0", Token: "token", RealmNamePattern: DefaultRealmNamePattern}
+	_, err := New(base, inbound.NewListenConfig(), nil)
+	require.ErrorContains(t, err, "TLS is required")
+
+	base.AllowInsecure = true
+	base.Listen = "0.0.0.0:0"
+	_, err = New(base, inbound.NewListenConfig(), nil)
+	require.ErrorContains(t, err, "restricted to loopback")
+
+	base.Listen = "127.0.0.1:0"
+	base.Certificate = "certificate-only"
+	_, err = New(base, inbound.NewListenConfig(), nil)
+	require.ErrorContains(t, err, "configured together")
 }
 
 func realmCall(t *testing.T, method, url, bearer string, header http.Header, body string) (int, map[string]any) {

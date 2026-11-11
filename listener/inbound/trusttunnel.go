@@ -19,6 +19,7 @@ type TrustTunnelOption struct {
 	ClientAuthCert       string    `inbound:"client-auth-cert,omitempty"`
 	EchKey               string    `inbound:"ech-key,omitempty"`
 	Network              []string  `inbound:"network,omitempty"`
+	ZeroRTT              bool      `inbound:"zero-rtt,omitempty"`
 	CongestionController string    `inbound:"congestion-controller,omitempty"`
 	CWND                 int       `inbound:"cwnd,omitempty"`
 	BBRProfile           string    `inbound:"bbr-profile,omitempty"`
@@ -64,6 +65,7 @@ func NewTrustTunnel(options *TrustTunnelOption) (*TrustTunnel, error) {
 			ClientAuthCert:       options.ClientAuthCert,
 			EchKey:               options.EchKey,
 			Network:              options.Network,
+			ZeroRTT:              options.ZeroRTT,
 			CongestionController: options.CongestionController,
 			CWND:                 options.CWND,
 			BBRProfile:           options.BBRProfile,

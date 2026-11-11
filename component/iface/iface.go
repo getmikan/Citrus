@@ -137,12 +137,15 @@ func ResolveInterfaceByAddr(addr netip.Addr) (*Interface, error) {
 	return iface, nil
 }
 
+// IsLocalIp reports whether addr is assigned to an interface of this host
+// that is up. Its IPv6 zone and IPv4-mapped form are not part of the
+// address: the interface addresses are kept without them.
 func IsLocalIp(addr netip.Addr) (bool, error) {
 	cache, err := getCache()
 	if err != nil {
 		return false, err
 	}
-	_, ok := cache.ifMapByAddr[addr]
+	_, ok := cache.ifMapByAddr[addr.Unmap().WithZone("")]
 	return ok, nil
 }
 

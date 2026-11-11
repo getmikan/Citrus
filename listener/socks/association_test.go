@@ -1,7 +1,9 @@
 package socks
 
 import (
+	"math/rand/v2"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -43,9 +45,10 @@ func newSocksPair(t *testing.T, store auth.AuthStore) (*Listener, *UDPListener, 
 	additions := []inbound.Addition{inbound.WithInName("test-socks")}
 
 	// The UDP listener shares the TCP listener's port, as the real inbounds do.
-	// Free TCP ports come out sequentially and a run of them can fall inside an
-	// excluded UDP range on Windows, so take a free UDP port first and open TCP
-	// on it, falling back to the other order.
+	// Windows hands out ephemeral ports in sequence and excludes UDP and TCP
+	// ports in blocks of 100 (Hyper-V and others), several blocks in a row,
+	// so even 20 tries of port 0 can all land in excluded ports. Try random
+	// ports below the ephemeral range, where those blocks are not placed.
 	newTCP := func(listen string) (*Listener, error) {
 		return NewWithConfig(LC.AuthServer{Enable: true, Listen: listen, AuthStore: store}, inbound.NewListenConfig(), tunnel, additions...)
 	}
@@ -55,20 +58,15 @@ func newSocksPair(t *testing.T, store auth.AuthStore) (*Listener, *UDPListener, 
 	var tcp *Listener
 	var udp *UDPListener
 	var err error
-	for i := 0; i < 20; i++ {
-		udp, err = newUDP("127.0.0.1:0")
-		require.NoError(t, err)
-		if tcp, err = newTCP(udp.Address()); err == nil {
+	for i := 0; i < 50; i++ {
+		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(20000+rand.IntN(20000)))
+		if udp, err = newUDP(addr); err != nil {
+			continue
+		}
+		if tcp, err = newTCP(addr); err == nil {
 			break
 		}
 		_ = udp.Close()
-
-		tcp, err = newTCP("127.0.0.1:0")
-		require.NoError(t, err)
-		if udp, err = newUDP(tcp.Address()); err == nil {
-			break
-		}
-		_ = tcp.Close()
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -97,10 +95,10 @@ func associate(t *testing.T, addr string, user *socks5.User) net.Conn {
 	return conn
 }
 
-func waitAssociation(t *testing.T, udp *UDPListener, client net.PacketConn, want bool) {
+func waitAssociation(t *testing.T, store auth.AuthStore, udp *UDPListener, client net.PacketConn, want bool) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		return hasAssociation(udp.packetConn.LocalAddr(), client.LocalAddr()) == want
+		return hasAssociation(store, udp.packetConn.LocalAddr(), client.LocalAddr()) == want
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
@@ -127,13 +125,13 @@ func TestSocksUDPRequiresAssociationWithAuth(t *testing.T) {
 
 	// Authenticated association: relayed.
 	control := associate(t, tcp.Address(), &socks5.User{Username: "u", Password: "p"})
-	waitAssociation(t, udp, client, true)
+	waitAssociation(t, store, udp, client, true)
 	sendSocksUDP(t, client, udp.Address())
 	require.True(t, tunnel.received(2*time.Second), "datagram not relayed with an open association")
 
 	// Control connection closed: dropped again.
 	require.NoError(t, control.Close())
-	waitAssociation(t, udp, client, false)
+	waitAssociation(t, store, udp, client, false)
 	sendSocksUDP(t, client, udp.Address())
 	require.False(t, tunnel.received(300*time.Millisecond), "datagram relayed after the association ended")
 }
@@ -155,19 +153,19 @@ func TestAssociationRefCount(t *testing.T) {
 	udpFrom := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 6000}
 	udpLocal := &net.UDPAddr{IP: net.IPv4zero, Port: 1080}
 
-	r1 := addAssociation(local, remote, "", nil)
-	r2 := addAssociation(local, remote, "", nil)
-	require.True(t, hasAssociation(udpLocal, udpFrom))
+	r1 := addAssociation(authStore.Nil, local, remote, "", nil)
+	r2 := addAssociation(authStore.Nil, local, remote, "", nil)
+	require.True(t, hasAssociation(authStore.Nil, udpLocal, udpFrom))
 	r1()
 	r1() // idempotent
-	require.True(t, hasAssociation(udpLocal, udpFrom))
+	require.True(t, hasAssociation(authStore.Nil, udpLocal, udpFrom))
 	r2()
-	require.False(t, hasAssociation(udpLocal, udpFrom))
+	require.False(t, hasAssociation(authStore.Nil, udpLocal, udpFrom))
 
 	// IPv4-mapped addresses match their IPv4 form.
 	mapped := &net.TCPAddr{IP: net.ParseIP("::ffff:127.0.0.2"), Port: 5555}
-	r3 := addAssociation(local, mapped, "", nil)
-	require.True(t, hasAssociation(udpLocal, udpFrom))
+	r3 := addAssociation(authStore.Nil, local, mapped, "", nil)
+	require.True(t, hasAssociation(authStore.Nil, udpLocal, udpFrom))
 	r3()
 }
 
@@ -179,32 +177,53 @@ func TestAssociationBindsUserAndPort(t *testing.T) {
 	udpLocal := &net.UDPAddr{IP: net.IPv4zero, Port: 1081}
 	from := func(port int) *net.UDPAddr { return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 3), Port: port} }
 
-	rAlice := addAssociation(local, remote, "alice", &net.UDPAddr{IP: net.IPv4zero})
+	rAlice := addAssociation(authStore.Nil, local, remote, "alice", &net.UDPAddr{IP: net.IPv4zero})
 	defer rAlice()
-	user, ok := lookupAssociation(udpLocal, from(6000))
+	user, ok := lookupAssociation(authStore.Nil, udpLocal, from(6000))
 	require.True(t, ok)
 	require.Equal(t, "alice", user)
-	user, ok = lookupAssociation(udpLocal, from(6000))
+	user, ok = lookupAssociation(authStore.Nil, udpLocal, from(6000))
 	require.True(t, ok)
 	require.Equal(t, "alice", user)
-	_, ok = lookupAssociation(udpLocal, from(6001))
+	_, ok = lookupAssociation(authStore.Nil, udpLocal, from(6001))
 	require.False(t, ok, "another port of the same IP rode on alice's association")
 
 	// bob names his own address: only that port is his
-	rBob := addAssociation(local, remote, "bob", from(7000))
-	_, ok = lookupAssociation(udpLocal, from(6001))
+	rBob := addAssociation(authStore.Nil, local, remote, "bob", from(7000))
+	_, ok = lookupAssociation(authStore.Nil, udpLocal, from(6001))
 	require.False(t, ok)
-	user, ok = lookupAssociation(udpLocal, from(7000))
+	user, ok = lookupAssociation(authStore.Nil, udpLocal, from(7000))
 	require.True(t, ok)
 	require.Equal(t, "bob", user)
 	rBob()
-	_, ok = lookupAssociation(udpLocal, from(7000))
+	_, ok = lookupAssociation(authStore.Nil, udpLocal, from(7000))
 	require.False(t, ok)
 
 	// a freed association no longer answers for its port
 	rAlice()
-	_, ok = lookupAssociation(udpLocal, from(6000))
+	_, ok = lookupAssociation(authStore.Nil, udpLocal, from(6000))
 	require.False(t, ok)
+}
+
+// Another inbound on another IP with the same port and its own users (the
+// UDP listener of a wildcard address cannot tell the IPs apart) must not
+// relay for an association made on this one.
+func TestAssociationBelongsToItsStore(t *testing.T) {
+	alice := authStore.NewAuthStore(auth.NewAuthenticator([]auth.AuthUser{{User: "alice", Pass: "p"}}))
+	bob := authStore.NewAuthStore(auth.NewAuthenticator([]auth.AuthUser{{User: "bob", Pass: "p"}}))
+	local := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1082}
+	remote := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 4), Port: 5555}
+	udpFrom := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 4), Port: 6000}
+	otherLocal := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 1082}
+
+	release := addAssociation(alice, local, remote, "alice", nil)
+	defer release()
+	require.False(t, hasAssociation(bob, otherLocal, udpFrom))
+	_, ok := lookupAssociation(bob, otherLocal, udpFrom)
+	require.False(t, ok, "bob's inbound relayed as alice")
+	user, ok := lookupAssociation(alice, otherLocal, udpFrom)
+	require.True(t, ok)
+	require.Equal(t, "alice", user)
 }
 
 // A datagram is relayed as the user of its association, and a second socket
@@ -222,7 +241,7 @@ func TestSocksUDPAssociationUser(t *testing.T) {
 
 	control := associate(t, tcp.Address(), &socks5.User{Username: "u", Password: "p"})
 	defer control.Close()
-	waitAssociation(t, udp, client, true)
+	waitAssociation(t, store, udp, client, true)
 
 	sendSocksUDP(t, client, udp.Address())
 	select {

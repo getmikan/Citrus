@@ -5,14 +5,19 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/httputils"
+	"github.com/metacubex/mihomo/common/sockopt"
+	"github.com/metacubex/mihomo/component/authevent"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/fallback"
 	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/jls"
 	"github.com/metacubex/mihomo/listener/reality"
@@ -23,7 +28,9 @@ import (
 	"github.com/metacubex/mihomo/ntp"
 	"github.com/metacubex/mihomo/transport/gun"
 	"github.com/metacubex/mihomo/transport/v2ray"
+	"github.com/metacubex/mihomo/transport/vless"
 	"github.com/metacubex/mihomo/transport/vless/encryption"
+	"github.com/metacubex/mihomo/transport/xdrive"
 	"github.com/metacubex/mihomo/transport/xhttp"
 
 	"github.com/metacubex/http"
@@ -34,12 +41,14 @@ import (
 )
 
 type Listener struct {
-	closed     bool
+	closed     atomic.Bool
 	config     LC.VlessServer
 	listeners  []net.Listener
+	h3         []*h3Listener // XHTTP over HTTP/3 (alpn h3)
 	service    *Service
 	decryption *encryption.ServerInstance
 	realIP     httputils.RealIP
+	fallbacks  *fallback.Streams // nil: none
 }
 
 func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (sl *Listener, err error) {
@@ -72,6 +81,12 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	}
 
 	sl = &Listener{config: config, service: service, realIP: realIP}
+	listener := sl // sl is nil once an error is returned
+	defer func() { // a listen address that fails must not leave the earlier ones open
+		if err != nil {
+			_ = listener.closeListeners()
+		}
+	}()
 
 	sl.decryption, err = encryption.NewServer(config.Decryption)
 	if err != nil {
@@ -84,6 +99,66 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 				_ = decryption.Close()
 			}
 		}()
+	}
+
+	if len(config.Fallbacks) > 0 {
+		if sl.decryption != nil {
+			return nil, errors.New("fallbacks cannot be combined with decryption: they read the VLESS header in the clear")
+		}
+		if config.WsPath != "" || config.GrpcServiceName != "" || config.XHTTPConfig.Path != "" || config.XHTTPConfig.Host != "" || config.XHTTPConfig.Mode != "" {
+			return nil, errors.New("fallbacks work on the plain TCP transport only; ws, grpc and xhttp take fallback-page")
+		}
+		if sl.fallbacks, err = fallback.NewStreams("VLESS", config.Fallbacks); err != nil {
+			return nil, err
+		}
+		if config.FallbackPage != "" {
+			log.Warnln("[VLESS] %s: fallback-page is for ws, grpc and xhttp; fallbacks serve the plain TCP transport", config.Listen)
+		}
+		defer func() {
+			if err != nil {
+				sl.fallbacks.Close()
+			}
+		}()
+	}
+
+	xhttpOn := config.XHTTPConfig.Path != "" || config.XHTTPConfig.Host != "" || config.XHTTPConfig.Mode != ""
+	if len(config.ALPN) != 0 && !xhttpOn {
+		// configs from before alpn existed may carry one (copied from an
+		// outbound or a hysteria2 inbound), which was ignored then
+		log.Warnln("[VLESS] alpn %v is ignored: it is only supported with xhttp-config", config.ALPN)
+		config.ALPN = nil
+	}
+
+	if config.XDriveConfig != nil {
+		if sl.decryption == nil {
+			return nil, errors.New("xdrive requires VLESS decryption")
+		}
+		for _, user := range config.Users {
+			if user.Flow != "" {
+				return nil, errors.New("xdrive does not support VLESS flow")
+			}
+		}
+		if strings.Contains(config.Listen, ",") {
+			return nil, errors.New("xdrive requires exactly one listener address")
+		}
+		if config.WsPath != "" || config.GrpcServiceName != "" || config.XHTTPConfig != (LC.XHTTPConfig{}) || config.Certificate != "" || config.PrivateKey != "" || config.RealityConfig.PrivateKey != "" || config.ShadowTLS.Password != "" || config.ResTLS.Password != "" || config.JLSConfig.Enable {
+			return nil, errors.New("xdrive cannot be combined with TCP transport or server TLS settings")
+		}
+		storageListener, err := xdrive.Listen(*config.XDriveConfig, nil)
+		if err != nil {
+			return nil, err
+		}
+		sl.listeners = append(sl.listeners, storageListener)
+		go func() {
+			for {
+				conn, err := storageListener.Accept()
+				if err != nil {
+					return
+				}
+				go sl.HandleConn(conn, tunnel)
+			}
+		}()
+		return sl, nil
 	}
 
 	httpServer := http.Server{
@@ -131,6 +206,8 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	if tlsConfig.ClientAuth != tls.NoClientCert && tlsConfig.GetCertificate == nil {
 		return nil, errors.New("client-auth requires certificate")
 	}
+	// fallbacks matched by ALPN need it negotiated
+	tlsConfig.NextProtos = fallback.NextProtos(config.Fallbacks)
 	securityModes := make([]string, 0, 5)
 	if tlsConfig.GetCertificate != nil {
 		securityModes = append(securityModes, "certificate")
@@ -171,9 +248,29 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 			return nil, err
 		}
 	}
+	serveTCP, serveH3, err := xhttpALPN(config.ALPN)
+	if err != nil {
+		return nil, err
+	}
+	if serveH3 {
+		if err = h3SecurityError(securityModes); err != nil {
+			return nil, err
+		}
+	}
+	if !serveTCP && (config.WsPath != "" || config.GrpcServiceName != "") {
+		// ws and gRPC do not run over HTTP/3, and nothing would listen on TCP
+		return nil, errors.New("ws-path and grpc-service-name need TCP: add h2 or http/1.1 to alpn next to h3")
+	}
+	// fallback-page: what a request that is not the inbound's own gets on an HTTP transport.
+	// Only with one: a handler makes the listener serve HTTP, which plain VLESS does not.
+	var page http.Handler
+	if config.FallbackPage != "" && (config.WsPath != "" || config.GrpcServiceName != "" || xhttpOn) {
+		if page, err = fallback.Page(config.FallbackPage); err != nil {
+			return nil, err
+		}
+	}
 	if config.WsPath != "" {
-		httpMux := http.NewServeMux()
-		httpMux.HandleFunc(config.WsPath, func(w http.ResponseWriter, r *http.Request) {
+		httpServer.Handler = fallback.WebSocket(config.WsPath, page, func(w http.ResponseWriter, r *http.Request) {
 			conn, err := v2ray.StreamUpgradedWebsocketConn(w, r)
 			if err != nil {
 				http.Error(w, err.Error(), 500)
@@ -181,17 +278,20 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 			}
 			sl.HandleHTTPConn(r, conn, tunnel, additions...)
 		})
-		httpServer.Handler = httpMux
 		httpServer.Protocols.SetHTTP1(true)
 		tlsConfig.NextProtos = append(tlsConfig.NextProtos, "http/1.1")
 	}
 	if config.GrpcServiceName != "" {
+		other := httpServer.Handler
+		if other == nil {
+			other = page
+		}
 		httpServer.Handler = gun.NewServerHandler(gun.ServerOption{
 			ServiceName: config.GrpcServiceName,
 			ConnHandler: func(conn net.Conn, r *http.Request) {
 				sl.HandleHTTPConn(r, conn, tunnel, additions...)
 			},
-			HttpHandler: httpServer.Handler,
+			HttpHandler: other,
 		})
 		httpServer.Protocols.SetHTTP2(true)
 		// SetUnencryptedHTTP2 to ensure we can work in plain http2 and some tls conn is not *tls.Conn (like *reality.Conn)
@@ -214,7 +314,7 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	if config.XHTTPConfig.ServerMaxHeaderBytes < 0 {
 		return nil, errors.New("invalid negative value of xhttp server-max-header-bytes")
 	}
-	if config.XHTTPConfig.Path != "" || config.XHTTPConfig.Host != "" || config.XHTTPConfig.Mode != "" {
+	if xhttpOn {
 		httpServer.Handler, err = xhttp.NewServerHandler(xhttp.ServerOption{
 			Config: xhttp.Config{
 				Host:                 config.XHTTPConfig.Host,
@@ -243,6 +343,7 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 				sl.HandleHTTPConn(r, conn, tunnel, additions...)
 			},
 			HttpHandler: httpServer.Handler,
+			Fallback:    page,
 			// NewConnection reports the authenticated user through the
 			// request's OnAuthenticated (HandleHTTPConn passes it on)
 			ReportsAuthentication: true,
@@ -277,43 +378,68 @@ func New(config LC.VlessServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	for _, addr := range strings.Split(config.Listen, ",") {
 		addr := addr
 
-		//TCP
-		l, err := lc.Listen(context.Background(), "tcp", addr)
-		if err != nil {
-			return nil, err
+		if serveH3 && strings.HasPrefix(addr, inbound.UnixSocketPrefix) {
+			return nil, errors.New("xhttp over h3 cannot listen on a unix socket")
 		}
-		if shadowTLSBuilder != nil {
-			l = shadowTLSBuilder.NewListener(l)
-		} else if restlsBuilder != nil {
-			l = restlsBuilder.NewListener(l)
-		} else if jlsBuilder != nil {
-			l = jlsBuilder.NewListener(l)
-		} else if realityBuilder != nil {
-			l = realityBuilder.NewListener(l)
-		} else if tlsConfig.GetCertificate != nil {
-			l = tls.NewListener(l, tlsConfig)
-		} else if sl.decryption == nil && !config.AllowInsecure {
-			return nil, errors.New("disallow using Vless without any certificates/shadow-tls/res-tls/jls/reality/decryption/allow-insecure config")
-		}
-		sl.listeners = append(sl.listeners, l)
-
-		go func() {
-			if httpServer.Handler != nil {
-				_ = httpServer.Serve(l)
-				return
+		var tcpAddr net.Addr
+		if serveTCP {
+			//TCP
+			l, err := lc.Listen(context.Background(), "tcp", addr)
+			if err != nil {
+				return nil, err
 			}
-			for {
-				c, err := l.Accept()
-				if err != nil {
-					if sl.closed {
+			tcpAddr = l.Addr()
+			if shadowTLSBuilder != nil {
+				l = shadowTLSBuilder.NewListener(l)
+			} else if restlsBuilder != nil {
+				l = restlsBuilder.NewListener(l)
+			} else if jlsBuilder != nil {
+				l = jlsBuilder.NewListener(l)
+			} else if realityBuilder != nil {
+				l = realityBuilder.NewListener(l)
+			} else if tlsConfig.GetCertificate != nil {
+				l = tls.NewListener(l, tlsConfig)
+			} else if sl.decryption == nil && !config.AllowInsecure {
+				_ = l.Close()
+				return nil, errors.New("disallow using Vless without any certificates/shadow-tls/res-tls/jls/reality/decryption/allow-insecure config")
+			}
+			sl.listeners = append(sl.listeners, l)
+
+			go func() {
+				if httpServer.Handler != nil {
+					_ = httpServer.Serve(l)
+					return
+				}
+				// listener, not sl: a later address that fails returns nil
+				// into sl while this loop still runs until the cleanup
+				// closes l
+				for {
+					c, err := accept.Next(l, listener.closed.Load)
+					if err != nil {
 						break
 					}
-					continue
-				}
 
-				go sl.HandleConn(c, tunnel)
+					go listener.acceptConn(c, tunnel)
+				}
+			}()
+		}
+
+		//UDP: XHTTP over HTTP/3, the same handler and so the same sessions
+		if serveH3 {
+			pc, err := lc.ListenPacket(context.Background(), "udp", h3UDPAddr(addr, tcpAddr))
+			if err != nil {
+				return nil, err
 			}
-		}()
+			if err := sockopt.UDPReuseaddr(pc); err != nil {
+				log.Warnln("Failed to Reuse UDP Address: %s", err)
+			}
+			// NextProtos is complete here; ConfigureTLSConfig offers h3 alone on a clone
+			h3l, err := listenH3(pc, tlsConfig, httpServer.Handler, config.XHTTPConfig.ServerMaxHeaderBytes)
+			if err != nil {
+				return nil, err
+			}
+			sl.h3 = append(sl.h3, h3l)
+		}
 	}
 
 	return sl, nil
@@ -324,11 +450,27 @@ func (l *Listener) Users() []C.InboundUser { return l.service.Users() }
 
 // ReplaceUsers swaps the users without closing the listener.
 func (l *Listener) ReplaceUsers(users []C.InboundUser) (inbounduser.Change, error) {
+	if l.config.XDriveConfig != nil {
+		for _, user := range users {
+			if user.Flow != "" {
+				return inbounduser.Change{}, errors.New("xdrive does not support VLESS flow")
+			}
+		}
+	}
 	return l.service.ReplaceUsers(users)
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	retErr := l.closeListeners()
+	if l.decryption != nil {
+		_ = l.decryption.Close()
+	}
+	return retErr
+}
+
+// closeListeners closes the TCP listeners and the HTTP/3 servers.
+func (l *Listener) closeListeners() error {
+	l.closed.Store(true)
 	var retErr error
 	for _, lis := range l.listeners {
 		err := lis.Close()
@@ -336,8 +478,14 @@ func (l *Listener) Close() error {
 			retErr = err
 		}
 	}
-	if l.decryption != nil {
-		_ = l.decryption.Close()
+	for _, lis := range l.h3 {
+		err := lis.Close()
+		if err != nil {
+			retErr = err
+		}
+	}
+	if l.fallbacks != nil {
+		l.fallbacks.Close()
 	}
 	return retErr
 }
@@ -350,6 +498,11 @@ func (l *Listener) AddrList() (addrList []net.Addr) {
 	for _, lis := range l.listeners {
 		addrList = append(addrList, lis.Addr())
 	}
+	if len(l.listeners) == 0 { // HTTP/3 only; otherwise UDP shares the TCP ports
+		for _, lis := range l.h3 {
+			addrList = append(addrList, lis.conn.LocalAddr())
+		}
+	}
 	return
 }
 
@@ -357,25 +510,55 @@ func (l *Listener) HandleHTTPConn(r *http.Request, conn net.Conn, tunnel C.Tunne
 	onAuthenticated := xhttp.OnAuthenticated(r)
 	if ap := l.realIP.ClientAddrPort(r); ap.IsValid() {
 		additions = append(slices.Clip(additions), inbound.WithSrcAddrPort(ap))
-		l.serveConnAuth(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), onAuthenticated, tunnel, additions...)
+		l.serveConnAuth(conn, httputils.ClientNetAddr(ap, conn.RemoteAddr()), onAuthenticated, false, tunnel, additions...)
 		return
 	}
-	l.serveConnAuth(conn, nil, onAuthenticated, tunnel, additions...)
+	l.serveConnAuth(conn, nil, onAuthenticated, false, tunnel, additions...)
 }
 
 func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
 	l.serveConn(conn, nil, tunnel, additions...)
 }
 
+// acceptConn serves a conn of the plain TCP transport, through the fallbacks
+// if there are any: a stream that does not start with VLESS version 0 and a
+// known UUID goes to one of them, with the bytes read from it.
+func (l *Listener) acceptConn(conn net.Conn, tunnel C.Tunnel) {
+	if l.fallbacks == nil {
+		l.HandleConn(conn, tunnel)
+		return
+	}
+	// the window of the whole header, the sniffed bytes included: cleared by
+	// NewConnection, or by the fallback once the stream is classified
+	setHandshakeDeadline(conn)
+	conn, ok := l.fallbacks.Sniff(conn, 1+16, func(b []byte) fallback.Verdict {
+		if b[0] != vless.Version {
+			return fallback.Other
+		}
+		if len(b) < 1+16 {
+			return fallback.More
+		}
+		if !l.service.known([16]byte(b[1:17])) {
+			authevent.EmitAddr("vless", authevent.ReasonWrongCredentials, conn.LocalAddr(), conn.RemoteAddr())
+			return fallback.Other
+		}
+		return fallback.Own
+	})
+	if ok {
+		l.serveConnAuth(conn, nil, nil, true, tunnel)
+	}
+}
+
 // serveConn serves a vless connection; client is the address of the client
 // behind a trusted reverse proxy, nil when the TCP peer is the client.
 func (l *Listener) serveConn(conn net.Conn, client net.Addr, tunnel C.Tunnel, additions ...inbound.Addition) {
-	l.serveConnAuth(conn, client, nil, tunnel, additions...)
+	l.serveConnAuth(conn, client, nil, false, tunnel, additions...)
 }
 
 // serveConnAuth is serveConn with onAuthenticated, called (if not nil) once
-// the user is authenticated.
-func (l *Listener) serveConnAuth(conn net.Conn, client net.Addr, onAuthenticated func(), tunnel C.Tunnel, additions ...inbound.Addition) {
+// the user is authenticated; armed is true when the caller has set the
+// handshake deadline already.
+func (l *Listener) serveConnAuth(conn net.Conn, client net.Addr, onAuthenticated func(), armed bool, tunnel C.Tunnel, additions ...inbound.Addition) {
 	ctx := sing.WithAdditions(context.TODO(), additions...)
 	if client != nil {
 		ctx = withClientAddr(ctx, client)
@@ -383,9 +566,11 @@ func (l *Listener) serveConnAuth(conn net.Conn, client net.Addr, onAuthenticated
 	if onAuthenticated != nil {
 		ctx = withOnAuthenticated(ctx, onAuthenticated)
 	}
-	// cleared by NewConnection once the request header is read and the user
-	// is authenticated
-	setHandshakeDeadline(conn)
+	if !armed {
+		// cleared by NewConnection once the request header is read and the
+		// user is authenticated
+		setHandshakeDeadline(conn)
+	}
 	if l.decryption != nil {
 		c, err := l.decryption.Handshake(conn, nil)
 		if err != nil {

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/jls"
@@ -21,7 +23,7 @@ import (
 )
 
 type Listener struct {
-	closed       bool
+	closed       atomic.Bool
 	config       LC.ShadowsocksServer
 	listeners    []net.Listener
 	udpListeners []*UDPListener
@@ -104,6 +106,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 			//UDP
 			ul, err := NewUDP(addr, lc, pickCipher, tunnel, additions...)
 			if err != nil {
+				_ = sl.Close() // the earlier addresses
 				return nil, err
 			}
 			sl.udpListeners = append(sl.udpListeners, ul)
@@ -112,6 +115,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 		//TCP
 		l, err := lc.Listen(context.Background(), "tcp", addr)
 		if err != nil {
+			_ = sl.Close() // the earlier addresses
 			return nil, err
 		}
 		if shadowTLSBuilder != nil {
@@ -125,12 +129,9 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 
 		go func() {
 			for {
-				c, err := l.Accept()
+				c, err := accept.Next(l, sl.closed.Load)
 				if err != nil {
-					if sl.closed {
-						break
-					}
-					continue
+					break
 				}
 				go sl.HandleConn(c, tunnel, additions...)
 			}
@@ -141,7 +142,7 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, lis := range l.listeners {
 		err := lis.Close()

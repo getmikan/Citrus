@@ -1,6 +1,7 @@
 package constant
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -38,5 +39,16 @@ func TestHoldsCoreState(t *testing.T) {
 	}
 	if p.HoldsCoreState(filepath.Join(etc, "ui")) {
 		t.Error("a subdirectory of the config directory is protected")
+	}
+
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	uiLink := filepath.Join(base, "ui-link")
+	if err := os.Symlink(home, uiLink); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if !p.HoldsCoreState(uiLink) {
+		t.Error("a symlink to the home directory was not protected")
 	}
 }

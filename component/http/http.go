@@ -2,8 +2,10 @@ package http
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
+	"net/netip"
 	URL "net/url"
 	"runtime"
 	"strings"
@@ -67,6 +69,7 @@ func HttpRequest(ctx context.Context, url, method string, header map[string][]st
 		return nil, err
 	}
 
+	policy := newRedirectPolicy(ctx, urlRes.Hostname())
 	transport := &http.Transport{
 		// from http.DefaultTransport
 		DisableKeepAlives:     runtime.GOOS == "android",
@@ -75,19 +78,59 @@ func HttpRequest(ctx context.Context, url, method string, header map[string][]st
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			approved, pinned, err := policy.approvedFor(network, address)
+			if err != nil {
+				return nil, err
+			}
 			if opt.dialer != nil {
+				if pinned {
+					return dialPinned(ctx, opt.dialer.DialContext, network, address, approved)
+				}
 				return opt.dialer.DialContext(ctx, network, address)
 			}
-			if conn, err := inner.HandleTcp(inner.GetTunnel(), address, opt.specialProxy); err == nil {
+			// A validated redirect target still enters the tunnel by name, so
+			// domain rules match it and a proxy resolves it remotely; only
+			// DIRECT is held to the validated address (see checkRedirect for
+			// what that leaves to the proxy server).
+			var conn net.Conn
+			if pinned {
+				conn, err = inner.HandleTcpResolved(inner.GetTunnel(), address, approved[0], opt.specialProxy)
+			} else {
+				conn, err = inner.HandleTcp(inner.GetTunnel(), address, opt.specialProxy)
+			}
+			if err == nil {
 				return conn, nil
+			}
+			if pinned {
+				return dialPinned(ctx, func(ctx context.Context, network, address string) (net.Conn, error) {
+					return dialer.DialContext(ctx, network, address)
+				}, network, address, approved)
 			}
 			return dialer.DialContext(ctx, network, address)
 		},
 		TLSClientConfig: tlsConfig,
 	}
 
-	client := http.Client{Transport: transport, CheckRedirect: checkRedirect}
+	client := http.Client{Transport: transport, CheckRedirect: policy.checkRedirect}
 	return client.Do(req)
+}
+
+// dialPinned dials a validated redirect target by its validated addresses
+// rather than by name, so a second DNS answer cannot redirect the connection.
+func dialPinned(ctx context.Context, dial func(context.Context, string, string) (net.Conn, error), network, address string, approved []netip.Addr) (net.Conn, error) {
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	var errs []error
+	for _, ip := range approved {
+		conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		errs = append(errs, err)
+	}
+	return nil, errors.Join(errs...)
 }
 
 type Option func(opt *option)

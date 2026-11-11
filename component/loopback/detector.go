@@ -39,6 +39,10 @@ type Detector struct {
 	// ephemeral port to connections towards different destinations, so a
 	// legitimate local client may share it with a DIRECT connection.
 	connMap xsync.Map[connKey, struct{}]
+	// localMap counts the live DIRECT TCP connections per local address. It
+	// backs the TUN check in CheckConn, where the original destination of a
+	// looped connection may no longer be known.
+	localMap xsync.Map[netip.AddrPort, int]
 	// packetConnMap holds the bound local addresses of the live DIRECT UDP
 	// sockets. They are unconnected (one socket talks to any destination),
 	// so there is no remote half; the bound address, including its IP when
@@ -70,8 +74,17 @@ func (l *Detector) NewConn(conn C.Conn) C.Conn {
 		return conn
 	}
 	l.connMap.Store(key, struct{}{})
+	l.localMap.Compute(key.local, func(n int, _ bool) (int, xsync.ComputeOp) {
+		return n + 1, xsync.UpdateOp
+	})
 	return callback.NewCloseCallbackConn(conn, func() {
 		l.connMap.Delete(key)
+		l.localMap.Compute(key.local, func(n int, loaded bool) (int, xsync.ComputeOp) {
+			if !loaded || n <= 1 {
+				return 0, xsync.DeleteOp
+			}
+			return n - 1, xsync.UpdateOp
+		})
 	})
 }
 
@@ -95,7 +108,21 @@ func (l *Detector) NewPacketConn(conn C.PacketConn) C.PacketConn {
 // connection's remote address. The destination is the inbound's local address
 // (InIP:InPort) when DIRECT dialed a Citrus listener, or the original
 // destination (DstIP:DstPort) when the connection was captured transparently
-// (tun, tproxy, redir); both are tried.
+// (tun, tproxy, redir).
+//
+// The original destination is tried for transparent inbounds only. On a proxy
+// inbound it is the target the client asked for, and the source is the
+// client's own socket: a UDP one for the QUIC inbounds, whose port number a
+// DIRECT TCP connection may well have too, or one TCP connection carrying
+// many relays (AnyTLS, mux), whose ephemeral port the kernel may hand to a
+// DIRECT connection towards another destination. A local client of either
+// kind asking for the target such a DIRECT connection goes to is not a loop.
+//
+// For TUN the source alone is enough. The system and mixed stacks report their
+// internal listener as InIP:InPort, and the sniffer may have replaced DstIP, so
+// neither candidate has to equal DIRECT's remote. A TUN source equal to the
+// local address of a live DIRECT connection is that connection coming back:
+// when DIRECT is bound out, its local address is not one the TUN sees.
 func (l *Detector) CheckConn(metadata *C.Metadata) error {
 	if l == nil {
 		return nil
@@ -104,14 +131,24 @@ func (l *Detector) CheckConn(metadata *C.Metadata) error {
 	if !src.IsValid() {
 		return nil
 	}
-	for _, dst := range [...]netip.AddrPort{
+	dsts := [...]netip.AddrPort{
 		netip.AddrPortFrom(metadata.InIP.Unmap(), metadata.InPort),
-		metadata.AddrPort(),
-	} {
+		{},
+	}
+	switch metadata.Type {
+	case C.TUN, C.TPROXY, C.REDIR:
+		dsts[1] = metadata.AddrPort()
+	}
+	for _, dst := range dsts {
 		if !dst.IsValid() || dst.Port() == 0 {
 			continue
 		}
 		if _, ok := l.connMap.Load(connKey{local: src, remote: dst}); ok {
+			return fmt.Errorf("%w to: %s", ErrReject, metadata.RemoteAddress())
+		}
+	}
+	if metadata.Type == C.TUN {
+		if _, ok := l.localMap.Load(src); ok {
 			return fmt.Errorf("%w to: %s", ErrReject, metadata.RemoteAddress())
 		}
 	}
@@ -121,8 +158,18 @@ func (l *Detector) CheckConn(metadata *C.Metadata) error {
 // CheckPacketConn reports a loop when the incoming UDP session comes from a
 // local address that a live DIRECT UDP socket is bound to, either exactly or
 // through the wildcard address of its family.
+//
+// The inbounds that carry UDP inside a TCP connection only (VLESS, Trojan,
+// AnyTLS, Snell) are skipped: the source there is the client's TCP socket,
+// which a DIRECT UDP socket cannot be, and the TCP and UDP port spaces are
+// separate, so a local client's TCP port may well have the number of a
+// wildcard-bound DIRECT UDP socket.
 func (l *Detector) CheckPacketConn(metadata *C.Metadata) error {
 	if l == nil {
+		return nil
+	}
+	switch metadata.Type {
+	case C.VLESS, C.TROJAN, C.ANYTLS, C.SNELL:
 		return nil
 	}
 	connAddr := metadata.SourceAddrPort()

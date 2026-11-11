@@ -143,7 +143,7 @@ func (pp *proxySetProvider) MarshalJSON() ([]byte, error) {
 		Type:             pp.Type().String(),
 		VehicleType:      pp.VehicleType().String(),
 		Proxies:          pp.Proxies(),
-		TestUrl:          pp.healthCheck.url,
+		TestUrl:          redactURLForLog(pp.healthCheck.url),
 		ExpectedStatus:   pp.healthCheck.expectedStatus.String(),
 		UpdatedAt:        pp.UpdatedAt(),
 		SubscriptionInfo: pp.subscriptionInfo,
@@ -253,7 +253,7 @@ func (ip *inlineProvider) MarshalJSON() ([]byte, error) {
 		Type:           ip.Type().String(),
 		VehicleType:    ip.VehicleType().String(),
 		Proxies:        ip.Proxies(),
-		TestUrl:        ip.healthCheck.url,
+		TestUrl:        redactURLForLog(ip.healthCheck.url),
 		ExpectedStatus: ip.healthCheck.expectedStatus.String(),
 		UpdatedAt:      ip.updateAt,
 	})
@@ -315,7 +315,7 @@ func (cp *compatibleProvider) MarshalJSON() ([]byte, error) {
 		Type:           cp.Type().String(),
 		VehicleType:    cp.VehicleType().String(),
 		Proxies:        cp.Proxies(),
-		TestUrl:        cp.healthCheck.url,
+		TestUrl:        redactURLForLog(cp.healthCheck.url),
 		ExpectedStatus: cp.healthCheck.expectedStatus.String(),
 	})
 }
@@ -351,7 +351,14 @@ func (cp *CompatibleProvider) Close() error {
 	return cp.compatibleProvider.Close()
 }
 
-func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilter string, excludeType string, dialerProxy string, override overrideSchema, ageSecretKey string) (resource.Parser[[]C.Proxy], error) {
+// remote marks documents fetched from a subscription URL; their entries may
+// not use options that are only safe in user-written configs.
+func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilter string, excludeType string, dialerProxy string, override overrideSchema, ageSecretKey string, remote bool) (resource.Parser[[]C.Proxy], error) {
+	parseOptions := []adapter.ProxyOption{adapter.WithTunnelForAPI(tunnel), adapter.WithProviderName(pdName)}
+	if remote {
+		parseOptions = append(parseOptions, adapter.WithRemoteSource())
+	}
+
 	var excludeTypeArray []string
 	if excludeType != "" {
 		excludeTypeArray = strings.Split(excludeType, "|")
@@ -468,11 +475,17 @@ func NewProxiesParser(pdName string, tunnel C.Tunnel, filter string, excludeFilt
 					return nil, fmt.Errorf("proxy %d override error: %w", idx, err)
 				}
 
-				proxy, err := adapter.ParseProxy(mapping, adapter.WithTunnelForAPI(tunnel), adapter.WithProviderName(pdName))
+				proxy, err := adapter.ParseProxy(mapping, parseOptions...)
 				if errors.Is(err, C.ErrRemovedProtocol) {
 					// Nothing from the mapping but the name: err is built from it and may
 					// carry credentials.
 					log.Warnln("[Provider] %s: skip proxy %d (%s): it uses a protocol or option removed from Citrus (SSR, Hysteria v1, TUIC v4, Shadowsocks stream ciphers, v2ray-plugin, VMess)", pdName, idx, name)
+					continue
+				}
+				// Log only the constant skip message: the error around it may be
+				// built from the mapping.
+				if skipErr := C.ProviderSkipError(""); errors.As(err, &skipErr) {
+					log.Warnln("[Provider] %s: skip proxy %d (%s): %s", pdName, idx, name, skipErr)
 					continue
 				}
 				if err != nil {

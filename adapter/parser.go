@@ -30,6 +30,7 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
 		DialerForAPI: opt.DialerForAPI,
 		TunnelForAPI: opt.TunnelForAPI,
 		ProviderName: opt.ProviderName,
+		RemoteSource: opt.RemoteSource,
 	}
 
 	var (
@@ -121,6 +122,13 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
 			break
 		}
 		proxy = outbound.NewDirectWithOption(*directOption)
+	case "desync":
+		desyncOption := &outbound.DesyncOption{BasicOption: basicOption}
+		err = decoder.Decode(mapping, desyncOption)
+		if err != nil {
+			break
+		}
+		proxy, err = outbound.NewDesync(*desyncOption)
 	case "dns":
 		dnsOptions := &outbound.DnsOption{BasicOption: basicOption}
 		err = decoder.Decode(mapping, dnsOptions)
@@ -231,6 +239,10 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
 			return nil, err
 		}
 		if muxOption.Enabled {
+			if mapping["type"] == "vless" && mapping["network"] == "xdrive" {
+				_ = proxy.Close()
+				return nil, fmt.Errorf("xdrive uses Mux.Cool internally and cannot be wrapped in smux")
+			}
 			proxy, err = outbound.NewSingMux(*muxOption, proxy)
 			if err != nil {
 				return nil, err
@@ -246,6 +258,7 @@ type proxyOption struct {
 	DialerForAPI C.Dialer
 	TunnelForAPI C.Tunnel
 	ProviderName string
+	RemoteSource bool
 }
 
 func applyProxyOptions(options ...ProxyOption) proxyOption {
@@ -273,5 +286,13 @@ func WithTunnelForAPI(tunnel C.Tunnel) ProxyOption {
 func WithProviderName(name string) ProxyOption {
 	return func(opt *proxyOption) {
 		opt.ProviderName = name
+	}
+}
+
+// WithRemoteSource marks the mapping as fetched from a remote subscription
+// rather than written by the user.
+func WithRemoteSource() ProxyOption {
+	return func(opt *proxyOption) {
+		opt.RemoteSource = true
 	}
 }

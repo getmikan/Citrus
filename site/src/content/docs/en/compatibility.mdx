@@ -6,7 +6,7 @@ description: Which mihomo and Xray clients work with a Citrus server, what the a
 Two integration suites in `test/interop` check Citrus. Both run real binaries of other projects against Citrus built from the branch, and both run in CI on every PR that touches transports, TLS, listeners or outbounds.
 
 - **mihomo clients → Citrus server.** Official mihomo releases as the client, the way the apps of Mikan users work (Mikan, ClashFest, Clash Verge and the like).
-- **Xray ↔ Citrus.** Xray v26.10.10 in both directions: a Citrus client against an Xray server and an Xray client against a Citrus server.
+- **Xray ↔ Citrus.** Xray v26.11.9 in both directions: a Citrus client against an Xray server and an Xray client against a Citrus server.
 
 The binaries are pinned by version and SHA-256, so a swapped release fails the job.
 
@@ -62,11 +62,28 @@ No incompatibility on the Citrus side was found.
 
 - Protocols Citrus removed (see below): connections with them will fail.
 - Protocols Citrus has no inbound for: SSH, WireGuard, MASQUE, OpenVPN, Tailscale, EasyTier, ZeroTier, gost relay. In Citrus these are outbounds only, or servers of other projects.
+- `desync`: not a protocol but a DIRECT outbound adapted to networks with DPI filtering, so there is nothing to interoperate with, see [Desync outbound](/Citrus/en/start/desync/).
 - ShadowQUIC: Citrus has the inbound, but it is not in the matrix yet.
+
+## The core's User-Agent
+
+Citrus sends its own HTTP requests — subscriptions, `proxy-providers`, `rule-providers`, geodata — with the User-Agent from `global-ua`. By default it is two tokens separated by a space:
+
+```text
+clash.meta/<version> citrus/<version>
+```
+
+For example, `clash.meta/v1.0.0-beta.3 citrus/v1.0.0-beta.3`. The `clash.meta/` token comes first, so panel rules (Remnawave, Marzban, 3x-ui and others) that recognise a mihomo client by the start of the string keep working. A panel tells Citrus from mihomo by the second token:
+
+```text
+\bcitrus/(\S+)
+```
+
+The first group is the core version. When `global-ua` is set in the config, it is sent as it is, without the `citrus/` token.
 
 ## Xray
 
-The suite runs against Xray v26.10.10. Keys come from Xray itself (`xray x25519`, `mldsa65`, `uuid`, `tls ech`), and the REALITY target is a local TLS 1.3 server with a chain over 4 KB, so the ML-DSA-65 signature fits in the certificate.
+The suite runs against Xray v26.11.9. Keys come from Xray itself (`xray x25519`, `mldsa65`, `uuid`, `tls ech`), and the REALITY target is a local TLS 1.3 server with a chain over 4 KB, so the ML-DSA-65 signature fits in the certificate.
 
 | Case | Variants |
 | --- | --- |
@@ -74,6 +91,7 @@ The suite runs against Xray v26.10.10. Keys come from Xray itself (`xray x25519`
 | Xray client → Citrus server: `mldsa65-seed` and `require-x25519mlkem768` | chrome, firefox; a wrong `mldsa65Verify` must fail |
 | Citrus client → Xray server: XHTTP (REALITY, h2) | packet-up, stream-one, stream-up, a path with `?query`, `x-padding-bytes: "0-0"` |
 | Xray client → Citrus server: XHTTP | packet-up, GET uplink, data in headers |
+| XHTTP over HTTP/3 (TLS, `alpn: [h3]`) in both directions | packet-up, stream-one, stream-up; Xray client also with GET uplink and data in headers |
 | ECH in both directions (Xray `echServerKeys`, Citrus `ech-key`) | the right and a wrong config; the wrong one must fail, which proves ECH was really used |
 | VLESS + gRPC over REALITY in both directions | |
 

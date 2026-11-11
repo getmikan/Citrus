@@ -1,8 +1,10 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
 
 	"github.com/stretchr/testify/require"
@@ -148,4 +150,21 @@ func TestUnmarshalRawConfigTCPConnectTimeout(t *testing.T) {
 			require.Equal(t, tt.want, general.TCPConnectTimeout)
 		})
 	}
+}
+
+func TestParseGeneralGlobalUA(t *testing.T) {
+	raw, err := UnmarshalRawConfig([]byte("mode: rule\n"))
+	require.NoError(t, err)
+	general, err := parseGeneral(raw)
+	require.NoError(t, err)
+	require.Equal(t, C.UserAgent(), general.GlobalUA)
+	require.True(t, strings.HasPrefix(general.GlobalUA, "clash.meta/"))
+	require.Contains(t, general.GlobalUA, " citrus/"+C.Version)
+
+	// a global-ua set in the config is used as it is
+	raw, err = UnmarshalRawConfig([]byte("global-ua: \"my-panel-client/1.0\"\n"))
+	require.NoError(t, err)
+	general, err = parseGeneral(raw)
+	require.NoError(t, err)
+	require.Equal(t, "my-panel-client/1.0", general.GlobalUA)
 }

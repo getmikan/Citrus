@@ -56,6 +56,7 @@ type Listener struct {
 	autoRedirectOutputMark  int32
 
 	cDialerInterfaceFinder dialer.InterfaceFinder
+	forwardingCheck        io.Closer // Windows only, see forwarding_check.go
 
 	ruleUpdateCallbackCloser io.Closer
 	ruleUpdateMutex          sync.Mutex
@@ -140,13 +141,18 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 			inbound.WithSpecialRules(""),
 		}
 	}
+	if !supportRedirect {
+		options.AutoRedirect = false
+	}
+	// Validate before anything is started: the deferred cleanup below cannot
+	// undo monitors or the DefaultInterfaceFinder swap once l is nil.
+	if options.AutoRedirect && !options.AutoRoute {
+		return nil, E.New("`auto-route` is required by `auto-redirect`")
+	}
 	ctx := context.TODO()
 	rpTunnel := tunnel.(P.Tunnel)
 	if options.GSOMaxSize == 0 {
 		options.GSOMaxSize = 65536
-	}
-	if !supportRedirect {
-		options.AutoRedirect = false
 	}
 	tunName := options.Device
 	if options.FileDescriptor == 0 && (tunName == "" || !checkTunName(tunName)) {
@@ -274,6 +280,12 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		excludeMACAddress = append(excludeMACAddress, addr)
 	}
 
+	switch options.DNSMode {
+	case "", tun.DNSModeDisabled, tun.DNSModeNative, tun.DNSModeHijack:
+	default:
+		return nil, fmt.Errorf("invalid dns-mode: %s", options.DNSMode)
+	}
+
 	var dnsAdds []netip.AddrPort
 
 	for _, d := range options.DNSHijack {
@@ -390,6 +402,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		GSO:                                   options.GSO,
 		Inet4Address:                          options.Inet4Address,
 		Inet6Address:                          options.Inet6Address,
+		DNSMode:                               defaultDNSMode(runtime.GOOS, options),
 		AutoRoute:                             options.AutoRoute,
 		IPRoute2TableIndex:                    tableIndex,
 		IPRoute2RuleIndex:                     ruleIndex,
@@ -425,9 +438,6 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		l.routeAddressMap = make(map[string]*netipx.IPSet)
 		l.routeExcludeAddressMap = make(map[string]*netipx.IPSet)
 
-		if !options.AutoRoute {
-			return nil, E.New("`auto-route` is required by `auto-redirect`")
-		}
 		disableNFTables, dErr := strconv.ParseBool(os.Getenv("DISABLE_NFTABLES"))
 		l.autoRedirect, err = tun.NewAutoRedirect(tun.AutoRedirectOptions{
 			TunOptions:             &tunOptions,
@@ -481,6 +491,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		err = E.Cause(err, "configure tun interface")
 		return
 	}
+	l.forwardingCheck = startForwardingCheck(l)
 
 	l.dnsServerIp = dnsServerIp
 	// after tun.New sing-tun has set DNS to TUN interface
@@ -507,11 +518,10 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		return
 	}
 
-	err = tunStack.Start()
+	err = l.startStack(tunStack)
 	if err != nil {
 		return
 	}
-	l.tunStack = tunStack
 
 	if l.autoRedirect != nil {
 		if len(l.options.RouteAddressSet) > 0 && len(l.routeAddressSet) == 0 {
@@ -526,9 +536,8 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 			return
 		}
 		if tunOptions.AutoRedirectMarkMode {
-			l.autoRedirectOutputMark = int32(outputMark)
-			if !dialer.DefaultRoutingMark.CompareAndSwap(0, l.autoRedirectOutputMark) {
-				err = E.New("not allowed setting global routing-mark when working with autoRedirectMarkMode")
+			err = l.claimRoutingMark(int32(outputMark))
+			if err != nil {
 				return
 			}
 			l.autoRedirect.UpdateRouteAddressSet()
@@ -543,9 +552,27 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 	if options.FileDescriptor != 0 {
 		tunName = fmt.Sprintf("%s(fd=%d)", tunName, options.FileDescriptor)
 	}
-	l.addrStr = fmt.Sprintf("%s(%s,%s), mtu: %d, auto route: %v, auto redir: %v, ip stack: %s",
-		tunName, tunOptions.Inet4Address, tunOptions.Inet6Address, tunMTU, options.AutoRoute, options.AutoRedirect, options.Stack)
+	l.addrStr = fmt.Sprintf("%s(%s,%s), mtu: %d, auto route: %v, auto redir: %v, ip stack: %s, dns mode: %s",
+		tunName, tunOptions.Inet4Address, tunOptions.Inet6Address, tunMTU, options.AutoRoute, options.AutoRedirect, options.Stack, options.DNSMode)
 	return
+}
+
+// startStack records tunStack before starting it, so the deferred Close in New
+// also tears down a stack whose Start failed halfway.
+func (l *Listener) startStack(tunStack tun.Stack) error {
+	l.tunStack = tunStack
+	return tunStack.Start()
+}
+
+// claimRoutingMark takes the global routing-mark for auto-redirect mark mode.
+// l.autoRedirectOutputMark is set only once the mark is ours, otherwise Close
+// would reset a user-configured routing-mark that happens to be equal.
+func (l *Listener) claimRoutingMark(mark int32) error {
+	if !dialer.DefaultRoutingMark.CompareAndSwap(0, mark) {
+		return E.New("not allowed setting global routing-mark when working with autoRedirectMarkMode")
+	}
+	l.autoRedirectOutputMark = mark
+	return nil
 }
 
 func (l *Listener) ruleUpdateCallback(ruleProvider P.RuleProvider) {
@@ -601,6 +628,9 @@ func (l *Listener) OnReload() {
 	}
 	if l.cDialerInterfaceFinder != nil {
 		dialer.DefaultInterfaceFinder.CompareAndSwap(nil, l.cDialerInterfaceFinder)
+	}
+	if w, ok := l.forwardingCheck.(interface{ wake() }); ok {
+		w.wake() // interface-name may have changed
 	}
 }
 
@@ -681,6 +711,7 @@ func (l *Listener) Close() error {
 		l.tunStack,
 		l.tunIf,
 		l.autoRedirect,
+		l.forwardingCheck, // after the TUN routes are gone, before the monitors it listens to
 		l.defaultInterfaceMonitor,
 		l.networkUpdateMonitor,
 		l.packageManager,
@@ -693,4 +724,25 @@ func (l *Listener) Config() LC.Tun {
 
 func (l *Listener) Address() string {
 	return l.addrStr
+}
+
+// defaultDNSMode keeps the DNS behaviour Citrus had before sing-tun's
+// dns-mode. An empty dns-mode now means hijack with auto-route and disabled
+// without it, but on Linux the older sing-tun pointed systemd-resolved at the
+// TUN DNS address whatever auto-route said. Without that, a Linux setup with
+// manual routing (auto-route: false) would quietly send DNS to the uplink
+// resolvers, outside the tunnel. So on Linux without auto-route an empty
+// dns-mode becomes native, but only when the TUN prefix has a DNS address, as
+// before; otherwise sing-tun's default (disabled) stays and TUN starts without
+// DNS instead of failing.
+func defaultDNSMode(goos string, options LC.Tun) string {
+	if options.DNSMode != "" || goos != "linux" || options.AutoRoute {
+		return options.DNSMode
+	}
+	for _, prefixes := range [][]netip.Prefix{options.Inet4Address, options.Inet6Address} {
+		if len(prefixes) > 0 && tun.HasNextAddress(prefixes[0], 1) {
+			return tun.DNSModeNative
+		}
+	}
+	return options.DNSMode
 }

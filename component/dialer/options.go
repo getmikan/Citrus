@@ -41,6 +41,14 @@ type option struct {
 	mpTcp         bool
 	resolver      resolver.Resolver
 	netDialer     NetDialer
+	addrFilter    AddrFilter
+}
+
+// AddrFilter vets the addresses a host name resolved to (or an IP literal)
+// right before DialContext connects to them.
+type AddrFilter interface {
+	// CheckAddrPort returns an error for a destination that must not be dialed.
+	CheckAddrPort(ap netip.AddrPort) error
 }
 
 type Option func(opt *option)
@@ -112,6 +120,14 @@ func WithMPTCP(mpTcp bool) Option {
 func WithNetDialer(netDialer NetDialer) Option {
 	return func(opt *option) {
 		opt.netDialer = netDialer
+	}
+}
+
+// WithAddrFilter drops the destination addresses the filter refuses; when it
+// refuses all of them, DialContext fails with the filter's first error.
+func WithAddrFilter(filter AddrFilter) Option {
+	return func(opt *option) {
+		opt.addrFilter = filter
 	}
 }
 

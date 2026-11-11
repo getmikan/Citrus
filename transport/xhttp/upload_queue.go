@@ -15,6 +15,7 @@ type Packet struct {
 	// Release, if set, is called once the whole Payload has been read out of
 	// the queue; the queue does not touch Payload after that. It is not called
 	// for a packet that is dropped unread (Close), which is left to the GC.
+	// A packet whose Seq was already read out is dropped and released by Push.
 	Release func()
 }
 
@@ -57,6 +58,15 @@ func (q *UploadQueue) Push(p Packet) error {
 	if p.Reader != nil {
 		q.reader = p.Reader
 		q.condPushed.Broadcast()
+		return nil
+	}
+
+	if p.Seq < q.nextSeq {
+		// Already read out (a retried or duplicated POST). Read never looks
+		// it up again, so storing it would only count against maxPackets.
+		if p.Release != nil {
+			p.Release()
+		}
 		return nil
 	}
 

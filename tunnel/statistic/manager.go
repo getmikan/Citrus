@@ -39,6 +39,7 @@ type Manager struct {
 	users         stdatomic.Pointer[UserManager]
 	inbounds      xsync.Map[string, *InboundCounter]
 	opened        stdatomic.Int64
+	onLeave       stdatomic.Pointer[func(Tracker)]
 }
 
 // Users returns the per-user counters, creating them on first use.
@@ -76,6 +77,23 @@ func (m *Manager) Join(c Tracker) {
 
 func (m *Manager) Leave(c Tracker) {
 	m.connections.Delete(c.ID())
+	if f := m.onLeave.Load(); f != nil {
+		(*f)(c)
+	}
+}
+
+// SetOnLeave sets a function called once for every tracked connection and UDP
+// session when it ends, with its metadata (the inbound, the user and the
+// sniffed host) and its totals: an embedding application can sum the traffic
+// by destination without wrapping the connections, which would keep them from
+// being spliced. It runs in the Close of the connection, so it must be quick.
+// nil removes it.
+func (m *Manager) SetOnLeave(f func(c Tracker)) {
+	if f == nil {
+		m.onLeave.Store(nil)
+		return
+	}
+	m.onLeave.Store(&f)
 }
 
 func (m *Manager) Get(id string) (c Tracker) {

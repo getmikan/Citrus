@@ -204,6 +204,7 @@ type BasicOption struct {
 	DialerForAPI C.Dialer `proxy:"-"` // the dialer used for API usage has higher priority than all the above configurations.
 	TunnelForAPI C.Tunnel `proxy:"-"`
 	ProviderName string   `proxy:"-"`
+	RemoteSource bool     `proxy:"-"` // set for entries of http proxy providers
 }
 
 func (b *BasicOption) NewDialer(opts []dialer.Option) C.Dialer {

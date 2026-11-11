@@ -43,11 +43,14 @@ func TestConfigValidate(t *testing.T) {
 		ok   bool
 	}{
 		{"no controller", Config{}, true},
-		{"loopback without secret", Config{Addr: "127.0.0.1:9090", TLSAddr: "[::1]:9443"}, true},
+		{"loopback without secret", Config{Addr: "127.0.0.1:9090"}, false},
+		{"loopback with secret", Config{Addr: "127.0.0.1:9090", Secret: testSecret}, true},
+		{"loopback tls without secret", Config{TLSAddr: "[::1]:9443"}, false},
 		{"unix and pipe without secret", Config{UnixAddr: "c.sock", PipeAddr: `\\.\pipe\c`}, true},
 		{"all interfaces without secret", Config{Addr: "0.0.0.0:9090"}, false},
 		{"port only without secret", Config{Addr: ":9090"}, false},
-		{"all interfaces with secret", Config{Addr: "0.0.0.0:9090", Secret: testSecret}, true},
+		{"all interfaces with secret over plain http", Config{Addr: "0.0.0.0:9090", Secret: testSecret}, false},
+		{"all interfaces with secret and allow-insecure", Config{Addr: "0.0.0.0:9090", Secret: testSecret, AllowInsecure: true}, true},
 		{"all interfaces, allow-insecure", Config{Addr: "0.0.0.0:9090", AllowInsecure: true}, true},
 		{"tls without secret", Config{TLSAddr: "0.0.0.0:9443"}, false},
 		{"tls verify-if-given without secret", Config{TLSAddr: "0.0.0.0:9443", ClientAuthType: "verify-if-given", ClientAuthCert: "ca.crt"}, false},
@@ -57,6 +60,31 @@ func TestConfigValidate(t *testing.T) {
 		err := tc.cfg.Validate()
 		if (err == nil) != tc.ok {
 			t.Errorf("%s: Validate() = %v, want ok=%v", tc.name, err, tc.ok)
+		}
+	}
+}
+
+func TestBrowserGuardDoHExemptionIsExact(t *testing.T) {
+	h := browserGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), nil, "/dns-query")
+
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"/dns-query", http.StatusNoContent},
+		{"/dns-query/child", http.StatusForbidden},
+		{"/dns-queryx", http.StatusForbidden},
+		{"/configs", http.StatusForbidden},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		req.Host = "controller.example"
+		req.Header.Set("Origin", "https://evil.example")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.path, rec.Code, tc.want)
 		}
 	}
 }
@@ -217,6 +245,36 @@ func TestReCreateServerAppliesSecretRotation(t *testing.T) {
 	_ = stream.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if _, err := io.ReadAll(stream); err != nil && isTimeout(err) {
 		t.Errorf("log stream of the old secret still open after rotation")
+	}
+}
+
+func TestReCreateServerRetriesFailedListener(t *testing.T) {
+	t.Cleanup(func() {
+		ReCreateServer(&Config{})
+		serverMu.Lock()
+		applied = nil
+		serverMu.Unlock()
+	})
+	busy, err := stdnet.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := busy.Addr().String()
+	cfg := Config{Addr: addr, Secret: "secret"}
+
+	ReCreateServer(&cfg)
+	serverMu.Lock()
+	started := httpServer != nil
+	serverMu.Unlock()
+	if started {
+		t.Fatal("controller started on a busy port")
+	}
+
+	// The port is free now; a reload with the same settings must retry.
+	_ = busy.Close()
+	ReCreateServer(&cfg)
+	if code := tokenStatus(t, addr, "secret"); code != http.StatusOK {
+		t.Fatalf("controller after the retry: got %d", code)
 	}
 }
 

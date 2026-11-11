@@ -127,6 +127,7 @@ func (s *Sudoku) Listen(tunnel C.Tunnel) error {
 		s.listeners = append(s.listeners, l)
 	}
 	if len(errs) > 0 {
+		_ = s.Close() // the addresses already listening
 		return errors.Join(errs...)
 	}
 

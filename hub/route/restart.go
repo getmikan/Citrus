@@ -21,7 +21,30 @@ func restartRouter() http.Handler {
 	return r
 }
 
+// restartUnsupported, when set, is why the core cannot re-execute itself.
+var restartUnsupported string
+
+// SetRestartUnsupported makes POST /restart and POST /upgrade refuse with
+// reason instead of starting a process that cannot load its configuration
+// (one read from stdin, which the new process gets already consumed).
+func SetRestartUnsupported(reason string) {
+	restartUnsupported = reason
+}
+
+// refuseRestart answers 409 and reports true when the core cannot restart.
+func refuseRestart(w http.ResponseWriter, r *http.Request) bool {
+	if restartUnsupported == "" {
+		return false
+	}
+	render.Status(r, http.StatusConflict)
+	render.JSON(w, r, newError("restart unavailable: "+restartUnsupported))
+	return true
+}
+
 func restart(w http.ResponseWriter, r *http.Request) {
+	if refuseRestart(w, r) {
+		return
+	}
 	// modify from https://github.com/AdguardTeam/AdGuardHome/blob/595484e0b3fb4c457f9bb727a6b94faa78a66c5f/internal/home/controlupdate.go#L108
 	execPath, err := os.Executable()
 	if err != nil {

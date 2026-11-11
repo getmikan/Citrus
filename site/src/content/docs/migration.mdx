@@ -62,10 +62,18 @@ VMess (вместе с mKCP, mekya и TLSMirror), ShadowsocksR, Hysteria v1, TUI
 - **Маскировка Hysteria2 по HTTPS** проверяет сертификат upstream. Для самоподписанного локального сайта задайте `masquerade-skip-cert-verify: true`, иначе ответ будет 502.
 - **REALITY: `max-time-difference` в миллисекундах**, как `maxTimeDiff` в Xray (раньше были микросекунды).
 - **Одинаковый адрес на разных входящих или под разными пользователями** получает отдельные UDP-сессии со своими правилами и лимитами.
+- **Пользователи серверных входящих не попадают через `DIRECT` в сеть сервера.** Это касается VLESS, Trojan, Shadowsocks, Snell, TUIC, Hysteria2, AnyTLS, Mieru, Sudoku, TrustTunnel и ShadowQUIC. Им недоступны loopback, частные, link-local, CGNAT и ULA адреса, metadata облака и адреса этого хоста, какие бы ни были правила. Если им нужен доступ к чему-то там, добавьте это в `egress-guard.allow-ips` или задайте `egress-guard: false` на listener. Клиентские входящие не затрагиваются. См. [защиту исходящего трафика](/Citrus/start/server-profile/#защита-исходящего-трафика).
+
+- **TUIC и TrustTunnel (HTTP/3):** серверный `zero-rtt` по умолчанию выключен. `zero-rtt: true` явно включает ранние данные QUIC, допускающие повторную доставку. ShadowQUIC уже использует такой же выключенный по умолчанию параметр.
+- **KCPTun:** без `key` сохранён известный общий ключ для старых конфигов, но теперь выводится предупреждение. Задайте уникальный случайный ключ; `max-sessions` и `max-streams` ограничивают сессии сервера и потоки одной сессии (по умолчанию 256/256).
+- **Sudoku fallback:** максимум 256 relay на listener и 64 на источник (IPv4-адрес или IPv6 /64), простой в любом направлении ограничен 60 секундами; активная передача продлевает соединение. Формат handshake и существующие ключи Sudoku сохранены.
+
+- **WebSocket контроллера:** основной `secret` в `?token=` по умолчанию больше не принимается. Панель должна получить одноразовый билет через `POST /auth/ws-ticket` с Bearer-заголовком, затем передать `?ticket=` при подключении. Для старой панели временно включите `external-controller-allow-legacy-websocket-token: true`; это возвращает риск утечки основного секрета через URL. [Описание API](/Citrus/security/#websocket-контроллера).
 
 ## Исходящие
 
 - **REALITY по умолчанию шлёт X25519MLKEM768.** Для старых серверов задайте `reality-opts.support-x25519mlkem768: false`.
+- **`client-fingerprint: chrome` — это Chrome 155**, как в Xray-core 26.11.9 (mihomo шлёт Chrome 133). В hello добавились схемы подписи ML-DSA и расширение `trust_anchors`. `chrome155` и `hellochrome_155` задают его явно; `chrome133` и `hellochrome_133` оставляют прежний hello.
 - **XHTTP:** без `reuse-settings` соединения разделяются, как в Xray (кроме HTTP/1.1); `h-max-request-times: "1"` отключает это. При данных в заголовках или cookie без `uplink-data-key` клиент шлёт `X-Data-N` и `x_data_N`, как Xray; если смешиваете версии, задайте `uplink-data-key` явно с обеих сторон.
 - **SSH без `host-key`** по-прежнему подключается, но пишет в лог предупреждение и ключ сервера в формате authorized_keys, чтобы его можно было закрепить. `skip-host-key-check: true` явно разрешает любой ключ и убирает предупреждение.
 - **OpenVPN** без проверки имени сервера пишет предупреждение. Новые `verify-x509-name`, `verify-x509-type` и `verify-server-name` включают проверку.

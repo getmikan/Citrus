@@ -226,8 +226,19 @@ func TestEventsWebSocket(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	// a browser passes the secret as ?token=
-	_, err = fmt.Fprintf(conn, "GET /events?types=config.reload&token=%s HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n", testSecret)
+	// A browser exchanges its bearer secret for a short-lived scoped ticket.
+	req, err := stdhttp.NewRequest(stdhttp.MethodPost, srv.URL+"/auth/ws-ticket", strings.NewReader(`{"path":"/events?types=config.reload"}`))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+testSecret)
+	response, err := stdhttp.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, stdhttp.StatusCreated, response.StatusCode)
+	var issued struct {
+		Ticket string `json:"ticket"`
+	}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&issued))
+	_, err = fmt.Fprintf(conn, "GET /events?types=config.reload&ticket=%s HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n", issued.Ticket)
 	require.NoError(t, err)
 	br := bufio.NewReader(conn)
 	resp, err := stdhttp.ReadResponse(br, nil)

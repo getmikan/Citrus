@@ -40,6 +40,10 @@ type Session struct {
 	die     chan struct{}
 	dieHook func()
 
+	// data frames queued on the streams and not read yet (see recv.go)
+	recvQueued atomic.Int64
+	recvSpace  chan struct{}
+
 	synDone     func()
 	synDoneLock sync.Mutex
 
@@ -73,6 +77,7 @@ func NewClientSession(conn net.Conn, _padding *atomic.Pointer[padding.PaddingFac
 		clientMetadata: clientMetadata,
 	}
 	s.die = make(chan struct{})
+	s.recvSpace = make(chan struct{}, 1)
 	s.streams = make(map[uint32]*Stream)
 	return s
 }
@@ -84,6 +89,7 @@ func NewServerSession(conn net.Conn, onNewStream func(stream *Stream), _padding 
 		padding:     _padding,
 	}
 	s.die = make(chan struct{})
+	s.recvSpace = make(chan struct{}, 1)
 	s.streams = make(map[uint32]*Stream)
 	return s
 }
@@ -231,17 +237,20 @@ func (s *Session) handleFrame(hdr rawHeader, receivedSettingsFromClient *bool) (
 	switch hdr.Cmd() {
 	case cmdPSH:
 		if hdr.Length() > 0 {
-			buffer := pool.Get(int(hdr.Length()))
-			if _, err := io.ReadFull(s.conn, buffer); err == nil {
-				s.streamLock.RLock()
-				stream, ok := s.streams[sid]
-				s.streamLock.RUnlock()
-				if ok {
-					stream.pipeW.Write(buffer)
-				}
-				pool.Put(buffer)
-			} else {
-				pool.Put(buffer)
+			buffer := buf.NewSize(int(hdr.Length()))
+			if _, err := buffer.ReadFullFrom(s.conn, int(hdr.Length())); err != nil {
+				buffer.Release()
+				return true, err
+			}
+			s.streamLock.RLock()
+			stream, ok := s.streams[sid]
+			s.streamLock.RUnlock()
+			if !ok {
+				buffer.Release()
+				break
+			}
+			stream.pushRecv(buffer)
+			if err := s.waitRecvBudget(); err != nil {
 				return true, err
 			}
 		}
@@ -473,6 +482,30 @@ func (s *Session) writeDataFrame(sid uint32, data []byte) (int, error) {
 		return 0, err
 	}
 	return dataLen, nil
+}
+
+// writeDataBuffer is writeDataFrame for a buffer that the caller hands over:
+// with room for the header in front of the data (Stream.FrontHeadroom), the
+// frame is built in place instead of being copied into a new buffer. The
+// buffer is released in every case.
+func (s *Session) writeDataBuffer(sid uint32, buffer *buf.Buffer) error {
+	dataLen := buffer.Len()
+	if dataLen == 0 {
+		buffer.Release()
+		return nil
+	}
+	if dataLen > maxFrameDataLen || buffer.Start() < headerOverHeadSize {
+		_, err := s.writeDataFrame(sid, buffer.Bytes())
+		buffer.Release()
+		return err
+	}
+	header := buffer.ExtendHeader(headerOverHeadSize)
+	header[0] = cmdPSH
+	binary.BigEndian.PutUint32(header[1:5], sid)
+	binary.BigEndian.PutUint16(header[5:7], uint16(dataLen))
+	_, err := s.writeConn(buffer.Bytes())
+	buffer.Release()
+	return err
 }
 
 func (s *Session) writeControlFrame(frame frame) (int, error) {

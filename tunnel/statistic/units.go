@@ -134,8 +134,8 @@ func parseTime(v any) (int64, error) {
 }
 
 // ParseUserLimit builds a limit from a map with the keys of the `user-limits`
-// configuration section: inbound, user, speed-up, speed-down, max-conns,
-// max-ips, quota, expire-at. The keys are case and dash insensitive, so the
+// configuration section: inbound, user, speed-up, speed-down, speed-group,
+// max-conns, max-ips, quota, expire-at. The keys are case and dash insensitive, so the
 // JSON names of UserLimit (speedUp, maxConns...) are accepted too.
 func ParseUserLimit(m map[string]any) (UserLimit, error) {
 	var l UserLimit
@@ -150,6 +150,8 @@ func ParseUserLimit(m map[string]any) (UserLimit, error) {
 			l.SpeedUp, err = ParseRate(v)
 		case "speeddown":
 			l.SpeedDown, err = ParseRate(v)
+		case "speedgroup":
+			l.SpeedGroup, err = parseString(v)
 		case "maxconns":
 			l.MaxConns, err = parseInt(v)
 		case "maxips":

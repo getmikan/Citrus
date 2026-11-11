@@ -144,6 +144,7 @@ func New(config LC.TrustTunnelServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 			QUICCwnd:              config.CWND,
 			Fallback:              config.Fallback,
 			QUICBBRProfile:        config.BBRProfile,
+			QUICZeroRTT:           config.ZeroRTT,
 		})
 		service.SetUserSet(sl.users)
 		err = service.Start(tcpListener, udpConn, tlsConfig)

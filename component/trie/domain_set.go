@@ -4,6 +4,8 @@ package trie
 // Modify from https://github.com/openacid/succinct/blob/d4684c35d123f7528b14e03c24327231723db704/sskv.go
 
 import (
+	"errors"
+	"math/bits"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -251,32 +253,40 @@ func byteReverse(s string) string {
 }
 
 func (ss *DomainSet) keys(f func(key string, nodeId int) bool) {
+	// The walk keeps an explicit stack instead of recursing: a key is one
+	// trie level per byte, so a long key in a loaded rule set must not turn
+	// into an equally deep goroutine stack. The stack holds one cursor per
+	// byte of currentKey plus the root.
+	type cursor struct{ nodeId, bmIdx int }
 	var currentKey []byte
-	var traverse func(int, int) bool
-	traverse = func(nodeId, bmIdx int) bool {
-		if getBit(ss.leaves, nodeId) != 0 {
-			if !f(string(currentKey), nodeId) {
-				return false
-			}
-		}
-
-		for ; ; bmIdx++ {
-			if getBit(ss.labelBitmap, bmIdx) != 0 {
-				return true
-			}
-			nextLabel := ss.labels[bmIdx-nodeId]
-			currentKey = append(currentKey, nextLabel)
-			nextNodeId := bmIdx - nodeId + 1 // countZeros(ss.labelBitmap, ss.ranks, bmIdx+1)
-			nextBmIdx := selectIthOne(ss.labelBitmap, ss.ranks, ss.selects, nextNodeId-1) + 1
-			if !traverse(nextNodeId, nextBmIdx) {
-				return false
-			}
-			currentKey = currentKey[:len(currentKey)-1]
+	if getBit(ss.leaves, 0) != 0 {
+		if !f("", 0) {
+			return
 		}
 	}
-
-	traverse(0, 0)
-	return
+	stack := []cursor{{0, 0}}
+	for len(stack) > 0 {
+		top := &stack[len(stack)-1]
+		if getBit(ss.labelBitmap, top.bmIdx) != 0 {
+			// no more children in this node
+			stack = stack[:len(stack)-1]
+			if len(currentKey) > 0 {
+				currentKey = currentKey[:len(currentKey)-1]
+			}
+			continue
+		}
+		nextLabel := ss.labels[top.bmIdx-top.nodeId]
+		nextNodeId := top.bmIdx - top.nodeId + 1 // countZeros(ss.labelBitmap, ss.ranks, bmIdx+1)
+		top.bmIdx++
+		currentKey = append(currentKey, nextLabel)
+		if getBit(ss.leaves, nextNodeId) != 0 {
+			if !f(string(currentKey), nextNodeId) {
+				return
+			}
+		}
+		nextBmIdx := selectIthOne(ss.labelBitmap, ss.ranks, ss.selects, nextNodeId-1) + 1
+		stack = append(stack, cursor{nextNodeId, nextBmIdx})
+	}
 }
 
 // Foreach iterates over the stored domain patterns in unspecified order.
@@ -306,6 +316,59 @@ func setBit(bm *[]uint64, i int, v int) {
 
 func getBit(bm []uint64, i int) uint64 {
 	return bm[i>>6] & (1 << uint(i&63))
+}
+
+// validate checks that a decoded DomainSet is a well-formed LOUDS trie, so
+// that Has and keys, which index the slices without bounds checks, stay in
+// range. It accepts exactly the layout buildDomainSet produces: nodes are
+// numbered in BFS order, each node contributes one 0 bit (and one label) per
+// child followed by a terminating 1 bit, and every child is numbered after
+// its parent.
+func (ss *DomainSet) validate() error {
+	nodes := len(ss.labels) + 1 // the root plus one node per edge
+	total := len(ss.labels) + nodes
+	if len(ss.labelBitmap)*64 < total {
+		return errors.New("label bitmap is too short")
+	}
+	if len(ss.leaves)*64 < nodes {
+		return errors.New("leaf bitmap is too short")
+	}
+	ones, zeros := 0, 0
+	for i := 0; i < total; i++ {
+		if getBit(ss.labelBitmap, i) != 0 {
+			ones++
+			continue
+		}
+		// This edge belongs to node `ones` and creates node `zeros+1`. A
+		// child numbered at or before its parent would make the trie cyclic.
+		if zeros+1 <= ones {
+			return errors.New("label bitmap is not a valid trie")
+		}
+		zeros++
+	}
+	if ones != nodes || getBit(ss.labelBitmap, total-1) == 0 {
+		return errors.New("label bitmap does not match labels")
+	}
+	allOnes := 0
+	for _, w := range ss.labelBitmap {
+		allOnes += bits.OnesCount64(w)
+	}
+	if allOnes != nodes {
+		return errors.New("label bitmap has trailing nodes")
+	}
+	return nil
+}
+
+// leafCount returns the number of terminal nodes, i.e. the number of values
+// a DomainMap built on this set holds.
+func (ss *DomainSet) leafCount() int {
+	count := 0
+	for i := 0; i <= len(ss.labels); i++ {
+		if getBit(ss.leaves, i) != 0 {
+			count++
+		}
+	}
+	return count
 }
 
 // init builds pre-calculated cache to speed up rank() and select()

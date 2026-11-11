@@ -351,11 +351,11 @@ func (c *dnsCryptClient) exchange(ctx context.Context, sess *dnsCryptSession, ne
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.roundTrip(ctx, network, query)
-	if err != nil {
-		return nil, err
-	}
-	plain, err := sess.decrypt(resp, nonce)
+	var plain []byte
+	err = c.roundTrip(ctx, network, query, func(resp []byte) (err error) {
+		plain, err = sess.decrypt(resp, nonce)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -367,11 +367,13 @@ func (c *dnsCryptClient) exchange(ctx context.Context, sess *dnsCryptSession, ne
 }
 
 // roundTrip sends one packet and reads one reply over a connection from the
-// DNS dialer; TCP uses the two-byte length prefix.
-func (c *dnsCryptClient) roundTrip(ctx context.Context, network string, payload []byte) ([]byte, error) {
+// DNS dialer; TCP uses the two-byte length prefix. Over UDP a datagram that
+// accept rejects is dropped and the read goes on until the deadline, so an
+// injected packet cannot fail the exchange; over TCP its error is returned.
+func (c *dnsCryptClient) roundTrip(ctx context.Context, network string, payload []byte, accept func([]byte) error) error {
 	conn, err := c.dialer.DialContext(ctx, network, c.stamp.ServerAddr)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer conn.Close()
 
@@ -390,41 +392,49 @@ func (c *dnsCryptClient) roundTrip(ctx context.Context, network string, payload 
 		}
 	}()
 
-	resp, err := func() ([]byte, error) {
+	err = func() error {
 		if network == "udp" {
 			if _, err := conn.Write(payload); err != nil {
-				return nil, err
+				return err
 			}
 			buf := make([]byte, dnsCryptMaxPacket)
-			n, err := conn.Read(buf)
-			if err != nil {
-				return nil, err
+			var rejected error
+			for {
+				n, err := conn.Read(buf)
+				if err != nil {
+					if rejected != nil {
+						return fmt.Errorf("%w (after dropping a bad reply: %w)", err, rejected)
+					}
+					return err
+				}
+				if rejected = accept(buf[:n]); rejected == nil {
+					return nil
+				}
 			}
-			return buf[:n], nil
 		}
 		if len(payload) > dnsCryptMaxPacket {
-			return nil, errors.New("DNSCrypt query too large")
+			return errors.New("DNSCrypt query too large")
 		}
 		buf := make([]byte, 2+len(payload))
 		binary.BigEndian.PutUint16(buf, uint16(len(payload)))
 		copy(buf[2:], payload)
 		if _, err := conn.Write(buf); err != nil {
-			return nil, err
+			return err
 		}
 		var l [2]byte
 		if _, err := io.ReadFull(conn, l[:]); err != nil {
-			return nil, err
+			return err
 		}
 		out := make([]byte, binary.BigEndian.Uint16(l[:]))
 		if _, err := io.ReadFull(conn, out); err != nil {
-			return nil, err
+			return err
 		}
-		return out, nil
+		return accept(out)
 	}()
 	if err != nil && ctx.Err() != nil {
-		return nil, ctx.Err()
+		return ctx.Err()
 	}
-	return resp, err
+	return err
 }
 
 // getSession returns the current session. A missing or expired certificate is
@@ -508,16 +518,20 @@ func (c *dnsCryptClient) fetchSessionContext(ctx context.Context) (*dnsCryptSess
 }
 
 func (c *dnsCryptClient) queryCert(ctx context.Context, network string, id uint16, packed []byte) (*D.Msg, error) {
-	raw, err := c.roundTrip(ctx, network, packed)
+	var msg *D.Msg
+	err := c.roundTrip(ctx, network, packed, func(raw []byte) error {
+		m := new(D.Msg)
+		if err := m.Unpack(raw); err != nil {
+			return err
+		}
+		if m.Id != id {
+			return errors.New("certificate response id mismatch")
+		}
+		msg = m
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	msg := new(D.Msg)
-	if err := msg.Unpack(raw); err != nil {
-		return nil, err
-	}
-	if msg.Id != id {
-		return nil, errors.New("certificate response id mismatch")
 	}
 	if msg.Rcode != D.RcodeSuccess {
 		return nil, fmt.Errorf("certificate query: %s", D.RcodeToString[msg.Rcode])

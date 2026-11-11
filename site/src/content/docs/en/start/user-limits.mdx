@@ -8,6 +8,7 @@ The core limits inbound users itself, so an embedding application does not have 
 | Limit | What it does |
 | --- | --- |
 | `speed-up`, `speed-down` | Upload and download rate, in bytes per second. One token bucket per user, shared by all its TCP connections and UDP sessions. |
+| `speed-group` | One speed for several users: everyone naming the same group, on any inbounds, takes from one pair of buckets, so one person with five devices gets the speed of one. The group's speed is the `speed-up` and `speed-down` of its members; give them the same values. The other limits stay each user's own. A new speed does not reset the buckets: what was used before still counts at the new speed. In the default limit (`user: "*"`) a group puts every user of the inbound without a limit of their own on one shared speed — it usually belongs in the limits of particular users. |
 | `max-conns` | How many connections and UDP sessions the user holds at once. An excess new connection is rejected. |
 | `max-ips` | How many distinct addresses of the user are online. A connection from a new address beyond the limit is rejected; the addresses already connected keep working. An address stays online for a minute after its last connection closed, as in the `ips` list. |
 | `quota` | Traffic budget in bytes, upload plus download. When it is used up, the user's connections are closed and new ones are rejected until the quota is reset or raised. |

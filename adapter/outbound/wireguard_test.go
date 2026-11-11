@@ -161,3 +161,20 @@ func TestWireGuardCloseRemovedDevices(t *testing.T) {
 		t.Fatal("device of the current outbound was closed")
 	}
 }
+
+// ParseProxy wraps smux-enabled proxies as autoClose(SingMux(WireGuard)).
+func TestWireGuardKeepDeviceBehindSingMux(t *testing.T) {
+	port := listenTestPeer(t)
+
+	w := newTestWireGuard(t, "smux", port)
+	if err := initTestWireGuard(t, w); err != nil {
+		t.Fatal(err)
+	}
+	proxy := testProxy{adapter: NewAutoCloseProxyAdapter(&SingMux{ProxyAdapter: w})}
+	defer runtime.KeepAlive(proxy)
+	CloseWireGuardDevicesExcept(WireGuardSerial(), []C.Proxy{proxy})
+
+	if wireGuardDeviceClosed(w) {
+		t.Fatal("device of the current smux-wrapped outbound was closed")
+	}
+}

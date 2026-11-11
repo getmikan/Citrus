@@ -97,6 +97,8 @@ journalctl -u citrus -f
 
 For several instances there is `citrus@.service`: `citrus@work` reads `/etc/citrus/work/`.
 
+For server inbounds, use the separate [non-root server profile](/Citrus/en/start/server-profile/) with a dedicated account and read-only config.
+
 ## Dashboard
 
 Turn on the controller API in the config (`external-controller: 127.0.0.1:9090` and a `secret`) and connect a compatible dashboard such as [MetaCubeXD](https://github.com/MetaCubeX/metacubexd). A controller without a secret refuses browser requests from other sites and does not start on a network address, see [Controller security](/Citrus/en/start/controller/).

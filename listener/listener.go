@@ -581,6 +581,10 @@ func PatchInboundListeners(newListenerMap map[string]C.InboundListener, tunnel C
 				continue
 			}
 			_ = oldListener.Close()
+			// forget the closed listener now: when the new one fails to
+			// listen, the next reload must recreate the inbound instead of
+			// keeping the dead one, even with the original configuration
+			delete(inboundListeners, name)
 			delete(runtimeUsers, name)
 			publishInboundState(name, oldListener, eventbus.InboundStopped, nil)
 		}

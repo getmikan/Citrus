@@ -53,6 +53,12 @@ func WithExternalControllerAllowInsecure(allow bool) Option {
 	}
 }
 
+// WithExternalControllerAllowLegacyWebSocketToken enables the compatibility
+// path that sends the main controller secret in WebSocket URLs.
+func WithExternalControllerAllowLegacyWebSocketToken(allow bool) Option {
+	return func(cfg *config.Config) { cfg.Controller.AllowLegacyWebSocketToken = allow }
+}
+
 func WithSecret(secret string) Option {
 	return func(cfg *config.Config) {
 		cfg.Controller.Secret = secret
@@ -91,7 +97,8 @@ func routeConfig(cfg *config.Config) *route.Config {
 			AllowOrigins:        cfg.Controller.Cors.AllowOrigins,
 			AllowPrivateNetwork: cfg.Controller.Cors.AllowPrivateNetwork,
 		},
-		AllowInsecure: cfg.Controller.AllowInsecure,
+		AllowInsecure:             cfg.Controller.AllowInsecure,
+		AllowLegacyWebSocketToken: cfg.Controller.AllowLegacyWebSocketToken,
 	}
 }
 

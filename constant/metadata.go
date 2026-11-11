@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 )
 
 // SOCKS address types as defined in RFC 1928 section 5.
@@ -43,6 +44,17 @@ const (
 	TRUSTTUNNEL
 	SHADOWQUIC
 	INNER
+)
+
+// EgressGuard is a listener's override of the egress guard, which keeps the
+// connections of authenticated server users away from the private, local
+// and metadata addresses of the server (component/egress).
+type EgressGuard uint8
+
+const (
+	EgressGuardDefault EgressGuard = iota // the global setting for the inbound type
+	EgressGuardOn
+	EgressGuardOff
 )
 
 type AddrType byte
@@ -214,6 +226,10 @@ type Metadata struct {
 	// (Next to DSCP: the padding after it holds it, which keeps Metadata in
 	// the 416-byte size class.)
 	DstIPChecked bool `json:"-"`
+	// EgressGuard is the egress-guard choice of the listener the connection
+	// came from (component/egress); EgressGuardDefault leaves it to the
+	// global setting for the inbound type. (In the same padding as above.)
+	EgressGuard EgressGuard `json:"-"`
 
 	RawSrcAddr net.Addr `json:"-"`
 	RawDstAddr net.Addr `json:"-"`
@@ -279,6 +295,18 @@ func (m *Metadata) AddrType() AddrType {
 
 func (m *Metadata) Resolved() bool {
 	return m.DstIP.IsValid()
+}
+
+// NormalizeHost lowercases a client-supplied host and drops one trailing dot.
+// DNS treats "WWW.Example.COM." and "www.example.com" as the same name, and
+// the DOMAIN* rule payloads are stored lowercased without the root dot, so
+// every writer of Host or SniffHost passes the name through here; otherwise a
+// client could pick a spelling that skips those rules.
+func NormalizeHost(host string) string {
+	if len(host) > 1 && host[len(host)-1] == '.' {
+		host = host[:len(host)-1]
+	}
+	return strings.ToLower(host)
 }
 
 func (m *Metadata) RuleHost() string {

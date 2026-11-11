@@ -1,7 +1,11 @@
 package inbound
 
 import (
+	"errors"
+	"slices"
 	"strings"
+
+	"github.com/metacubex/mihomo/transport/xdrive"
 
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
@@ -10,12 +14,16 @@ import (
 )
 
 type VlessOption struct {
+	XDriveConfig *xdrive.Config `inbound:"xdrive-config,omitempty" yaml:"xdrive-config,omitempty" json:"xdrive-config,omitempty"`
 	BaseOption
 	Users              []VlessUser   `inbound:"users"`
 	Decryption         string        `inbound:"decryption,omitempty"`
 	WsPath             string        `inbound:"ws-path,omitempty"`
 	XHTTPConfig        XHTTPConfig   `inbound:"xhttp-config,omitempty"`
+	ALPN               []string      `inbound:"alpn,omitempty"`
 	GrpcServiceName    string        `inbound:"grpc-service-name,omitempty"`
+	FallbackPage       string        `inbound:"fallback-page,omitempty"`
+	Fallbacks          []Fallback    `inbound:"fallbacks,omitempty"`
 	Certificate        string        `inbound:"certificate,omitempty"`
 	PrivateKey         string        `inbound:"private-key,omitempty"`
 	ClientAuthType     string        `inbound:"client-auth-type,omitempty"`
@@ -105,6 +113,12 @@ func NewVless(options *VlessOption) (*Vless, error) {
 	if err != nil {
 		return nil, err
 	}
+	xhttp := options.XHTTPConfig.Path != "" || options.XHTTPConfig.Host != "" || options.XHTTPConfig.Mode != ""
+	if options.ProxyProtocol && xhttp && slices.Contains(options.ALPN, "h3") {
+		// the PROXY header and proxy-protocol-trusted guard only the TCP
+		// listener; the UDP port of h3 would be open to every peer
+		return nil, errors.New("proxy-protocol cannot be combined with alpn h3: QUIC carries no PROXY header")
+	}
 	users := make([]LC.VlessUser, len(options.Users))
 	for i, v := range options.Users {
 		users[i] = LC.VlessUser{
@@ -118,12 +132,16 @@ func NewVless(options *VlessOption) (*Vless, error) {
 		config: options,
 		vs: LC.VlessServer{
 			Enable:             true,
+			XDriveConfig:       options.XDriveConfig,
 			Listen:             base.RawAddress(),
 			Users:              users,
 			Decryption:         options.Decryption,
 			WsPath:             options.WsPath,
 			XHTTPConfig:        options.XHTTPConfig.Build(),
+			ALPN:               options.ALPN,
 			GrpcServiceName:    options.GrpcServiceName,
+			FallbackPage:       options.FallbackPage,
+			Fallbacks:          buildFallbacks(options.Fallbacks),
 			Certificate:        options.Certificate,
 			PrivateKey:         options.PrivateKey,
 			ClientAuthType:     options.ClientAuthType,

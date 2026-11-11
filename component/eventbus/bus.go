@@ -1,6 +1,7 @@
 // Package eventbus is an in-process publish/subscribe bus of core events
 // (authentication, user limits, user changes, configuration reloads, provider
-// updates, listener state, chain health) that the controller streams on GET /events.
+// updates, listener state, chain health, Windows TUN egress flags) that the
+// controller streams on GET /events.
 //
 // Publishing never blocks: every subscriber has a bounded buffer, and an
 // event that does not fit is dropped for that subscriber and counted (see
@@ -26,6 +27,7 @@ const (
 	TypeProviderUpdate = "provider.update"
 	TypeInboundState   = "inbound.state"
 	TypeChainHealth    = "chain.health"
+	TypeTunForwarding  = "tun.forwarding"
 )
 
 // TypeDropped is the type of the event a stream sends when events were
@@ -33,7 +35,7 @@ const (
 const TypeDropped = "dropped"
 
 // Types lists the event types that can be subscribed to.
-var Types = []string{TypeAuth, TypeUserLimit, TypeUserChanged, TypeConfigReload, TypeProviderUpdate, TypeInboundState, TypeChainHealth}
+var Types = []string{TypeAuth, TypeUserLimit, TypeUserChanged, TypeConfigReload, TypeProviderUpdate, TypeInboundState, TypeChainHealth, TypeTunForwarding}
 
 // Mask is a set of event types.
 type Mask uint32

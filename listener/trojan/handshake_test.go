@@ -67,7 +67,7 @@ func serveTrojanOnce(t *testing.T, idle time.Duration) net.Conn {
 		if err != nil {
 			return
 		}
-		l.serveConn(c, nil, nil)
+		l.serveConn(c, nil, false, nil)
 	}()
 	client, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {

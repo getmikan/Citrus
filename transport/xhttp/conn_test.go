@@ -55,6 +55,9 @@ func TestConnBlockedReadDeadline(t *testing.T) {
 	var ne interface{ Timeout() bool }
 	assert.True(t, errors.As(err, &ne) && ne.Timeout())
 	assert.Less(t, time.Since(start), 5*time.Second)
+	// the deadline closes the conn from the timer's goroutine, which may
+	// still be running onClose when the Read above has returned
+	assert.Eventually(t, func() bool { return closes.Load() == 1 }, time.Second, time.Millisecond)
 	assert.Equal(t, int32(1), closes.Load())
 }
 

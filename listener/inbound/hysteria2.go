@@ -5,6 +5,7 @@ import (
 
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/sing_hysteria2"
 	"github.com/metacubex/mihomo/log"
 )
@@ -94,6 +95,7 @@ func NewHysteria2(options *Hysteria2Option) (*Hysteria2, error) {
 	if err != nil {
 		return nil, err
 	}
+	inbounduser.WarnEmptySecrets(options.Name(), inbounduser.FromMap(options.Users))
 	return &Hysteria2{
 		Base:   base,
 		config: options,

@@ -27,6 +27,13 @@ func WithInUser(user string) Addition {
 	}
 }
 
+// WithEgressGuard records the listener's egress-guard override.
+func WithEgressGuard(guard C.EgressGuard) Addition {
+	return func(metadata *C.Metadata) {
+		metadata.EgressGuard = guard
+	}
+}
+
 func WithSpecialRules(specialRules string) Addition {
 	return func(metadata *C.Metadata) {
 		metadata.SpecialRules = specialRules

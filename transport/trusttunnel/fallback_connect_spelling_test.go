@@ -39,8 +39,7 @@ func TestFallbackConnectAnySpelling(t *testing.T) {
 					got <- n
 				}))
 				defer backend.Close()
-				s, address := startFallbackServer(t, backend, time.Second)
-				s.UpdateUsers(map[string]string{"alice": "secret"})
+				_, address := startFallbackServerUsers(t, backend, time.Second, map[string]string{"alice": "secret"})
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				reader, writer := io.Pipe()

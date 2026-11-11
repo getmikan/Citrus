@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
 	"strings"
@@ -19,6 +20,12 @@ import (
 )
 
 var tunnel P.Tunnel
+
+const (
+	maxIndexedProviderRules   = 1_000_000
+	maxIndexedProviderEntries = 2_000_000
+	maxClassicalProviderRules = 50_000
+)
 
 func SetTunnel(t P.Tunnel) {
 	tunnel = t
@@ -140,7 +147,7 @@ func (rp *RuleSetProvider) Close() error {
 	return rp.ruleSetProvider.Close()
 }
 
-func NewRuleSetProvider(name string, behavior P.RuleBehavior, format P.RuleFormat, interval time.Duration, vehicle P.Vehicle, payload []string, bundleFile resource.BundleFile, parse common.ParseRuleFunc) P.RuleProvider {
+func NewRuleSetProvider(name string, behavior P.RuleBehavior, format P.RuleFormat, interval time.Duration, vehicle P.Vehicle, payload []string, bundleFile resource.BundleFile, parse common.ParseRuleFunc) (P.RuleProvider, error) {
 	rp := &ruleSetProvider{
 		baseProvider: baseProvider{
 			behavior: behavior,
@@ -155,7 +162,11 @@ func NewRuleSetProvider(name string, behavior P.RuleBehavior, format P.RuleForma
 
 	strategy := newStrategy(behavior, parse)
 	if len(payload) > 0 { // using as fallback rules
-		strategy = rulesParseInline(payload, strategy)
+		var err error
+		strategy, err = rulesParseInline(payload, strategy)
+		if err != nil {
+			return nil, err
+		}
 	}
 	rp.setStrategy(strategy)
 	rp.Fetcher = resource.NewFetcher(name, interval, vehicle, bundleFile, func(bytes []byte) (ruleStrategy, error) {
@@ -168,7 +179,7 @@ func NewRuleSetProvider(name string, behavior P.RuleBehavior, format P.RuleForma
 	}
 
 	runtime.SetFinalizer(wrapper, (*RuleSetProvider).Close)
-	return wrapper
+	return wrapper, nil
 }
 
 func newStrategy(behavior P.RuleBehavior, parse common.ParseRuleFunc) ruleStrategy {
@@ -193,6 +204,17 @@ var (
 )
 
 func rulesParse(buf []byte, strategy ruleStrategy, format P.RuleFormat) (ruleStrategy, error) {
+	return rulesParseWithLimit(buf, strategy, format, ruleLimit(strategy.Behavior()))
+}
+
+func ruleLimit(behavior P.RuleBehavior) int {
+	if behavior == P.Classical {
+		return maxClassicalProviderRules
+	}
+	return maxIndexedProviderRules
+}
+
+func rulesParseWithLimit(buf []byte, strategy ruleStrategy, format P.RuleFormat, limit int) (ruleStrategy, error) {
 	strategy.Reset()
 	if format == P.MrsRule {
 		return rulesMrsParse(buf, strategy)
@@ -279,6 +301,9 @@ func rulesParse(buf []byte, strategy ruleStrategy, format P.RuleFormat) (ruleStr
 		}
 
 		strategy.Insert(str)
+		if strategy.Count() > limit {
+			return nil, fmt.Errorf("rule provider exceeds the %d-rule limit for %s behavior", limit, strategy.Behavior())
+		}
 	}
 
 	strategy.FinishInsert()
@@ -286,15 +311,19 @@ func rulesParse(buf []byte, strategy ruleStrategy, format P.RuleFormat) (ruleStr
 	return strategy, nil
 }
 
-func rulesParseInline(rs []string, strategy ruleStrategy) ruleStrategy {
+func rulesParseInline(rs []string, strategy ruleStrategy) (ruleStrategy, error) {
 	strategy.Reset()
+	limit := ruleLimit(strategy.Behavior())
 	for _, r := range rs {
 		if r != "" {
 			strategy.Insert(r)
+			if strategy.Count() > limit {
+				return nil, fmt.Errorf("inline rule provider exceeds the %d-rule limit for %s behavior", limit, strategy.Behavior())
+			}
 		}
 	}
 	strategy.FinishInsert()
-	return strategy
+	return strategy, nil
 }
 
 type InlineProvider struct {
@@ -339,7 +368,7 @@ func (i *inlineProvider) MarshalJSON() ([]byte, error) {
 		})
 }
 
-func NewInlineProvider(name string, behavior P.RuleBehavior, payload []string, parse common.ParseRuleFunc) P.RuleProvider {
+func NewInlineProvider(name string, behavior P.RuleBehavior, payload []string, parse common.ParseRuleFunc) (P.RuleProvider, error) {
 	ip := &inlineProvider{
 		baseProvider: baseProvider{
 			behavior: behavior,
@@ -348,12 +377,16 @@ func NewInlineProvider(name string, behavior P.RuleBehavior, payload []string, p
 		name:     name,
 		updateAt: time.Now(),
 	}
-	ip.setStrategy(rulesParseInline(payload, newStrategy(behavior, parse)))
+	strategy, err := rulesParseInline(payload, newStrategy(behavior, parse))
+	if err != nil {
+		return nil, err
+	}
+	ip.setStrategy(strategy)
 
 	wrapper := &InlineProvider{
 		ip,
 	}
 
 	//runtime.SetFinalizer(wrapper, (*InlineProvider).Close)
-	return wrapper
+	return wrapper, nil
 }

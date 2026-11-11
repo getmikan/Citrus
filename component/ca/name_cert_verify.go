@@ -30,8 +30,9 @@ func NewNameCertVerifier(dnsName string, roots *x509.CertPool, now func() time.T
 			verifyOptions.CurrentTime = now()
 		}
 		for _, verifyOptions.DNSName = range dnsNames {
-			if _, err = certificates[0].Verify(verifyOptions); err == nil {
-				return nil
+			var chains [][]*x509.Certificate
+			if chains, err = certificates[0].Verify(verifyOptions); err == nil {
+				return CheckChains(chains)
 			}
 		}
 		return err

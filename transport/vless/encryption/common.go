@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,23 @@ type CommonConn struct {
 	PeerPadding []byte
 	rawInput    bytes.Buffer // PeerInBytes
 	input       bytes.Reader // PeerCache
+}
+
+var ErrNewHandshakeNeeded = errors.New("new handshake needed")
+
+func (c *CommonConn) retryHandshake(err error) error {
+	// A local deadline or Close says nothing about the ticket; only a reply
+	// the server cut short or could not authenticate does.
+	if c.Client == nil || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	c.Client.RWLock.Lock()
+	// An older failed attempt must not invalidate a concurrently renewed key.
+	if bytes.HasPrefix(c.UnitedKey, c.Client.PfsKey) {
+		c.Client.Expire = time.Now()
+	}
+	c.Client.RWLock.Unlock()
+	return fmt.Errorf("%w: %w", ErrNewHandshakeNeeded, err)
 }
 
 func NewCommonConn(conn net.Conn, useAES bool) *CommonConn {
@@ -79,7 +97,7 @@ func (c *CommonConn) Read(b []byte) (int, error) {
 	if c.PeerAEAD == nil { // client's 0-RTT
 		serverRandom := make([]byte, 16)
 		if _, err := io.ReadFull(c.Conn, serverRandom); err != nil {
-			return 0, err
+			return 0, c.retryHandshake(err)
 		}
 		c.PeerAEAD = NewAEAD(serverRandom, c.UnitedKey, c.UseAES)
 		if xorConn, ok := c.Conn.(*XorConn); ok {
@@ -100,17 +118,12 @@ func (c *CommonConn) Read(b []byte) (int, error) {
 	}
 	peerHeader := [5]byte{}
 	if _, err := io.ReadFull(c.Conn, peerHeader[:]); err != nil {
-		return 0, err
+		return 0, c.retryHandshake(err)
 	}
 	l, err := DecodeHeader(peerHeader[:]) // l: 17~16640
 	if err != nil {
 		if c.Client != nil && errors.Is(err, ErrInvalidHeader) { // client's 0-RTT
-			c.Client.RWLock.Lock()
-			if bytes.HasPrefix(c.UnitedKey, c.Client.PfsKey) {
-				c.Client.Expire = time.Now() // expired
-			}
-			c.Client.RWLock.Unlock()
-			return 0, errors.New("new handshake needed")
+			return 0, c.retryHandshake(err)
 		}
 		return 0, err
 	}

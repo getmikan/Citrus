@@ -104,6 +104,9 @@ func NewClient(ctx context.Context, conn net.Conn, config *ClientConfig) (net.Co
 		NextProtos: append([]string(nil), alpn...),
 		RootCAs:    ca.GetCertPool(),
 		Time:       ntp.Now,
+		VerifyConnection: func(state tls.ConnectionState) error {
+			return ca.CheckChains(state.VerifiedChains)
+		},
 		JLSConfig: &tls.JLSConfig{
 			Enable: true,
 			User:   config.User,
@@ -211,6 +214,7 @@ func UserFromConn(conn net.Conn) (string, bool) {
 }
 
 func relayFallback(ctx context.Context, inbound net.Conn, prefix []byte, config *ServerConfig) error {
+	N.HandshakeComplete(inbound)
 	upstream, err := config.DialContext(ctx, "tcp", config.Dest)
 	if err != nil {
 		return err

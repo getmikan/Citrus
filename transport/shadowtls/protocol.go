@@ -26,15 +26,29 @@ const (
 	tlsHMACHeaderSize    = tlsHeaderSize + hmacSize
 	hmacSize             = 4
 	maxTLSPlaintext      = 16384
+	// TLS 1.2 permits up to 2048 bytes of ciphertext expansion.
+	maxTLSCiphertext = maxTLSPlaintext + 2048
+	maxTLSFrame      = tlsHeaderSize + maxTLSCiphertext
 )
 
 func readFrame(reader io.Reader) ([]byte, error) {
+	return readFrameBuffer(reader, nil)
+}
+
+func readFrameBuffer(reader io.Reader, buffer []byte) ([]byte, error) {
 	var header [tlsHeaderSize]byte
 	if _, err := io.ReadFull(reader, header[:]); err != nil {
 		return nil, err
 	}
 	length := int(binary.BigEndian.Uint16(header[3:]))
-	frame := make([]byte, tlsHeaderSize+length)
+	if length > maxTLSCiphertext {
+		return nil, fmt.Errorf("shadow-tls: TLS record length %d exceeds maximum %d", length, maxTLSCiphertext)
+	}
+	size := tlsHeaderSize + length
+	if cap(buffer) < size {
+		buffer = make([]byte, size)
+	}
+	frame := buffer[:size]
 	copy(frame, header[:])
 	if _, err := io.ReadFull(reader, frame[tlsHeaderSize:]); err != nil {
 		return nil, err

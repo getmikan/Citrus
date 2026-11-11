@@ -6,6 +6,7 @@ var (
 	GOARM   string
 	GOMIPS  string
 	GOAMD64 string
+	GO386   string
 )
 
 func init() {
@@ -18,6 +19,8 @@ func init() {
 				GOMIPS = bs.Value
 			case "GOAMD64":
 				GOAMD64 = bs.Value
+			case "GO386":
+				GO386 = bs.Value
 			}
 		}
 	}

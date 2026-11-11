@@ -32,6 +32,51 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  server-profile:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 0
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        run: bash .github/scripts/setup-go.sh 1.26
+      - name: Build server binary
+        run: go build -trimpath -o "$RUNNER_TEMP/citrus-profile" .
+      - name: Verify and run the systemd server profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            if [ "$?" != 0 ]; then sudo journalctl -u citrus-server -n 50 --no-pager || true; fi
+            sudo systemctl stop citrus-server || true
+          }
+          trap cleanup EXIT
+          sudo install -m 0755 "$RUNNER_TEMP/citrus-profile" /usr/bin/citrus
+          sudo systemd-sysusers "$GITHUB_WORKSPACE/.github/release/citrus-server.sysusers"
+          sudo install -d -o root -g citrus-server -m 0750 /etc/citrus-server
+          sudo install -o root -g citrus-server -m 0640 docker/server-config.yaml /etc/citrus-server/config.yaml
+          sudo install -m 0644 .github/release/citrus-server.service /run/systemd/system/citrus-server.service
+          sudo systemd-analyze verify /run/systemd/system/citrus-server.service
+          sudo systemctl daemon-reload
+          sudo systemctl start citrus-server
+          sleep 1
+          systemctl is-active --quiet citrus-server
+          pid=$(systemctl show -p MainPID --value citrus-server)
+          uid=$(id -u citrus-server)
+          test "$uid" != 0
+          sudo awk -v uid="$uid" '$1 == "Uid:" { if ($2 != uid || $3 != uid || $4 != uid || $5 != uid) exit 1; ok=1 } END { if (!ok) exit 1 }' "/proc/$pid/status"
+          sudo grep -Eq '^CapEff:[[:space:]]+0000000000000400$' "/proc/$pid/status"
+          sudo grep -Eq '^NoNewPrivs:[[:space:]]+1$' "/proc/$pid/status"
+          # Enter its mount namespace and use its UID to check the actual sandbox.
+          sudo nsenter -t "$pid" -m -- runuser -u citrus-server -- sh -ec '
+            touch /var/lib/citrus-server/ci-state
+            test ! -w /etc/citrus-server/config.yaml
+            test ! -w /usr/bin/citrus
+            test ! -e /dev/net/tun
+          '
+      - name: Exercise the Docker server profile
+        run: bash .github/scripts/test-server-profile.sh "$RUNNER_TEMP/citrus-profile"
   test:
     strategy:
       matrix:
@@ -91,8 +136,9 @@ jobs:
   race:
     # Race detector on the packages that are race-clean today, Linux only.
     # Excluded:
-    #   - listener/inbound: red under -race until the smux fork fix lands, and
-    #     the ResTLS races there are not ours to fix.
+    #   - the full listener/inbound suite still reports races in WS/HTTP/XHTTP,
+    #     including conflicting accesses attributed to the same goroutine;
+    #     the affected audit protocols run separately below with bounded parallelism.
     #   - everything else not listed: not yet checked under -race; add a
     #     package here once `go test -race` passes on it.
     runs-on: ubuntu-latest
@@ -125,9 +171,75 @@ jobs:
         run: >-
           go test -race -count=1 -timeout 15m
           ./transport/xhttp/...
+          ./transport/xdrive/...
+          ./transport/sudoku/...
+          ./transport/shadowtls/...
+          ./transport/kcptun/...
+          ./transport/trusttunnel/...
           ./transport/v2ray/...
           ./transport/vless/...
           ./common/...
+          ./hub/...
           ./tunnel/...
           ./listener/sing/...
+          ./listener/sing_vless/...
+          ./listener/reality/...
+          ./listener/sudoku/...
+          ./listener/tuic/...
           ./adapter/...
+
+      - name: Audited inbound protocols with -race
+        # Isolate protocol groups in separate test processes; a broad run of
+        # this stress harness can report conflicting accesses in one goroutine.
+        run: |
+          for protocol in Reality Restls 'Shadow[Tt][Ll][Ss]' JLS Sudoku Tuic TrustTunnel KcpTun; do
+            go test -race -count=1 -parallel=4 -timeout 5m -run "TestInbound.*$protocol" ./listener/inbound/...
+          done
+
+  inbound-race:
+    # Exercise every inbound test in one process, including concurrent cases.
+    # Keep this independent of protocol-isolated runs to expose interactions
+    # that are otherwise lost when each protocol gets a fresh process.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CGO_ENABLED: 1
+      GOTOOLCHAIN: local
+      GOMAXPROCS: 4
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up Go
+        run: bash .github/scripts/setup-go.sh 1.26
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "build=$(go env GOCACHE)" >>"$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >>"$GITHUB_OUTPUT"
+
+      - name: Cache Go modules and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.mod }}
+          key: go-inbound-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/go-toolchains.txt', 'go.sum') }}
+          restore-keys: |
+            go-inbound-race-${{ runner.os }}-${{ runner.arch }}-
+            go-race-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Full inbound suite with -race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -mod=readonly -race -count=1 -parallel=4 -timeout 15m ./listener/inbound/... 2>&1 | tee "$RUNNER_TEMP/inbound-race.log"
+
+      - name: Preserve inbound race log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: inbound-race-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/inbound-race.log
+          if-no-files-found: ignore
+          retention-days: 7

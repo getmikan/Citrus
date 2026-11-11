@@ -10,6 +10,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/metacubex/mihomo/common/pool"
 	"github.com/metacubex/mihomo/transport/sudoku/crypto"
 	"github.com/metacubex/mihomo/transport/sudoku/obfs/sudoku"
 )
@@ -91,6 +92,11 @@ func selectTableByProbe(r *bufio.Reader, cfg *ProtocolConfig, tables []*sudoku.T
 	const (
 		maxProbeBytes = 64 * 1024
 		readChunk     = 4 * 1024
+		// Every round decodes the whole probe again for each candidate, so a
+		// client that sends a few bytes per read would cost O(n²) before it
+		// authenticates. Bound the bytes decoded per candidate across rounds:
+		// a real ClientHello is a few KiB and takes a round or a few.
+		maxProbeWork = 4 * maxProbeBytes
 	)
 	if len(tables) == 0 {
 		return nil, nil, fmt.Errorf("no table candidates")
@@ -115,7 +121,11 @@ func selectTableByProbe(r *bufio.Reader, cfg *ProtocolConfig, tables []*sudoku.T
 		return nil, nil, fmt.Errorf("drain buffered bytes failed: %w", err)
 	}
 
-	tmp := make([]byte, readChunk)
+	// Most handshakes are decided by the bytes bufio already holds, so the read chunk is
+	// only taken once another read is needed.
+	var chunk []byte
+	defer func() { _ = pool.Put(chunk) }()
+	probeWork := 0
 	for {
 		if len(candidates) == 1 {
 			tail, err := drainBuffered(r)
@@ -145,6 +155,7 @@ func selectTableByProbe(r *bufio.Reader, cfg *ProtocolConfig, tables []*sudoku.T
 			// Definitive mismatch: drop table.
 		}
 		candidates = next
+		probeWork += len(probe)
 
 		if len(candidates) == 0 || !needMore {
 			return nil, probe, fmt.Errorf("handshake table selection failed")
@@ -152,10 +163,16 @@ func selectTableByProbe(r *bufio.Reader, cfg *ProtocolConfig, tables []*sudoku.T
 		if len(probe) >= maxProbeBytes {
 			return nil, probe, fmt.Errorf("handshake probe exceeded %d bytes", maxProbeBytes)
 		}
+		if probeWork >= maxProbeWork {
+			return nil, probe, fmt.Errorf("handshake probe exceeded %d decoded bytes", maxProbeWork)
+		}
 
-		n, err := r.Read(tmp)
+		if chunk == nil {
+			chunk = pool.Get(readChunk)
+		}
+		n, err := r.Read(chunk)
 		if n > 0 {
-			probe = append(probe, tmp[:n]...)
+			probe = append(probe, chunk[:n]...)
 		}
 		if err != nil {
 			return nil, probe, fmt.Errorf("handshake probe read failed: %w", err)

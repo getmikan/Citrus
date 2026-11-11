@@ -1,0 +1,23 @@
+# Server profile template. Add authenticated inbounds before exposing ports.
+# Config and TLS keys belong in /etc/citrus (container) or /etc/citrus-server
+# (systemd); caches, geodata, providers and UI downloads belong in the -d directory.
+mixed-port: 0
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: true
+geodata-mode: false
+geo-auto-update: false
+tun:
+  enable: false
+dns:
+  enable: false
+listeners: []
+# The users of the server inbounds cannot reach the loopback, the private
+# networks, the cloud metadata services or this host's addresses through
+# DIRECT, whatever the rules say (on by default). Allow what they must reach:
+# egress-guard:
+#   enable: true
+#   allow-ips: [10.8.0.0/24]
+rules:
+  - MATCH,DIRECT

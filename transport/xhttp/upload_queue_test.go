@@ -3,6 +3,7 @@ package xhttp
 import (
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -79,5 +80,38 @@ func TestUploadQueueRelease(t *testing.T) {
 	assert.Equal(t, "ef", string(buf[:n]))
 	assert.Equal(t, []uint64{0, 1, 2}, released)
 
+	assert.NoError(t, q.Close())
+}
+
+func TestUploadQueueDropsConsumedSeq(t *testing.T) {
+	q := NewUploadQueue(1)
+	buf := make([]byte, 4)
+	for seq := uint64(0); seq < 2; seq++ {
+		assert.NoError(t, q.Push(Packet{Seq: seq, Payload: []byte{byte('0' + seq)}}))
+		n, err := q.Read(buf)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, n)
+	}
+
+	// Replayed seqs must neither count against maxPackets nor block Push.
+	released := 0
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 4; i++ {
+			assert.NoError(t, q.Push(Packet{Seq: uint64(i % 2), Payload: []byte{'x'}, Release: func() { released++ }}))
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Push blocked on consumed seqs")
+	}
+	assert.Equal(t, 4, released)
+
+	assert.NoError(t, q.Push(Packet{Seq: 2, Payload: []byte{'2'}}))
+	n, err := q.Read(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, "2", string(buf[:n]))
 	assert.NoError(t, q.Close())
 }

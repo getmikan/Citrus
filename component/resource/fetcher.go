@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -34,6 +35,8 @@ type Fetcher[V any] struct {
 	interval     time.Duration
 	onUpdate     func(V)
 	watcher      *fswatch.Watcher
+	// loadBufMutex guards hash and updatedAt too: an update from the API
+	// runs while the pull loop or the file watcher runs one of their own.
 	loadBufMutex sync.Mutex
 	backoff      slowdown.Backoff
 }
@@ -51,7 +54,15 @@ func (f *Fetcher[V]) VehicleType() P.VehicleType {
 }
 
 func (f *Fetcher[V]) UpdatedAt() time.Time {
+	f.loadBufMutex.Lock()
+	defer f.loadBufMutex.Unlock()
 	return f.updatedAt
+}
+
+func (f *Fetcher[V]) setUpdatedAt(t time.Time) {
+	f.loadBufMutex.Lock()
+	f.updatedAt = t
+	f.loadBufMutex.Unlock()
 }
 
 func (f *Fetcher[V]) Initial() (V, error) {
@@ -60,7 +71,7 @@ func (f *Fetcher[V]) Initial() (V, error) {
 		buf, err := os.ReadFile(f.vehicle.Path())
 		modTime := stat.ModTime()
 		contents, _, err := f.loadBuf(buf, utils.MakeHash(buf), false)
-		f.updatedAt = modTime // reset updatedAt to file's modTime
+		f.setUpdatedAt(modTime) // reset updatedAt to file's modTime
 
 		if err == nil {
 			err = f.startPullLoop(time.Since(modTime) > f.interval)
@@ -82,7 +93,7 @@ func (f *Fetcher[V]) Initial() (V, error) {
 				modTime = stat.ModTime()
 			}
 			contents, _, err := f.loadBuf(buf, utils.MakeHash(buf), true)
-			f.updatedAt = modTime // reset updatedAt to file's modTime
+			f.setUpdatedAt(modTime) // reset updatedAt to file's modTime
 
 			if err == nil {
 				log.Infoln("[Provider] %s extract successful from bundle file", f.Name())
@@ -115,7 +126,10 @@ func (f *Fetcher[V]) Initial() (V, error) {
 }
 
 func (f *Fetcher[V]) Update() (V, bool, error) {
-	buf, hash, err := f.vehicle.Read(f.ctx, f.hash)
+	f.loadBufMutex.Lock()
+	oldHash := f.hash
+	f.loadBufMutex.Unlock()
+	buf, hash, err := f.vehicle.Read(f.ctx, oldHash)
 	if err != nil {
 		f.backoff.AddAttempt() // add a failed attempt to backoff
 		f.publishUpdate(false, err)
@@ -164,7 +178,7 @@ func (f *Fetcher[V]) loadBuf(buf []byte, hash utils.HashType, updateFile bool) (
 		return lo.Empty[V](), true, nil
 	}
 
-	contents, err := f.parser(buf)
+	contents, err := f.parse(buf)
 	if err != nil {
 		f.backoff.AddAttempt() // add a failed attempt to backoff
 		return lo.Empty[V](), false, err
@@ -186,6 +200,19 @@ func (f *Fetcher[V]) loadBuf(buf []byte, hash utils.HashType, updateFile bool) (
 	return contents, false, nil
 }
 
+// parse runs the parser and turns a panic into an error. The buffer comes
+// from a remote or user-supplied file, so a parser bug on malformed input
+// must fail this load instead of taking down the process (and, for a file
+// fetched again on every start, keeping it in a crash loop).
+func (f *Fetcher[V]) parse(buf []byte) (contents V, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			contents, err = lo.Empty[V](), fmt.Errorf("parse %s: %v", f.name, r)
+		}
+	}()
+	return f.parser(buf)
+}
+
 func (f *Fetcher[V]) Close() error {
 	f.ctxCancel()
 	if f.watcher != nil {
@@ -195,7 +222,7 @@ func (f *Fetcher[V]) Close() error {
 }
 
 func (f *Fetcher[V]) pullLoop(forceUpdate bool) {
-	initialInterval := f.interval - time.Since(f.updatedAt)
+	initialInterval := f.interval - time.Since(f.UpdatedAt())
 	if initialInterval > f.interval {
 		initialInterval = f.interval
 	}

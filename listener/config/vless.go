@@ -2,7 +2,9 @@ package config
 
 import (
 	"encoding/json"
+	"github.com/metacubex/mihomo/transport/xdrive"
 
+	"github.com/metacubex/mihomo/listener/fallback"
 	"github.com/metacubex/mihomo/listener/reality"
 	"github.com/metacubex/mihomo/listener/sing"
 )
@@ -14,12 +16,16 @@ type VlessUser struct {
 }
 
 type VlessServer struct {
+	XDriveConfig       *xdrive.Config `inbound:"xdrive-config,omitempty" yaml:"xdrive-config,omitempty" json:"xdrive-config,omitempty"`
 	Enable             bool
 	Listen             string
 	Users              []VlessUser
 	Decryption         string
 	WsPath             string
 	XHTTPConfig        XHTTPConfig
+	ALPN               []string          // with xhttp: which of h3, h2 and http/1.1 to serve; h3 is XHTTP over QUIC on the same UDP port
+	FallbackPage       string            // an HTML page for the requests not the inbound's own on an HTTP transport (listener/fallback)
+	Fallbacks          []fallback.Target // where the plain TCP transport sends a stream that is not the inbound's own (listener/fallback)
 	GrpcServiceName    string
 	Certificate        string
 	PrivateKey         string

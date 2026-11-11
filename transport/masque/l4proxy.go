@@ -96,6 +96,20 @@ func (c *L4Client) DialContext(ctx context.Context, network, address string) (ne
 		_ = c.closeConn(clientConn) // close underlay connection if we failed to open a stream
 		return nil, err
 	}
+	conn, err := connectL4(ctx, stream, address)
+	if err != nil {
+		// Reset both sides: a stream left open keeps counting against the
+		// peer's stream limit, and enough failed CONNECTs would leave no
+		// room for new streams on the shared connection.
+		stream.CancelRead(quic.StreamErrorCode(http3.ErrCodeRequestCanceled))
+		stream.CancelWrite(quic.StreamErrorCode(http3.ErrCodeRequestCanceled))
+		return nil, err
+	}
+	conn.clientConn = clientConn
+	return conn, nil
+}
+
+func connectL4(ctx context.Context, stream *http3.RequestStream, address string) (*l4StreamConn, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodConnect, "https://"+address, nil)
 	if err != nil {
 		return nil, err
@@ -109,9 +123,10 @@ func (c *L4Client) DialContext(ctx context.Context, network, address string) (ne
 		return nil, err
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
+		_ = response.Body.Close()
 		return nil, fmt.Errorf("CONNECT rejected with status %d", response.StatusCode)
 	}
-	return &l4StreamConn{stream, clientConn}, nil
+	return &l4StreamConn{RequestStream: stream}, nil
 }
 
 type l4StreamConn struct {

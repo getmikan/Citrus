@@ -66,6 +66,7 @@ type tunSchema struct {
 	Enable              bool        `yaml:"enable" json:"enable"`
 	Device              *string     `yaml:"device" json:"device"`
 	Stack               *C.TUNStack `yaml:"stack" json:"stack"`
+	DNSMode             *string     `yaml:"dns-mode" json:"dns-mode,omitempty"`
 	DNSHijack           *[]string   `yaml:"dns-hijack" json:"dns-hijack"`
 	AutoRoute           *bool       `yaml:"auto-route" json:"auto-route"`
 	AutoDetectInterface *bool       `yaml:"auto-detect-interface" json:"auto-detect-interface"`
@@ -154,6 +155,9 @@ func pointerOrDefaultTun(p *tunSchema, def LC.Tun) LC.Tun {
 		}
 		if p.Stack != nil {
 			def.Stack = *p.Stack
+		}
+		if p.DNSMode != nil {
+			def.DNSMode = *p.DNSMode
 		}
 		if p.DNSHijack != nil {
 			def.DNSHijack = *p.DNSHijack
@@ -357,16 +361,20 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 		listener.SetAllowLan(*general.AllowLan)
 	}
 
-	if general.SkipAuthPrefixes != nil {
-		inbound.SetSkipAuthPrefixes(*general.SkipAuthPrefixes)
-	}
-
-	if general.LanAllowedIPs != nil {
-		inbound.SetAllowedIPs(*general.LanAllowedIPs)
-	}
-
-	if general.LanDisAllowedIPs != nil {
-		inbound.SetDisAllowedIPs(*general.LanDisAllowedIPs)
+	if general.SkipAuthPrefixes != nil || general.LanAllowedIPs != nil || general.LanDisAllowedIPs != nil {
+		skipAuth := inbound.SkipAuthPrefixes()
+		allowed := inbound.AllowedIPs()
+		denied := inbound.DisAllowedIPs()
+		if general.SkipAuthPrefixes != nil {
+			skipAuth = *general.SkipAuthPrefixes
+		}
+		if general.LanAllowedIPs != nil {
+			allowed = *general.LanAllowedIPs
+		}
+		if general.LanDisAllowedIPs != nil {
+			denied = *general.LanDisAllowedIPs
+		}
+		inbound.SetAccessPolicy(skipAuth, allowed, denied)
 	}
 
 	if general.BindAddress != nil {

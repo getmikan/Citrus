@@ -40,7 +40,7 @@ func newMasqueradeHandler(masquerade string, skipCertVerify bool, dialContext fu
 		return &httputil.ReverseProxy{
 			Rewrite: func(r *httputil.ProxyRequest) {
 				r.SetURL(masqueradeURL)
-				r.Out.Host = r.In.Host
+				r.Out.Host = masqueradeURL.Host
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 				w.WriteHeader(http.StatusBadGateway)

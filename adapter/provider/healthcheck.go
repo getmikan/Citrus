@@ -235,10 +235,9 @@ func NewHealthCheck(proxies []C.Proxy, url string, timeout uint, interval uint, 
 	}
 }
 
-// redactURLForLog hides the secrets a health-check URL may carry, for logs
-// only: the userinfo password (as url.URL.Redacted does) and every query
-// value (the keys stay, the values become "xxxxx"). The URL used for the
-// check itself is not touched. A URL that does not parse is not logged.
+// redactURLForLog hides the secrets a health-check URL may carry before it is
+// logged or projected through the controller API. The URL used for the check
+// itself is not touched.
 func redactURLForLog(rawURL string) string {
 	if rawURL == "" {
 		return ""

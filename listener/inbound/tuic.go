@@ -22,6 +22,7 @@ type TuicOption struct {
 	MaxIdleTime           int               `inbound:"max-idle-time,omitempty"`
 	AuthenticationTimeout int               `inbound:"authentication-timeout,omitempty"`
 	ALPN                  []string          `inbound:"alpn,omitempty"`
+	ZeroRTT               bool              `inbound:"zero-rtt,omitempty"`
 	MaxUdpRelayPacketSize int               `inbound:"max-udp-relay-packet-size,omitempty"`
 	CWND                  int               `inbound:"cwnd,omitempty"`
 	BBRProfile            string            `inbound:"bbr-profile,omitempty"`
@@ -61,6 +62,7 @@ func NewTuic(options *TuicOption) (*Tuic, error) {
 			MaxIdleTime:           options.MaxIdleTime,
 			AuthenticationTimeout: options.AuthenticationTimeout,
 			ALPN:                  options.ALPN,
+			ZeroRTT:               options.ZeroRTT,
 			MaxUdpRelayPacketSize: options.MaxUdpRelayPacketSize,
 			CWND:                  options.CWND,
 			BBRProfile:            options.BBRProfile,

@@ -43,6 +43,12 @@ geox-url:
   geoip: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
   geosite: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
   mmdb: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"
+# Optional: pin the exact file, a database with another SHA-256 is rejected.
+geox-sha256:
+  geoip: ""   # 64 hex characters
+  geosite: ""
+  mmdb: ""
+  asn: ""
 
 geo-auto-update: false # 是否自动更新 geodata
 geo-update-interval: 24 # 更新间隔，单位：小时
@@ -83,25 +89,41 @@ tls:
       -----BEGIN CERTIFICATE-----
       format/pem...
       -----END CERTIFICATE-----
+  # Roots the core's own TLS clients trust (proxies, DoH/DoT/DoQ, provider and geodata downloads):
+  #   both   - the system pool plus the embedded Mozilla bundle (default)
+  #   bundle - only the embedded Mozilla bundle, CAs installed on the device are ignored
+  #   system - only the system pool
+  # custom-certifactes are added on top in every mode.
+  # ca-roots: both
+  # State interception CAs (Russian Trusted Root/Sub CA, Kazakhstan's Qaznet and ISCA roots, see
+  # component/ca/denylist.go) are never trusted, whether the system or the bundle has them. false
+  # trusts them again; a certificate listed in custom-certifactes is trusted regardless.
+  # fingerprint pinning and skip-cert-verify are not affected. The exception is the Tailscale control
+  # client: it adds these roots to the system pool, so bundle does not narrow it and the denylist does
+  # not apply there.
+  # ca-denylist: true
 
 external-controller: 0.0.0.0:9093 # RESTful API 监听地址
 external-controller-tls: 0.0.0.0:9443 # RESTful API HTTPS 监听地址，需要配置 tls 部分配置文件
 secret: "123456" # `Authorization:Bearer ${secret}`
-# The controller refuses to start external-controller or external-controller-tls
-# on a non-loopback address (0.0.0.0, :9090, a LAN address) while secret is empty:
-# anyone who reaches it would get the whole API. Loopback addresses
-# (127.0.0.1, [::1], localhost), external-controller-unix and
-# external-controller-pipe work without a secret. external-controller-tls also
-# starts without a secret when tls.client-auth-type is require-and-verify (or
-# client-auth-cert is set): the client certificate is the credential.
+# TCP controllers require a secret even on loopback. Plain HTTP is restricted
+# to loopback by default, because a remote bearer secret would travel in clear
+# text. external-controller-unix and external-controller-pipe may work without
+# a secret; external-controller-tls may do so with verified client certificates.
 # A tcp/tls controller without a secret only answers requests whose Host is an
 # IP address or localhost, and refuses browser requests from other origins
 # (Origin header) unless they are listed literally in
 # external-controller-cors.allow-origins ("*" does not count).
 # PUT /configs applies a changed secret, address, TLS or CORS setting: the
 # controller listeners restart and open websocket streams are closed.
-# 内核拒绝在非回环地址上无 secret 启动 external-controller / external-controller-tls。
-# external-controller-allow-insecure: false # true: accept a non-loopback controller without a secret (not recommended); env CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true or -ext-ctl-allow-insecure
+# TCP 控制器即使在回环地址也需要 secret；远程明文 HTTP 默认拒绝。
+# external-controller-allow-insecure: false # dangerous legacy opt-in: allow secretless TCP or remote plaintext bearer HTTP; env CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ALLOW_INSECURE=true or -ext-ctl-allow-insecure
+
+# WebSocket: POST /auth/ws-ticket with Authorization: Bearer <secret> and
+# JSON {"path":"/events?types=auth"}, then connect to that exact path with
+# &ticket=<ticket>. Tickets expire after 30 seconds and can be redeemed once.
+# Main-secret URLs (?token=<secret>) are rejected by default. For old dashboards only:
+# external-controller-allow-legacy-websocket-token: false # true restores the URI-secret risk and emits a warning
 
 # RESTful API CORS标头配置
 external-controller-cors:
@@ -138,12 +160,15 @@ external-controller-routing-mark: 0
 # user: "*" 为该入站所有未单独配置用户的默认限制。0 或不写表示不限制。
 # 速度单位为字节/秒：10M = 10 MB/s；小写 b 表示比特：80Mbps = 10 MB/s。
 # 大小单位：K/M/G/T 为 1000 的幂，Ki/Mi/Gi/Ti 为 1024 的幂。
+# speed-group：同名分组的用户（可跨入站）共享同一组速度令牌桶，组内成员应设置相同的 speed-up/speed-down。
 # 运行时可通过 /limits/users 修改；重新加载配置会替换 API 设置的限制，配额用量保留。
 # Per-user limits of inbound users: speed, concurrent connections, online
 # addresses, traffic quota, expiry. user: "*" is the default of every user of
 # the inbound without a limit of its own. 0 or absent is no limit.
 # speed-up/speed-down are bytes per second: 10M = 10 MB/s; a lowercase b means
 # bits: 80Mbps = 10 MB/s. Sizes: K/M/G/T are powers of 1000, Ki/Mi/Gi/Ti of 1024.
+# speed-group: the users naming the same group, on any inbounds, share one
+# speed (one pair of buckets); give its members the same speed-up/speed-down.
 # quota counts upload plus download; expire-at is unix seconds or RFC 3339.
 # Runtime API: GET/PUT/DELETE /limits/users, POST /limits/users/reset-quota.
 # A reload replaces the limits set through the API; the quota usage is kept.
@@ -170,6 +195,33 @@ external-controller-routing-mark: 0
 # (they reveal nothing but the state). The rest of the API keeps the secret.
 # health-without-auth: false
 
+# 出口防护：服务端入站（vless、trojan、shadowsocks、snell、tuic、hysteria2、anytls、mieru、sudoku、
+# trusttunnel、shadowquic）的已认证用户经 DIRECT 无法访问本机、私有、链路本地、CGNAT、ULA、组播、
+# 保留地址、云元数据服务（169.254.169.254、fd00:ec2::254、100.100.100.200 等）以及本机网卡地址。
+# 对 IP 和域名解析结果（防 DNS rebinding）、TCP 与 UDP（含来自这些地址的 UDP 回包）都生效，规则无法绕过。
+# 默认开启；本地客户端入站（http、socks、mixed、redir、tproxy、tun、tunnel）不受影响。
+# Egress guard: the authenticated users of the server inbounds (vless, trojan, shadowsocks, snell,
+# tuic, hysteria2, anytls, mieru, sudoku, trusttunnel, shadowquic) cannot reach through DIRECT the
+# loopback, private, link-local, CGNAT, ULA, multicast, unspecified and reserved ranges, the cloud
+# metadata services (169.254.169.254, fd00:ec2::254, 100.100.100.200, 192.0.0.192, ...) or the
+# addresses of this host's interfaces (the controller, the inbounds and every other local service
+# listen on them). It checks IP literals and the addresses a domain resolves to, right before the
+# connect (no DNS rebinding), TCP and UDP; a UDP datagram to a blocked address is dropped, and so is
+# one from it. It is the last check of DIRECT, after the rules: a rule such as
+# IP-CIDR,10.0.0.0/8,DIRECT does not open it. Proxies other than DIRECT are not checked (their
+# server dials the destination). A blocked dial is logged as a warning naming the address, the
+# inbound and the user. On by default; the local client inbounds (http, socks, mixed, redir,
+# tproxy, tun, tunnel) are not guarded, so a client config behaves as before.
+# allow-ips: CIDRs or single addresses exempt from the guard, e.g. a database on the LAN that the
+# users must reach, or address:port to exempt one port only, e.g. a website on this host's public
+# address while the controller and the other ports of the host stay blocked. A listener's own
+# egress-guard: true/false (see listeners) overrides enable for that listener. A reload applies to
+# the open UDP sessions too. A public address of this host behind NAT (not on an interface) is not
+# known to the guard; keep the controller on 127.0.0.1 or a unix socket.
+# egress-guard:
+#   enable: true
+#   allow-ips: [10.8.0.0/24, 192.168.1.10, 203.0.113.10:443]
+
 # TCP 出站连接建立总期限（毫秒），包含代理握手及重试，默认 5000，取值范围 100-600000。
 # 仅影响新连接，不影响已建立连接的读写、UDP 或健康检查。
 # 代理适配器内部更短的独立超时仍可能先到期。
@@ -188,6 +240,8 @@ external-ui: /path/to/ui/folder/
 external-ui-name: xd
 # 目前支持下载zip,tgz格式的压缩包
 external-ui-url: "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip"
+# external-ui-sha256: "..." # required for network downloads unless the dangerous compatibility option below is set
+# external-ui-allow-insecure: false # permits an unpinned or plaintext dashboard source; downloaded JS runs on the controller origin
 
 # 在RESTful API端口上开启DOH服务器
 # ！！！该URL不会验证secret， 如果开启请自行保证安全问题 ！！！
@@ -229,6 +283,12 @@ profile: # 存储 select 选择记录
 tun:
   enable: false
   stack: mips # gvisor/mixed/system
+  # 系统 DNS 配置方式
+  # - disabled，不设置系统 DNS
+  # - native，将 tun 地址设为系统 DNS
+  # - hijack，在 native 基础上额外拦截发往其他网卡的 53 端口流量（Windows 需 strict-route，Linux 需 auto-redirect）
+  # - 置空，和旧行为一致，Windows 和 Linux 在启用 auto-route 默认 hijack，否则 disabled；macOS 默认 disabled
+  # dns-mode: hijack 
   dns-hijack:
     - 0.0.0.0:53 # 需要劫持的 DNS
   # auto-detect-interface: true # 自动识别出口网卡
@@ -240,6 +300,9 @@ tun:
   # strict-route: true # 将所有连接路由到 tun 来防止泄漏，但你的设备将无法其他设备被访问
   # disable-icmp-forwarding: true # 禁用 ICMP 转发，防止某些情况下的 ICMP 环回问题，ping 将不会显示真实的延迟
   # congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr, or bbr3; only effective on mips
+  # Windows with auto-route: when Forwarding or WeakHostSend is on for the egress interface (Internet Connection Sharing
+  # and Mobile Hotspot turn it on), the core's own connections loop back into the TUN. The core does not change the flags:
+  # it logs a warning and sends a tun.forwarding event on GET /events, and an info line and a cleared event when it is gone.
   route-address-set: # 将指定规则集中的目标 IP CIDR 规则添加到防火墙, 不匹配的流量将绕过路由, 仅支持 Linux，且需要 nftables，`auto-route` 和 `auto-redirect` 已启用。
     - ruleset-1
     - ruleset-2
@@ -562,20 +625,21 @@ proxies: # socks5
     server: server
     port: 44046
     psk: yourpsk
-    # version: 4 # support 1/2/3/4/5
-    # udp: true # support UDP on version 3/4/5
-    # reuse: false # v4/5 only
+    # version: 4 # support 1/2/3/4/5/6
+    # udp: true # support UDP on version 3/4/5/6
+    # reuse: false # v4/5/6 only
+    # mode: default # v6 only, default / unshaped, must match the server
     # obfs-opts:
-    #   mode: http # or tls/shadow-tls/restls/jls
+    #   mode: http # or tls/shadow-tls/restls/jls (http/tls are not available on v6)
 
   - name: "snell-shadow-tls"
     type: snell
     server: server
     port: 44046
     psk: yourpsk
-    # version: 4 # support 1/2/3/4/5
-    # udp: true # support UDP on version 3/4/5
-    # reuse: false # v4/5 only
+    # version: 4 # support 1/2/3/4/5/6
+    # udp: true # support UDP on version 3/4/5/6
+    # reuse: false # v4/5/6 only
     # client-fingerprint: chrome
     obfs-opts:
       mode: shadow-tls
@@ -589,7 +653,7 @@ proxies: # socks5
     server: server
     port: 44046
     psk: yourpsk
-    # version: 4 # support 1/2/3/4/5
+    # version: 4 # support 1/2/3/4/5/6
     # client-fingerprint: chrome
     obfs-opts:
       mode: restls
@@ -602,7 +666,7 @@ proxies: # socks5
     server: server
     port: 44046
     psk: yourpsk
-    # version: 4 # support 1/2/3/4/5
+    # version: 4 # support 1/2/3/4/5/6
     # client-fingerprint: chrome
     obfs-opts:
       mode: jls
@@ -845,7 +909,7 @@ proxies: # socks5
     # certificate: ./client.crt # 证书 PEM 格式，或者 证书的路径
     # private-key: ./client.key # 证书对应的私钥 PEM 格式，或者私钥路径
     # fingerprint: xxxx # 配置指纹将实现 SSL Pining 效果, 可使用 openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem 获取
-    # client-fingerprint: random # Available: "chrome","firefox","safari","random","none"
+    # client-fingerprint: random # Available: "chrome" (Chrome 155),"chrome133","firefox","safari","random","none"
     # ech-opts:
     #   enable: true # 必须手动开启
     #   # 如果config为空则通过dns解析，不为空则通过该值指定，格式为经过base64编码的ech参数（dig +short TYPE65 tls-ech.dev）
@@ -915,7 +979,7 @@ proxies: # socks5
       public-key: xxx
       short-id: xxx # optional
       # support-x25519mlkem768: true # 默认开启 (Xray v26.9.8+ 服务端要求), 仅旧版服务端需设为 false; 无 X25519MLKEM768 的 client-fingerprint 会自动注入
-      # client-version: 26.10.10 # optional, 上报给服务端的 Xray 版本 (minClientVer/maxClientVer), 默认 26.10.10
+      # client-version: 26.11.9 # optional, 上报给服务端的 Xray 版本 (minClientVer/maxClientVer), 默认 26.11.9
       # mldsa65-verify: xxx # optional, Xray 的 mldsa65Verify (分享链接 pqv), base64url 编码的 ML-DSA-65 公钥
     client-fingerprint: chrome # cannot be empty
 
@@ -953,7 +1017,7 @@ proxies: # socks5
     udp: true
     tls: true
     network: ws
-    # client-fingerprint: random # Available: "chrome","firefox","safari","random","none"
+    # client-fingerprint: random # Available: "chrome" (Chrome 155),"chrome133","firefox","safari","random","none"
     servername: example.com # priority over wss host
     # skip-cert-verify: true
     # name-cert-verify: example.com # 仅修改证书 DNSName 校验目标，不修改 SNI
@@ -1004,6 +1068,55 @@ proxies: # socks5
         Connection:
           - keep-alive
     # ip-version: ipv4 # 设置使用 IP 类型偏好，可选：ipv4，ipv6，dual，默认值：dual
+
+  # XDRIVE carries VLESS through a shared storage folder, compatible with Xray.
+  # The UUID, encryption/decryption keys, backend and folder must match the peer.
+  # Mux.Cool for TCP and XUDP for UDP are internal; do not enable smux or flow.
+  # API URLs select the actual network endpoints; server/port are node metadata.
+  # HTTPS APIs use certificate verification and the client TLS options below.
+  - name: "vless-xdrive"
+    type: vless
+    server: storage-node
+    port: 443
+    uuid: 27848739-7e62-4138-9fd3-098a63964b6b
+    network: xdrive
+    udp: true
+    encryption: "mlkem768x25519plus.native.0rtt.REPLACE_WITH_SERVER_PUBLIC_KEY"
+    client-fingerprint: chrome
+    # alpn: [h2, http/1.1]
+    # skip-cert-verify: false
+    # dialer-proxy: another-proxy # applies to all storage API requests
+    xdrive-opts:
+      service: google-drive # google-drive, template, local
+      remote-folder: GOOGLE_DRIVE_FOLDER_ID
+      secrets: [CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN]
+      # fronting: "api-connection.example:443" # optional connection address override; preserves API Host/SNI
+      # segment-bytes: 524288 # default 512 KiB; maximum 16 MiB
+      # flush-interval-ms: 20
+      # poll-interval-ms: 50
+      # max-poll-interval-ms: 500
+      # eager-window-ms: 2000
+      # hole-timeout-ms: 30000
+      # session-ttl-seconds: 300
+      # concurrency: 8 # parallel segment requests; maximum 64
+      # local uses a shared filesystem path as remote-folder and needs no secrets.
+      # local and template are refused in http proxy providers (skipped with a warning);
+      # top-level proxies, file and inline providers can use them.
+      # template uses the same template object and placeholders as Xray:
+      # template:
+      #   flatten: true
+      #   auth:
+      #     type: basic
+      #     username: "{secret0}"
+      #     password: "{secret1}"
+      #   put: { method: PUT, url: "https://storage.example/{folder}/{name}" }
+      #   get: { method: GET, url: "https://storage.example/{folder}/{name}" }
+      #   delete: { method: DELETE, url: "https://storage.example/{folder}/{name}" }
+      #   list:
+      #     method: PROPFIND
+      #     url: "https://storage.example/{folder}/"
+      #     namesRegex: '<d:href>/folder/([^<]+)</d:href>'
+      #   retry: { status: [429, 500, 502, 503, 504] }
 
   - name: "vless-xhttp"
     type: vless
@@ -1095,7 +1208,7 @@ proxies: # socks5
     server: server
     port: 443
     password: yourpsk
-    # client-fingerprint: random # Available: "chrome","firefox","safari","random","none"
+    # client-fingerprint: random # Available: "chrome" (Chrome 155),"chrome133","firefox","safari","random","none"
     # fingerprint: xxxx # 配置指纹将实现 SSL Pining 效果, 可使用 openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem 获取
     # 下面两项如果填写则开启 mTLS（需要同时填写）
     # certificate: ./client.crt # 证书 PEM 格式，或者 证书的路径
@@ -1719,6 +1832,52 @@ proxies: # socks5
     type: direct
     interface-name: en1
     routing-mark: 6667
+
+  # desync: a DIRECT connection adapted to networks with DPI filtering. Only
+  # the first TLS ClientHello is transformed, before it is sent; the server
+  # receives the same handshake, everything after it and any non-TLS traffic
+  # pass unchanged. Routed like DIRECT (rules, groups; put it first in a
+  # fallback group with a proxy node as reserve). It is not a tunnel.
+  # Positions: "3" is byte 3 of the TLS input, "1+s" one byte after the start
+  # of the server name; several are comma-separated.
+  # - name: desync-yt
+  #   type: desync
+  #   tlsrec: "1+s"              # split the ClientHello into TLS records here
+  #   split: "2"                 # optional: send it in separate TCP writes
+  #   split-delay: 0             # ms between those writes, 0-1000
+  #   split-wait: sent           # sent | acked: before each further piece, wait until the kernel reports the earlier bytes sent/acknowledged (macOS: acked only; Android: sent is checked per connection)
+  #   split-wait-timeout: 2000   # ms per wait (also bounds disorder), 0-60000, default 2000
+  #   disorder: true             # the first split piece goes out with hop limit 1 and is retransmitted later (needs split; Android: checked per connection)
+  #   oob: true                  # one urgent byte after the first split piece (needs split); with disorder: disoob
+  #   oob-byte: "a"              # that byte, one ASCII character, default "a"
+  #   random:                    # random cuts per connection, added to tlsrec/split
+  #     tlsrec:
+  #       - { from: "-8+s", to: "8+s", count: 2, min-piece: 2 } # count cuts from from..to (both absolute or both +s), min-piece bytes apart
+  #     split:
+  #       - { from: 1, to: 120 } # count and min-piece default to 1
+  #     seed: 0                  # 0: a new seed per connection; another value repeats the same cuts (tests, bug reports)
+  #   fake:                      # Windows, Linux, Android (checked per connection): the first transmission of the prefix (or of the split piece ending at it) carries a low-TTL decoy
+  #     ttl: 4                   # hop limit of the decoy; with auto-ttl the fallback (0: no fallback, the connection fails)
+  #     auto-ttl: { delta: 1, min: 3, max: 20 } # TTL = hops to the server - delta, from the SYN-ACK; observable on Linux/Android over IPv6 only; {} = these defaults
+  #     prefix: -1               # end of the fake piece after record splitting, negative from the end
+  #     timeout: 3000            # ms for the native send
+  #     sni: [www.example.com, "cdn-##.example.net"] # decoy ClientHello for one of these names; * ? # are random characters
+  #     randomize: true          # fresh random, session ID and key shares in the decoy
+  #     from-original: false     # build the decoy from the real ClientHello (needs sni or randomize)
+  #     offset: 0                # start the decoy at this byte
+  #   udp:                       # Windows, Linux, Android, macOS: low-TTL datagrams before the first ones to each peer; without it UDP is plain DIRECT
+  #     ttl: 4
+  #     repeats: 6               # 1-16
+  #     packets: 3               # 1-8
+  #     template: quic           # zero (64 zero bytes, default) | quic (a QUIC v1 Initial for sni)
+  #     sni: www.wikipedia.org   # with template: quic
+  #     quic-only: true          # burst only before datagrams that look like a QUIC Initial
+  #   # interface-name, routing-mark and ip-version work as for direct.
+  #   # tfo, mptcp and dialer-proxy are refused. A method this OS does not
+  #   # implement is a config error that says why. On Android, split-wait sent,
+  #   # disorder and fake need TCP_INFO unsent bytes (Linux 4.6+): accepted,
+  #   # and a connection whose socket lacks them fails before sending. A
+  #   # suitable TTL depends on the network.
 proxy-groups:
   # url-test 将按照 url 测试结果使用延迟最低节点
   - name: "auto"
@@ -2077,6 +2236,32 @@ sub-rules:
 # forwards, set trusted-proxy-header and trusted-proxies: [loopback] (vless, trojan, hysteria2-realm).
 #   nginx: proxy_pass http://unix:/run/citrus/vless.sock;  (or grpc_pass unix:/run/citrus/vless.sock;)
 #   Caddy: reverse_proxy unix//run/citrus/vless.sock
+# PROXY protocol（仅 TCP）：基于 TCP 的 listeners（同上，含 UNIX socket）可设置 proxy-protocol: true，
+# 此时每个 TCP 连接都必须以 PROXY protocol v1 或 v2 头开头（前置 SNI 路由、HAProxy、nginx stream 等
+# 带 proxy_protocol 转发时发送），连接的来源地址（日志、SRC-IP 规则、IP 过滤、用户 IP 数/设备数限制、
+# 认证事件）取自该头；本地地址保持不变。没有头、头格式错误或 5 秒内没有头的连接会被直接关闭。
+# 只有 proxy-protocol-trusted 中的对端可以发送该头（CIDR、单个地址、"loopback"、"private"；默认仅回环
+# 127.0.0.0/8 与 ::1），其他对端的连接被直接关闭，因为头里的地址可以是任意值。
+# LOCAL 命令（v2）和 UNKNOWN（v1）保持真实对端地址。UDP 不受影响（UDP 没有该头），socks/shadowsocks 的 UDP 部分保持不变；
+# hysteria2、tuic、shadowquic、mieru、tun、redir、tproxy 没有 TCP 流，设置该选项会报错。REALITY 的 dest 回落照常工作。
+# PROXY protocol (TCP only): the TCP stream listeners (the ones above, unix sockets included) accept
+# proxy-protocol: true. Every TCP connection must then start with a PROXY protocol v1 or v2 header, as an
+# SNI router, HAProxy or nginx stream with proxy_protocol sends in front of a forwarded connection, and the
+# source address of the connection (logs, SRC-IP rules, IP filters, per-user IP and device limits, auth
+# events) is the client address of the header; the local address is unchanged. A connection without a
+# header, with a malformed one or with none within 5 seconds is closed. Only the peers in
+# proxy-protocol-trusted may send the header (CIDRs, single addresses, "loopback", "private"; loopback
+# 127.0.0.0/8 and ::1 only when empty): a connection from any other peer is closed, since the address in
+# a header from the internet could be anything. The v2 LOCAL command and the v1 UNKNOWN line keep the
+# address of the peer. UDP has no such header and is not touched (the UDP side of socks/shadowsocks stays
+# as it is); the listeners without TCP streams (hysteria2, tuic, shadowquic, mieru, tun, redir, tproxy)
+# refuse the option.
+# REALITY keeps falling back to its dest for other clients: the header is consumed before the handshake.
+# egress-guard（所有 listeners）：true 让该入站的用户也受出口防护（见上文 egress-guard），false 让服务端入站的用户
+# 可访问私有及本机地址；不填写时服务端入站跟随 egress-guard.enable，客户端入站不受防护。
+# egress-guard (every listener): true guards the users of this listener too (see egress-guard above),
+# false lets the users of a server listener reach the private and local addresses; unset, a server
+# listener follows egress-guard.enable and a client listener is not guarded.
 listeners:
   # - name: vless-unix
   #   type: vless
@@ -2090,6 +2275,22 @@ listeners:
   #   allow-insecure: true # TLS is terminated by the reverse proxy
   #   trusted-proxy-header: X-Forwarded-For
   #   trusted-proxies: [loopback]
+  #   egress-guard: false # only for a trusted user list: lets them reach the LAN and this host
+
+  # - name: vless-reality-behind-sni-router
+  #   type: vless
+  #   listen: 127.0.0.1
+  #   port: 10443
+  #   proxy-protocol: true # every connection starts with a PROXY protocol v1/v2 header
+  #   proxy-protocol-trusted: [loopback] # peers allowed to send it; the default
+  #   users:
+  #     - username: 1
+  #       uuid: 9d0cb9d0-964f-4ef6-897d-6c6b3ccf9e68
+  #   reality-config:
+  #     dest: example.com:443
+  #     private-key: ...
+  #     short-id: [""]
+  #     server-names: [example.com]
 
   - name: socks5-in-1
     type: socks
@@ -2099,6 +2300,7 @@ listeners:
     # rule: sub-rule-name1 # 默认使用 rules，如果未找到 sub-rule 则直接使用 rules
     # proxy: proxy # 如果不为空则直接将该入站流量交由指定 proxy 处理
     # udp: false # 默认 true
+    # egress-guard: true # a socks server for remote users: keep them off the LAN and this host
     # users: # 如果不填写users项，则遵从全局authentication设置，如果填写会忽略全局设置, 如想跳过该入站的验证可填写 users: []
     #   - username: aaa
     #     password: aaa
@@ -2198,6 +2400,9 @@ listeners:
     #     password: 4w0GKJ9U3Ox7CIXGU4A3LDQAqP6qrp/tUi/ilpOR9p4=
     #   - name: bob
     #     password: 8m1YtiNyvAhdhbS8mSPg0oPp0xV7NpByOXH+P9WITOY=
+    # mux-option: # sing-mux (smux / yamux / h2mux) 入站选项，trojan / vless / hysteria2 / tuic 等入站相同
+    #   padding: false # 为 true 时拒绝未启用 padding 的客户端
+    #   max-streams: 1024 # 单个 mux 连接同时打开的子流上限 (TCP 与 UDP 合计)，超出的新子流在接受时立即关闭，连接和其他子流不受影响；0 为默认值 1024
     # simple-obfs:
     #   enable: false # 设置为true时开启
     #   mode: http # Available: http, tls
@@ -2231,8 +2436,10 @@ listeners:
     #   # proxy: ""
     #   # rate-limit: 0 # 转发限速，单位 bit/s，0 表示不限速
     # kcp-tun:
+    #   key: use-a-unique-random-key # Omission keeps the public legacy key and emits a warning.
+    #   max-sessions: 256 # Concurrent KCP sessions per server.
+    #   max-streams: 256 # Open streams per KCP session.
     #   enable: false
-    #   key: it's a secrect # pre-shared secret between client and server
     #   crypt: aes # aes, aes-128, aes-128-gcm, aes-192, salsa20, blowfish, twofish, cast5, 3des, tea, xtea, xor, none, null
     #   mode: fast # profiles: fast3, fast2, fast, normal, manual
     #   conn: 1 # set num of UDP connections to server
@@ -2263,10 +2470,11 @@ listeners:
     listen: 0.0.0.0
     # routing-mark: 0 # 为监听socket设置routing-mark（仅支持linux）
     psk: your-password
-    version: 4 # 支持 1/2/3/4/5
+    version: 4 # 支持 1/2/3/4/5/6
     udp: true # UDP over TCP tunnel，默认 true
+    # mode: default # 仅 v6：default / unshaped，需与客户端一致；v6 的 psk 长度须为 12 到 255 字节
     # obfs-opts:
-    #   mode: http # 可选：http / tls
+    #   mode: http # 可选：http / tls（v6 不支持，配置时会报错）
     #   host: bing.com
     # shadow-tls:
     #   enable: false # 设置为true时开启
@@ -2296,6 +2504,7 @@ listeners:
 
   - name: tuic-in-1
     type: tuic
+    # zero-rtt: false # Opt in only when replayable QUIC early data is acceptable.
     port: 10815 # 支持使用ports格式，例如200,302 or 200,204,401-429,501-503
     listen: 0.0.0.0
     # routing-mark: 0 # 为监听socket设置routing-mark（仅支持linux）
@@ -2342,7 +2551,7 @@ listeners:
     # alpn:
     #   - h3
     # quic-versions: [v1] # 本机支持的 QUIC 版本；支持 v1/v2
-    # zero-rtt: true
+    # zero-rtt: false # Explicit opt-in; QUIC early data can be replayed.
     # congestion-controller: bbr # Available: "cubic", "new_reno", "bbr". Default: "cubic"
     # up: 100 Mbps # enables brutal negotiation via a citrus private extension; server upload/client download speed cap; falls back to congestion-controller when unsupported
     # down: 100 Mbps # enables brutal negotiation via a citrus private extension; requested server download/client upload speed; falls back to congestion-controller when unsupported
@@ -2365,6 +2574,23 @@ listeners:
     network: [tcp, udp]
     target: target.com
 
+  # XDRIVE inbound: polls storage rather than opening a listening TCP socket.
+  # Do not combine xdrive-config with ws/grpc/xhttp, certificates or REALITY.
+  # Generate the paired encryption/decryption strings with `xray vlessenc`.
+  # - name: vless-xdrive-in
+  #   type: vless
+  #   listen: 127.0.0.1
+  #   port: 443 # one logical listener identifier; no socket is bound here
+  #   decryption: "mlkem768x25519plus.native.600s.REPLACE_WITH_SERVER_PRIVATE_KEY"
+  #   users:
+  #     - username: user
+  #       uuid: 27848739-7e62-4138-9fd3-098a63964b6b
+  #   xdrive-config:
+  #     service: google-drive
+  #     remote-folder: GOOGLE_DRIVE_FOLDER_ID
+  #     secrets: [CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN]
+  # All storage options from xdrive-opts are also accepted in xdrive-config.
+
   - name: vless-in-1
     type: vless
     port: 10817 # 支持使用ports格式，例如200,302 or 200,204,401-429,501-503
@@ -2378,6 +2604,22 @@ listeners:
         flow: xtls-rprx-vision
     # ws-path: "/" # 如果不为空则开启 websocket 传输层
     # grpc-service-name: "GunService" # 如果不为空则开启 grpc 传输层
+    # fallback-page: ./page.html # 有 websocket/grpc/xhttp 传输层时，不属于该入站的请求在 "/" 得到此 HTML 页面，其他路径为 404
+    #   A request that is not the inbound's own gets this HTML page at "/" (404 elsewhere)
+    #   instead of a bare 404; only with an HTTP transport (ws/grpc/xhttp)
+    # fallbacks: # Xray-core fallbacks: only the plain TCP transport (no ws/grpc/xhttp, no decryption)
+    #   A stream that is not VLESS with a known UUID goes, after TLS (or REALITY, ShadowTLS...), to
+    #   the dest that matches as in Xray, with the bytes already read: name, then alpn, then path.
+    #   No match closes it. fallback-page stays for ws/grpc/xhttp; with fallbacks it has no effect.
+    #   - dest: 8080 # a port on 127.0.0.1, a host:port, or a unix socket: /run/web.sock, @abstract, unix:C:\web.sock
+    #   - path: /app # the path of an HTTP/1.x request line ("GET /app?x HTTP/1.1"); no h2
+    #     dest: 127.0.0.1:8081
+    #     xver: 1 # send a PROXY protocol v1 (or 2) header first; 0 (default) none
+    #   - alpn: h2 # the negotiated ALPN; the listener then offers the alpn values listed and http/1.1
+    #     dest: /run/nginx-h2.sock
+    #   - name: blog.example.com # the SNI, else the longest name it contains ("example.com" takes www.example.com), "" any
+    #     dest: 127.0.0.1:8082
+    #   A name inherits the alpn/path entries of no name. No caps or idle timeout, as in Xray: dest sets them.
     # xhttp-config: # 如果不为空则开启 xhttp 传输层
     #   path: "/"
     #   host: ""
@@ -2403,6 +2645,17 @@ listeners:
     #   sc-stream-up-server-secs: "20-80"
     #   sc-max-each-post-bytes: 1000000
     #   server-max-header-bytes: 0 # 请求头大小上限（h1 与 h2），0 为 1 MiB；Xray-core 默认 8192。数据放在 header/cookie 时需足够大
+    # alpn: [h3] # 仅与 xhttp-config 一起使用。默认（不填）只在 TCP 上提供 h2 与 http/1.1
+    #   Which HTTP versions the xhttp inbound serves. Unset: h2 and http/1.1 over TCP, as before.
+    #   [h3]: XHTTP over HTTP/3 (QUIC) on UDP only, as Xray-core's `alpn: ["h3"]`.
+    #   [h3, h2, http/1.1]: both, TCP and UDP on the same port, sharing the XHTTP sessions
+    #   (an upload over h3 and a download over h2 with download-settings work).
+    #   All modes work over h3. Needs certificate/private-key: REALITY, shadow-tls, res-tls and jls
+    #   work on a TCP TLS handshake and are rejected with h3; a unix socket listen is rejected too.
+    #   server-max-header-bytes also applies to h3. Clients connect with `alpn: [h3]`.
+    #   proxy-protocol is rejected with h3 (QUIC carries no PROXY header, the UDP port would be open
+    #   to every peer). ws-path and grpc-service-name do not run over h3: [h3] alone rejects them.
+    #   Without xhttp-config alpn is ignored with a warning.
     # -------------------------
     # vless encryption服务端配置：
     # （原生外观 / 只 XOR 公钥 / 全随机数。1-RTT 每次下发随机 300 到 600 秒的 ticket 以便 0-RTT 复用 / 只允许 1-RTT）
@@ -2452,8 +2705,8 @@ listeners:
       # mldsa65-seed: xxx # Xray 的 mldsa65Seed (可由 xray mldsa65 生成), 对临时证书做 ML-DSA-65 签名; 客户端的 mldsa65-verify (分享链接 pqv) 填对应公钥
       #                   # 注意: dest 的证书链需足够长 (约 3.5 KB 以上) 以容纳签名, 否则握手失败
       # require-x25519mlkem768: true # 仅接受带 X25519MLKEM768 key share 的客户端 (同 Xray v26.9.8+ 服务端); 旧客户端 / support-x25519mlkem768: false 将被回落到 dest
-      # min-client-ver: 26.9.8 # 客户端上报的 Xray 版本下限 (Citrus 客户端默认上报 26.10.10, 见 reality-opts.client-version)
-      # max-client-ver: 26.10.10 # 版本上限
+      # min-client-ver: 26.9.8 # 客户端上报的 Xray 版本下限 (Citrus 客户端默认上报 26.11.9, 见 reality-opts.client-version)
+      # max-client-ver: 26.11.9 # 版本上限
       #下列两个 limit 为选填，可对未通过验证的回落连接限速，bytesPerSec 默认为 0 即不启用
       #回落限速是一种特征，不建议启用，如果您是面板/一键脚本开发者，务必让这些参数随机化
       limit-fallback-upload:
@@ -2563,6 +2816,8 @@ listeners:
     # traffic-pattern: ""
     # 如果开启，且客户端不发送用户提示，代理服务器将拒绝连接
     # user-hint-is-mandatory: false
+    # 在上行和下行同时空闲这个秒数后，关闭底层TCP连接。最小值为60。
+    # tcp-idle-timeout: 1800
 
   - name: sudoku-in-1
     type: sudoku
@@ -2600,6 +2855,20 @@ listeners:
         password: 9d0cb9d0-964f-4ef6-897d-6c6b3ccf9e68
     # ws-path: "/" # 如果不为空则开启 websocket 传输层
     # grpc-service-name: "GunService" # 如果不为空则开启 grpc 传输层
+    # fallback-page: ./page.html # 有 websocket/grpc 传输层时，不属于该入站的请求在 "/" 得到此 HTML 页面，其他路径为 404
+    # fallbacks: # Xray-core fallbacks: only the plain TCP transport (no ws/grpc, no ss-option)
+    #   A stream that is not Trojan with the key of a user goes, after TLS (or REALITY, ShadowTLS...), to
+    #   the dest that matches as in Xray, with the bytes already read: name, then alpn, then path.
+    #   No match closes it. fallback-page stays for ws/grpc; with fallbacks it has no effect.
+    #   - dest: 8080 # a port on 127.0.0.1, a host:port, or a unix socket: /run/web.sock, @abstract, unix:C:\web.sock
+    #   - path: /app # the path of an HTTP/1.x request line ("GET /app?x HTTP/1.1"); no h2
+    #     dest: 127.0.0.1:8081
+    #     xver: 1 # send a PROXY protocol v1 (or 2) header first; 0 (default) none
+    #   - alpn: h2 # the negotiated ALPN; the listener then offers the alpn values listed and http/1.1
+    #     dest: /run/nginx-h2.sock
+    #   - name: blog.example.com # the SNI, else the longest name it contains ("example.com" takes www.example.com), "" any
+    #     dest: 127.0.0.1:8082
+    #   A name inherits the alpn/path entries of no name. No caps or idle timeout, as in Xray: dest sets them.
     # 下面两项如果填写则开启 tls（需要同时填写）
     certificate: ./server.crt # 证书 PEM 格式，或者 证书的路径
     private-key: ./server.key # 证书对应的私钥 PEM 格式，或者私钥路径
@@ -2757,6 +3026,7 @@ listeners:
 
   - name: trusttunnel-in-1
     type: trusttunnel
+    # zero-rtt: false # Applies to HTTP/3; early data can be replayed.
     # Optional plain HTTP cover backend (TLS terminates at this listener).
     # Serve only the cover site here: clients control the forwarded Host.
     # With fallback, HTTP/2 clients must negotiate ALPN h2; prior knowledge
@@ -2792,6 +3062,7 @@ listeners:
     # rule: sub-rule-name1 # 默认使用 rules，如果未找到 sub-rule 则直接使用 rules
     # proxy: proxy # 如果不为空则直接将该入站流量交由指定 proxy 处理 (当 proxy 不为空时，这里的 proxy 名称必须合法，否则会出错)
     stack: mips # gvisor / mixed / system
+    # dns-mode: hijack # disabled / native / hijack，为空时采用旧行为
     dns-hijack:
     - 0.0.0.0:53 # 需要劫持的 DNS
     # auto-detect-interface: false # 自动识别出口网卡
@@ -2842,6 +3113,7 @@ listeners:
 
 # tuic 服务器入口（传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理）
 # tuic-server:
+#  zero-rtt: false # Opt in only when replayable QUIC early data is acceptable.
 #  enable: true
 #  listen: 127.0.0.1:10443
 #  users:    # 仅支持 TUIC v5（v4 的 token 已不再支持）

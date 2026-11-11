@@ -15,6 +15,7 @@ import (
 	"github.com/metacubex/mihomo/common/atomic"
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/egress"
 	"github.com/metacubex/mihomo/component/loopback"
 	"github.com/metacubex/mihomo/component/nat"
 	"github.com/metacubex/mihomo/component/process"
@@ -325,10 +326,18 @@ func isHandle(t C.Type) bool {
 func fixMetadata(metadata *C.Metadata) {
 	// first unmap dstIP
 	metadata.DstIP = metadata.DstIP.Unmap()
+	metadata.Host = C.NormalizeHost(metadata.Host)
 	// handle IP string on host
 	if ip, err := netip.ParseAddr(metadata.Host); err == nil {
 		metadata.DstIP = ip.Unmap()
 		metadata.Host = ""
+	}
+	// an IPv6 zone names an interface of this host, which the user of a
+	// server inbound has no business naming: dropped, so the guard, the
+	// loopback detector, the NAT table and the statistics see one spelling
+	// of the address
+	if metadata.DstIP.Zone() != "" && (egress.IsServerInbound(metadata.Type) || metadata.EgressGuard == C.EgressGuardOn) {
+		metadata.DstIP = metadata.DstIP.WithZone("")
 	}
 }
 
@@ -341,6 +350,8 @@ func preHandleMetadata(metadata *C.Metadata) error {
 	if needLookupIP(metadata) {
 		host, exist := resolver.FindHostByIP(metadata.DstIP)
 		if exist {
+			// the mapping keeps the query name as the client spelled it
+			host = C.NormalizeHost(host)
 			metadata.Host = host
 			metadata.DNSMode = C.DNSMapping
 			if resolver.IsFakeIP(metadata.DstIP) {
@@ -364,6 +375,9 @@ func preHandleMetadata(metadata *C.Metadata) error {
 	return nil
 }
 
+// findProcessName is replaced in tests
+var findProcessName = process.FindProcessName
+
 func resolveMetadata(metadata *C.Metadata) (proxy C.Proxy, rule C.Rule, err error) {
 	if metadata.SpecialProxy != "" {
 		var exist bool
@@ -374,8 +388,9 @@ func resolveMetadata(metadata *C.Metadata) (proxy C.Proxy, rule C.Rule, err erro
 		return
 	}
 	var (
-		resolved             bool
-		attemptProcessLookup = metadata.Type != C.INNER
+		resolved bool
+		// a process already on the metadata was found for this socket before
+		attemptProcessLookup = metadata.Type != C.INNER && metadata.Process == "" && metadata.ProcessPath == ""
 	)
 
 	if node, ok := resolver.DefaultHosts.Search(metadata.Host, false); ok {
@@ -404,7 +419,7 @@ func resolveMetadata(metadata *C.Metadata) (proxy C.Proxy, rule C.Rule, err erro
 				attemptProcessLookup = false
 				if !features.CMFA {
 					// normal check for process
-					uid, path, err := process.FindProcessName(metadata.NetWork.String(), metadata.SrcIP, int(metadata.SrcPort))
+					uid, path, err := findProcessName(metadata.NetWork.String(), metadata.SrcIP, int(metadata.SrcPort))
 					if err != nil {
 						log.Debugln("[Process] find process error for %s: %v", metadata.String(), err)
 					} else {
@@ -492,7 +507,7 @@ func handleUDPConn(packet C.PacketAdapter) {
 	sender, loaded := natTable.GetOrCreate(key, func() C.PacketSender {
 		sender := newPacketSender()
 		if sniffingEnable && snifferDispatcher.Enable() {
-			return snifferDispatcher.UDPSniff(packet, sender, protocolVerdict)
+			return snifferDispatcher.UDPSniff(packet, sender, newProtocolVerdict())
 		}
 		return sender
 	})
@@ -556,6 +571,29 @@ func handleUDPConn(packet C.PacketAdapter) {
 		}()
 	}
 	sender.Send(packet) // nonblocking
+}
+
+// newProtocolVerdict returns the protocolVerdict of one UDP session. All its
+// packets come from one socket, so the process found for the first re-matched
+// destination is reused for the rest: a swarm opens hundreds of destinations a
+// second, and every lookup scans the system's socket table on the UDP worker.
+func newProtocolVerdict() func(metadata *C.Metadata) bool {
+	var (
+		mu    sync.Mutex
+		known *C.Metadata // holds the process fields once a lookup found them
+	)
+	return func(metadata *C.Metadata) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if known != nil {
+			metadata.Process, metadata.ProcessPath, metadata.Uid = known.Process, known.ProcessPath, known.Uid
+		}
+		drop := protocolVerdict(metadata)
+		if known == nil && (metadata.Process != "" || metadata.ProcessPath != "") {
+			known = &C.Metadata{Process: metadata.Process, ProcessPath: metadata.ProcessPath, Uid: metadata.Uid}
+		}
+		return drop
+	}
 }
 
 // protocolVerdict matches the metadata of a packet in an established UDP
@@ -753,13 +791,14 @@ func dialTCPConn(connCtx C.ConnContext) (C.Conn, context.CancelFunc) {
 
 // mayNeedHandshake reports whether the outbound proxy picks for metadata may
 // return a connection with a lazy handshake (N.NeedHandshake), which sends the
-// client's first bytes with it. DIRECT and the rejecting outbounds never do.
+// client's first bytes with it. DIRECT, desync and the rejecting outbounds
+// never do.
 // A group is followed to the proxy it picks now; should it pick another one
 // for the dial, the first bytes just go after the handshake.
 func mayNeedHandshake(proxy C.Proxy, metadata *C.Metadata) bool {
 	for adapter := proxy; adapter != nil; adapter = adapter.Unwrap(metadata, false) {
 		switch adapter.Type() {
-		case C.Direct, C.Compatible, C.Reject, C.RejectDrop:
+		case C.Direct, C.Desync, C.Compatible, C.Reject, C.RejectDrop:
 			return false
 		}
 	}
@@ -815,17 +854,23 @@ func logMetadata(metadata *C.Metadata, rule C.Rule, remoteConn C.Connection) {
 }
 
 func match(metadata *C.Metadata, helper C.RuleMatchHelper) (C.Proxy, C.Rule, error) {
+	// Take a snapshot and walk it unlocked. Rule matching may resolve the
+	// host, and with respect-rules the DNS dial calls back into match; a
+	// read lock held across that would wait behind any queued writer
+	// (UpdateRules, ReplaceRules, ...) that is itself waiting for this
+	// reader, stalling every new connection until the DNS timeout.
 	configMux.RLock()
-	defer configMux.RUnlock()
+	curRules, curSubRules, curProxies := rules, subRules, proxies
+	configMux.RUnlock()
 
 	var rematchChain []string
 	for {
 		var rematchProxy C.Proxy
 		var rematchRule C.Rule
 	GetRules:
-		for _, rule := range getRules(metadata) {
+		for _, rule := range getRules(metadata, curRules, curSubRules) {
 			if matched, ada := rule.Match(metadata, helper); matched {
-				adapter, ok := proxies[ada]
+				adapter, ok := curProxies[ada]
 				if !ok {
 					continue
 				}
@@ -869,11 +914,11 @@ func match(metadata *C.Metadata, helper C.RuleMatchHelper) (C.Proxy, C.Rule, err
 			log.Debugln("[Rule] rematch proxy %s update metadata to rematch-name=%q sub-rule=%q", rematchProxy.Name(), metadata.InName, metadata.SpecialRules)
 			continue
 		}
-		return proxies["DIRECT"], nil, nil
+		return curProxies["DIRECT"], nil, nil
 	}
 }
 
-func getRules(metadata *C.Metadata) []C.Rule {
+func getRules(metadata *C.Metadata, rules []C.Rule, subRules map[string][]C.Rule) []C.Rule {
 	if sr, ok := subRules[metadata.SpecialRules]; ok {
 		log.Debugln("[Rule] use %s rules", metadata.SpecialRules)
 		return sr
@@ -897,6 +942,9 @@ func shouldStopRetry(err error) bool {
 		return true
 	}
 	if errors.Is(err, loopback.ErrReject) {
+		return true
+	}
+	if errors.Is(err, egress.ErrBlocked) {
 		return true
 	}
 	return false

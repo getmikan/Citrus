@@ -108,12 +108,14 @@ func (s *Socks) Listen(tunnel C.Tunnel) error {
 		}
 		stl, err := socks.NewWithConfig(config, lc, tunnel, s.Additions()...)
 		if err != nil {
+			_ = s.Close() // the addresses already listening
 			return err
 		}
 		s.stl = append(s.stl, stl)
 		if s.udp {
 			sul, err := socks.NewUDPWithConfig(config, lc, tunnel, s.Additions()...)
 			if err != nil {
+				_ = s.Close() // the addresses already listening
 				return err
 			}
 			s.sul = append(s.sul, sul)

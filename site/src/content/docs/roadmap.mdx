@@ -3,44 +3,68 @@ title: Дорожная карта
 description: Что уже сделано в Citrus и его форках, над чем идёт работа, что дальше и что ждёт решения.
 ---
 
-Дорожная карта охватывает все репозитории getmikan: ядро [Citrus](https://github.com/getmikan/Citrus) и форки [utls](https://github.com/getmikan/utls), [tls](https://github.com/getmikan/tls) и [http](https://github.com/getmikan/http). Переход панели [Mikan](https://github.com/Miroshka000/mikan) на Citrus зависит от ядра и тоже здесь. Это план, а не обещание сроков.
+Дорожная карта охватывает все репозитории getmikan: ядро [Citrus](https://github.com/getmikan/Citrus) и форки [utls](https://github.com/getmikan/utls), [tls](https://github.com/getmikan/tls), [http](https://github.com/getmikan/http), [smux](https://github.com/getmikan/smux) и [restls-client-go](https://github.com/getmikan/restls-client-go). Переход панели [Mikan](https://github.com/Miroshka000/mikan) на Citrus зависит от ядра и тоже здесь. Это план, а не обещание сроков.
 
 ## Сделано
 
 Подробно, со ссылками на каждый PR, — в [журнале изменений](/Citrus/changelog/).
 
-- **Совместимость с Xray.** Пост-квантовый REALITY на клиенте и сервере (X25519MLKEM768, ML-DSA-65), XHTTP с поведением Xray, ключи и ссылки ECH в форматах Xray. Автотесты против Xray v26.10.10 в CI.
+- **Релизы.** Бета-релизы [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) и [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), собранные из `dev`; см. [новость о второй бете](/Citrus/news/beta-2/).
+- **Совместимость с Xray.** Пост-квантовый REALITY на клиенте и сервере (X25519MLKEM768, ML-DSA-65), XHTTP с поведением Xray, ключи и ссылки ECH в форматах Xray. Автотесты против Xray v26.11.9 в CI.
 - **Пользователи в ядре.** Shadowsocks 2022 с несколькими пользователями, статистика трафика и онлайн-адресов, лимиты скорости, соединений, адресов, квоты и срока, смена пользователей входящих без перезапуска, `PUT /rules`.
 - **События и наблюдаемость.** `GET /events` (WebSocket, SSE, NDJSON), Prometheus `/metrics`, пробы `/healthz` и `/readyz`, события отклонённой авторизации, JSON-логи.
 - **Каскады.** Группы `type: chain` с проверкой каждого хопа.
 - **Новое в сети и DNS.** Листенеры на unix-сокете, DNSCrypt v2, сниффер BitTorrent и правило `PROTOCOL`, `trusted-proxy-header` от доверенных прокси.
 - **Чистка.** Удалены VMess, SSR, Hysteria v1, TUIC v4, потоковые шифры Shadowsocks, v2ray-plugin и mKCP.
-- **Укрепление.** Ревью безопасности, ревью кода и статический аудит закрыты исправлениями; TLS 1.2 минимум; самообновление сверяется с `checksums.txt`; CI закреплён по хешам. См. [Безопасность](/Citrus/security/).
-- **Производительность.** Простаивающее соединение занимает на 30 КБ меньше памяти, XHTTP по h2 тратит вдвое меньше CPU на гигабайт, Snell v4 читает буферизованно. Есть нагрузочный стенд для замеров.
+- **Укрепление.** Ревью безопасности, ревью кода и статический аудит закрыты исправлениями, в том числе оставшиеся находки по серверным рукопожатиям, fallback, повторам 0-RTT и форкам utls и ResTLS ([#140](https://github.com/getmikan/Citrus/pull/140)–[#142](https://github.com/getmikan/Citrus/pull/142), [#148](https://github.com/getmikan/Citrus/pull/148)); TLS 1.2 минимум; самообновление сверяется с `checksums.txt`; CI закреплён по хешам. См. [Безопасность](/Citrus/security/).
+- **Производительность.** Загрузка: пакетная запись, до +50% на REALITY, Trojan и SS2022 ([#119](https://github.com/getmikan/Citrus/pull/119)). Скачивание: чтение по 64 КиБ и TLS-записи в сокет вместе, в 32 потока REALITY 2802 → 4235 МБ/с, Trojan 2737 → 3936, SS2022 3895 → 4392 ([#124](https://github.com/getmikan/Citrus/pull/124)). Пинг под нагрузкой: эхо рядом с восемью закачками 55–63 → 20 мс ([#131](https://github.com/getmikan/Citrus/pull/131)). Память простаивающего туннеля: Trojan −36%, AnyTLS −18%, REALITY −12% ([#129](https://github.com/getmikan/Citrus/pull/129)). QUIC: отставание от sing-box на новых потоках 10–12% → 4–6% ([#125](https://github.com/getmikan/Citrus/pull/125)); меньше аллокаций на новое соединение ([#118](https://github.com/getmikan/Citrus/pull/118)). Раньше: XHTTP по h2 тратит вдвое меньше CPU на гигабайт, простаивающее соединение — на 30 КБ меньше памяти.
+- **AnyTLS.** Переработка ([#130](https://github.com/getmikan/Citrus/pull/130)): в 32 потока скачивание вдвое быстрее, загрузка +23%, быстрее sing-box; гонка в клиенте устранена.
+- **Для серверов и панелей.** PROXY protocol v1 и v2 на TCP-входящих для фронтендов вроде SNI-роутера ([#136](https://github.com/getmikan/Citrus/pull/136)); профили запуска без root для systemd и Docker ([#144](https://github.com/getmikan/Citrus/pull/144)); одноразовые тикеты для WebSocket контроллера вместо secret в URL ([#143](https://github.com/getmikan/Citrus/pull/143)); User-Agent `clash.meta/<версия> citrus/<версия>` ([#146](https://github.com/getmikan/Citrus/pull/146)) и поле `core` в `GET /version` ([#147](https://github.com/getmikan/Citrus/pull/147)), чтобы панели и приложения отличали Citrus от mihomo.
+- **Сравнение и замеры.** Сравнение четырёх серверов — Xray, sing-box, mihomo и Citrus — на восьми протоколах ([#126](https://github.com/getmikan/Citrus/pull/126)); ночная проверка производительности в CI против mihomo ([#127](https://github.com/getmikan/Citrus/pull/127)).
 - **Совместимость с клиентами.** Автотесты: клиенты mihomo v1.19.31 и v1.19.32 против сервера Citrus по всем протоколам, см. [Совместимость](/Citrus/compatibility/).
 - **Go 1.26.** Минимальная версия Go — 1.26, поэтому `golang.org/x/net`, `x/crypto` и `x/text` обновлены до текущих релизов с исправлениями безопасности. Отдельных сборок на старых версиях Go (`-go120`–`-go125`) больше нет; см. [Переход с mihomo](/Citrus/migration/#платформы-и-сборки).
-- **Форки.** utls `v1.8.8-citrus.1`–`.3`, tls `v0.1.8-citrus.1`, http `v0.1.8-citrus.1`–`.2`.
-- **Документация.** Сайт на двух языках: старт, конфигурация, контроллер, пользователи, лимиты, метрики, события, цепочки, переход с mihomo.
+- **Форки.** utls `v1.8.8-citrus.1`–`.3`, tls `v0.1.8-citrus.1`, http `v0.1.8-citrus.1`–`.2`; у utls и tls после этих тегов есть коммиты в `dev` (скачивание, память). Новый форк smux исправляет отправку буфера вызывающего после ошибки; форк restls-client-go — гонки счётчиков записей; оба пока без тегов.
+- **Исходящий desync.** `type: desync` — DIRECT-соединение для сетей с DPI-фильтрацией: меняет то, как уходит первый TLS ClientHello или QUIC Initial, а не то, что получает сервер. Дробление и перестановка, out-of-band, fake с автоматическим TTL, ожидание подтверждения отправки, приманки ClientHello и QUIC; чего ОС не умеет, ядро не делает молча, а сообщает. Построен на библиотеке [desync](https://github.com/Nemu-x/desync) v0.2, работает на Windows, Linux, macOS и Android ([#163](https://github.com/getmikan/Citrus/pull/163), [#172](https://github.com/getmikan/Citrus/pull/172), [#180](https://github.com/getmikan/Citrus/pull/180)); см. [Исходящий desync](/Citrus/start/desync/).
+- **Fallbacks как в Xray.** VLESS и Trojan отдают чужие потоки на fallback по SNI, ALPN и пути ([#159](https://github.com/getmikan/Citrus/pull/159)), `fallback-page` для ws, grpc и xhttp ([#153](https://github.com/getmikan/Citrus/pull/153)); см. [Fallbacks](/Citrus/start/fallbacks/). XHTTP по HTTP/3 на входящем VLESS ([#160](https://github.com/getmikan/Citrus/pull/160)).
+- **Сервер не ходит туда, куда не надо.** `egress-guard` не пускает пользователей входящих на частные, локальные и служебные адреса, включая метаданные облака ([#162](https://github.com/getmikan/Citrus/pull/162)); см. [Сервер без root](/Citrus/start/server-profile/). Корневые сертификаты: `tls.ca-roots` выбирает источник, а CA для государственного перехвата TLS запрещены по умолчанию ([#161](https://github.com/getmikan/Citrus/pull/161)); см. [Безопасность](/Citrus/security/#корневые-сертификаты).
+- **Группы скорости.** `speed-group` — общая скорость на нескольких пользователей, в Go API — `SetLimits` и `OnLeave` ([#151](https://github.com/getmikan/Citrus/pull/151)); см. [Лимиты пользователей](/Citrus/start/user-limits/).
+- **Второй аудит всего ядра.** Сеть и DNS, адаптеры, входящие, TUN и dialer, транспорты, правила и tunnel, обновление и контроллер; все находки закрыты исправлениями ([#166](https://github.com/getmikan/Citrus/pull/166)–[#171](https://github.com/getmikan/Citrus/pull/171), [#176](https://github.com/getmikan/Citrus/pull/176)–[#178](https://github.com/getmikan/Citrus/pull/178)). Среди них: самообновление заменяет ядро атомарно и откатывается при ошибке, изоляция сессий Mux.Cool, откат при неудачной перезагрузке входящих. На Windows ядро сообщает, если на исходящем интерфейсе TUN включены Forwarding или WeakHostSend ([#157](https://github.com/getmikan/Citrus/pull/157)).
+- **Больше автотестов.** Клиент и сервер sing-box против Citrus ([#158](https://github.com/getmikan/Citrus/pull/158)), весь набор тестов входящих под race detector ([#150](https://github.com/getmikan/Citrus/pull/150)).
+- **Синхронизация с mihomo.** Ручное слияние 17 коммитов mihomo ([#182](https://github.com/getmikan/Citrus/pull/182)): Snell v6, `dns-mode` для TUN, переписанный транспорт Sudoku с лимитами Citrus, исправления SOCKS и HTTP CONNECT. После ревью режим Snell v6 `unsafe-raw` отклоняется (он не использует PSK), а на Linux без `auto-route` DNS по-прежнему уходит в туннель. Скрипт синхронизации больше не выдаёт ложное предупреждение о брендинге ([#184](https://github.com/getmikan/Citrus/pull/184)).
+- **Лимит подпотоков sing-mux.** Одно соединение sing-mux держит не больше 1024 подпотоков, меняется через `mux-option: { max-streams: N }`; без форка sing-mux ([#187](https://github.com/getmikan/Citrus/pull/187)).
+- **MikanApp на Citrus.** Приложение собирается с ядром Citrus; в «О приложении» ядро называется по самому ядру — Citrus или Mihomo.
+- **Панель mikan на Citrus.** В `go.mod` панели ядро заменено на Citrus, а utls, tls, http, smux и restls-client-go — на форки getmikan; VMess из панели убран.
+- **Документация.** Сайт на двух языках: старт, конфигурация, контроллер, пользователи, лимиты, метрики, события, цепочки, fallbacks, desync, профиль сервера, переход с mihomo.
 
 ## В работе
 
-- **Первый релиз.** Слияние `dev` в `main` и первый тег `vX.Y.Z`. Сейчас всё перечисленное выше есть только в `dev`, а `Prerelease-main` собирается со старого `main`.
-- **Переход панели Mikan на Citrus.** Панель встраивает ядро как библиотеку, и переход зависит от первого релиза:
-  - подменить в `go.mod` панели модули utls, tls и http на форки getmikan, как это делает Citrus;
-  - получать события из `/events` вместо опроса `/traffic/users`, `/limits/users` и других ручек;
-  - задавать `secret` контроллера: без него ядро не откроет контроллер на сетевом адресе;
-  - перенести на VLESS пользовательские конфиги нод с VMess, который из Citrus удалён.
+- **Релиз `v1.0.0-beta.3`.** Всё, что сделано после второй беты, пока только в `dev`. Журнал изменений за [#149](https://github.com/getmikan/Citrus/pull/149)–[#189](https://github.com/getmikan/Citrus/pull/189) готов ([#185](https://github.com/getmikan/Citrus/pull/185)); перед релизом — теги форков (см. ниже).
+- **Панель mikan на Citrus: что осталось.**
+  - PQ REALITY в инбаундах панели (`mldsa65-seed`, `require-x25519mlkem768`) и `pqv=` в ссылках подписки;
+  - `max-time-difference` у REALITY теперь в миллисекундах — проверить, что пишет панель;
+  - e2e- и slice-тесты панели на образе Citrus вместо mihomo v1.19.31.
 - **Живая проверка.** Тестовая нода на Citrus и чек-лист для телефона: подключение каждым протоколом из подписки, переключение сетей и авиарежим, скорость, статистика и лимиты в панели.
 - **Документация на английском наравне с русским.** Страницы сайта есть на обоих языках; дальше — комментарии в `docs/config.yaml`, которые пока в основном на китайском, как в mihomo.
 
 ## Дальше
 
-- **Производительность Shadowsocks 2022.** Сейчас каждое соединение сразу выделяет два буфера по 64 КБ. План — форк sing-shadowsocks, где буферы берутся, только когда идут данные.
-- **Производительность TLS.** Объединение записей и `writev` в форке tls: сейчас при массовой передаче на каждую TLS-запись приходится отдельный системный вызов.
+- **Производительность Shadowsocks 2022.** Сейчас каждое соединение сразу выделяет два буфера по 64 КБ — всего sing-shadowsocks заранее выделяет около 150 КиБ на соединение. План — форк sing-shadowsocks, где буферы берутся, только когда идут данные.
 - **Подпись релизов.** Подписывать `checksums.txt` в CI и проверять подпись ключом, встроенным в Citrus, при самообновлении.
 - **Проверка загружаемых дашбордов и geodata** на подлинность.
 - **Дальнейшее укрепление.** Продолжение ревью и аудитов по мере роста кода.
 
+## Для панели и приложений mikan
+
+Задачи из плана развития mikan, которые упираются в ядро. В скобках — номер задачи в плане.
+
+- **Платёжный доступ после окончания подписки (13).** Истёкший пользователь получает не заглушку, а ограниченное подключение: только Telegram, платёжные страницы и страница подписки, с маленьким лимитом трафика и скорости. Резать остальное должна нода, а не правила в клиенте. Со стороны ядра готово ([#189](https://github.com/getmikan/Citrus/pull/189)): сценарий собирается из `IN-USER`, лимита без `expire-at` и rule-provider, покрыт тестом, см. [Доступ после окончания подписки](/Citrus/start/grace-access/). Осталась панель: переключать пользователя четырьмя вызовами API и писать то же в конфиг ноды.
+- **Особый режим для MikanApp и Kabosu (E2).** Панель узнаёт свои приложения по `citrus/<версия>` в User-Agent и отдаёт им всё, что умеет Citrus: PQ REALITY, протоколы, которых нет в mihomo, desync.
+- **Desync в MikanApp.** Профиль «только Desync», автоподбор стратегии по сервису и desync поверх подписки уже работают в приложении, от которого произошёл MikanApp; перенести их.
+- **Citrus для разработчиков приложений (E4).** Готовые сборки для встраивания: Android AAR, iOS xcframework, библиотека для десктопа; документация и пометка «Powered by Citrus».
+- **Страница Citrus на сайте mikan (19).** Что умеет ядро и чем оно отличается, со ссылками на замеры и сравнение ядер.
+
 ## Ждёт решения
 
-- **Еженедельная синхронизация с mihomo.** Workflow готов и проверен, но чтобы он открывал PR, в настройках репозитория нужно разрешить GitHub Actions создавать pull request’ы.
+- **Форк sing-quic.** Паддинг Hysteria2 стоит около 4% CPU на поток; чтобы это исправить, нужен форк sing-quic.
+- **Лимит потоков TUIC.** Сервер TUIC принимает не больше 2048 потоков на одно QUIC-соединение; клиент sing-box, который не ждёт разрешения на новые потоки, сверх этого получает ошибки.
+- **Теги релизов форков.** Citrus берёт utls, tls, smux и restls-client-go по псевдоверсиям коммитов из их веток `dev`. Теги выбраны — utls `v1.8.8-citrus.4`, tls `v0.1.8-citrus.2`, smux `v0.0.0-citrus.1`, restls-client-go `v0.1.9-citrus.1`, ровно на закреплённые коммиты; осталось опубликовать их и перевести `go.mod` на теги.

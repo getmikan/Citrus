@@ -287,6 +287,8 @@ func (sd *Dispatcher) tcpSniffDomain(conn *N.BufferedConn, metadata *C.Metadata)
 }
 
 func replaceDomain(metadata *C.Metadata, host string, overrideDest bool) {
+	// SNI and QUIC hosts keep the client's case; rules match lowercase names
+	host = C.NormalizeHost(host)
 	metadata.SniffHost = host
 	if overrideDest {
 		log.Debugln("[Sniffer] Sniff %s [%s]-->[%s] success, replace domain [%s]-->[%s]",
@@ -304,6 +306,7 @@ func (sd *Dispatcher) domainCanReplace(host string) bool {
 	if !isValidSniffHost(host) {
 		return false
 	}
+	host = C.NormalizeHost(host)
 	for _, matcher := range sd.skipDomain {
 		if matcher.MatchDomain(host) {
 			return false

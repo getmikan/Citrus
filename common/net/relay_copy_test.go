@@ -352,3 +352,67 @@ func TestCopyConnWaitRead(t *testing.T) {
 	_, err = copyConn(io.Discard, src)
 	assert.ErrorIs(t, err, failed)
 }
+
+// queuedSource hands out its buffers in batches through WaitReadBuffers, as
+// an AnyTLS stream does with the frames it has queued.
+type queuedSource struct {
+	batches [][]*buf.Buffer
+	calls   int
+}
+
+func (s *queuedSource) Read([]byte) (int, error) { panic("Read on a read waiter") }
+
+func (s *queuedSource) InitializeReadWaiter(network.ReadWaitOptions) bool { return false }
+
+func (s *queuedSource) WaitReadBuffer() (*buf.Buffer, error) {
+	panic("WaitReadBuffer on a batch source")
+}
+
+func (s *queuedSource) WaitReadBuffers() ([]*buf.Buffer, error) {
+	s.calls++
+	if len(s.batches) == 0 {
+		return nil, io.EOF
+	}
+	b := s.batches[0]
+	s.batches = s.batches[1:]
+	return b, nil
+}
+
+// A source that queues buffers is copied to a socket a batch at a time.
+func TestCopyQueuedSourceToSocket(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	received := make(chan []byte, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			received <- nil
+			return
+		}
+		defer c.Close()
+		b, _ := io.ReadAll(c)
+		received <- b
+	}()
+	dst, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+
+	payload := randomBytes(t, 10*1000)
+	src := &queuedSource{}
+	k := 0
+	for _, size := range []int{1, 3, 2, 4} { // 10 buffers of 1000 bytes in 4 batches
+		var batch []*buf.Buffer
+		for j := 0; j < size; j++ {
+			batch = append(batch, buf.As(append([]byte(nil), payload[k*1000:(k+1)*1000]...)))
+			k++
+		}
+		src.batches = append(src.batches, batch)
+	}
+
+	n, err := copyConn(dst, src)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(payload)), n)
+	require.Equal(t, 5, src.calls) // four batches and the EOF
+	dst.Close()
+	require.True(t, bytes.Equal(payload, <-received))
+}

@@ -58,6 +58,11 @@ const (
 	checksumsFileName = "checksums.txt"
 )
 
+// loong64ABI is the LoongArch ABI ("1" or "2") of a release build, set by
+// build.yml through -ldflags -X. The two ABIs ship as separate assets
+// (citrus-linux-loong64-abi1/-abi2) and nothing in the binary tells them apart.
+var loong64ABI string
+
 // versionPattern is what version.txt may contain: a release tag ("v1.2.3")
 // or a prerelease build name ("main-abc1234"). The version becomes part of a
 // file name and a URL, so anything else (path separators, "..", URL
@@ -84,6 +89,22 @@ type CoreUpdater struct {
 var DefaultCoreUpdater = CoreUpdater{}
 
 func coreChannelURLs(channel, version string) (baseURL, versionURL string, err error) {
+	channel, err = effectiveUpdateChannel(channel, version)
+	if err != nil {
+		return "", "", err
+	}
+	switch channel {
+	case MainChannel, AlphaChannel:
+		baseURL = baseMainURL
+	case DevChannel:
+		baseURL = baseDevURL
+	case ReleaseChannel:
+		baseURL = baseReleaseURL
+	}
+	return baseURL, baseURL + updateManifestFileName, nil
+}
+
+func effectiveUpdateChannel(channel, version string) (string, error) {
 	channel = strings.ToLower(channel)
 	if channel == "" || channel == "auto" {
 		switch {
@@ -96,46 +117,76 @@ func coreChannelURLs(channel, version string) (baseURL, versionURL string, err e
 		}
 	}
 	switch channel {
-	case MainChannel, AlphaChannel:
-		baseURL = baseMainURL
+	case AlphaChannel:
+		return MainChannel, nil
+	case MainChannel:
 	case DevChannel:
-		baseURL = baseDevURL
+		return "", errors.New("update error: dev self-update is unavailable because the dev branch does not publish signed release artifacts")
 	case ReleaseChannel:
-		baseURL = baseReleaseURL
 	default:
-		return "", "", fmt.Errorf("update error: unsupported channel %q", channel)
+		return "", fmt.Errorf("update error: unsupported channel %q", channel)
 	}
-	return baseURL, baseURL + "version.txt", nil
+	return channel, nil
 }
 
 func (u *CoreUpdater) CoreBaseName() string {
-	switch runtime.GOARCH {
+	return coreBaseName(buildTarget{
+		goos:       runtime.GOOS,
+		goarch:     runtime.GOARCH,
+		goarm:      features.GOARM,
+		gomips:     features.GOMIPS,
+		goamd64:    features.GOAMD64,
+		go386:      features.GO386,
+		loong64ABI: loong64ABI,
+	})
+}
+
+// buildTarget is what the release asset name of a build depends on.
+type buildTarget struct {
+	goos, goarch                  string
+	goarm, gomips, goamd64, go386 string
+	loong64ABI                    string
+}
+
+func coreBaseName(t buildTarget) string {
+	switch t.goarch {
 	case "arm":
 		// citrus-linux-armv5
-		return fmt.Sprintf("citrus-%s-%sv%s", runtime.GOOS, runtime.GOARCH, features.GOARM)
+		return fmt.Sprintf("citrus-%s-%sv%s", t.goos, t.goarch, t.goarm)
 	case "arm64":
-		if runtime.GOOS == "android" {
+		if t.goos == "android" {
 			// citrus-android-arm64-v8
-			return fmt.Sprintf("citrus-%s-%s-v8", runtime.GOOS, runtime.GOARCH)
+			return fmt.Sprintf("citrus-%s-%s-v8", t.goos, t.goarch)
 		}
 		// citrus-linux-arm64
-		return fmt.Sprintf("citrus-%s-%s", runtime.GOOS, runtime.GOARCH)
+		return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
 	case "mips", "mipsle":
 		// citrus-linux-mips-hardfloat
-		return fmt.Sprintf("citrus-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOMIPS)
+		return fmt.Sprintf("citrus-%s-%s-%s", t.goos, t.goarch, t.gomips)
 	case "amd64":
-		if runtime.GOOS == "android" {
+		if t.goos == "android" {
 			// citrus-android-amd64
-			return fmt.Sprintf("citrus-%s-%s", runtime.GOOS, runtime.GOARCH)
+			return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
 		}
 		// citrus-linux-amd64-v1
-		return fmt.Sprintf("citrus-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOAMD64)
+		return fmt.Sprintf("citrus-%s-%s-%s", t.goos, t.goarch, t.goamd64)
+	case "386":
+		if t.go386 == "softfloat" {
+			// citrus-linux-386-softfloat: the default asset needs SSE2
+			return fmt.Sprintf("citrus-%s-%s-softfloat", t.goos, t.goarch)
+		}
+		return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
+	case "loong64":
+		if t.loong64ABI != "" {
+			// citrus-linux-loong64-abi2
+			return fmt.Sprintf("citrus-%s-%s-abi%s", t.goos, t.goarch, t.loong64ABI)
+		}
+		return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
 	default:
-		// citrus-linux-386
 		// citrus-linux-mips64
 		// citrus-linux-riscv64
 		// citrus-linux-s390x
-		return fmt.Sprintf("citrus-%s-%s", runtime.GOOS, runtime.GOARCH)
+		return fmt.Sprintf("citrus-%s-%s", t.goos, t.goarch)
 	}
 }
 
@@ -147,22 +198,34 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 	if err != nil {
 		return fmt.Errorf("check currentExePath %q: %w", currentExePath, err)
 	}
+	currentExePath = resolveExePath(currentExePath)
 
-	baseURL, versionURL, err := coreChannelURLs(channel, C.Version)
+	effectiveChannel, err := effectiveUpdateChannel(channel, C.Version)
 	if err != nil {
 		return err
 	}
-
-	latestVersion, err := u.getLatestVersion(versionURL)
+	baseURL, manifestURL, err := coreChannelURLs(effectiveChannel, C.Version)
 	if err != nil {
-		return fmt.Errorf("get latest version: %w", err)
+		return err
 	}
-	log.Infoln("current version %s, latest version %s", C.Version, latestVersion)
-
-	if latestVersion == C.Version && !force {
+	manifestBytes, err := u.fetchMetadata(manifestURL, maxUpdateManifestSize)
+	if err != nil {
+		return fmt.Errorf("get update manifest: %w", err)
+	}
+	signatureBytes, err := u.fetchMetadata(baseURL+updateSignatureFileName, maxUpdateSignatureSize)
+	if err != nil {
+		return fmt.Errorf("get update signature: %w", err)
+	}
+	manifest, artifact, err := verifyUpdateManifest(manifestBytes, signatureBytes, effectiveChannel, u.CoreBaseName(), loadUpdateSequence(effectiveChannel), time.Now())
+	if err != nil && !errors.Is(err, errAlreadyLatest) {
+		return fmt.Errorf("verify update manifest: %w", err)
+	}
+	if err != nil || (manifest.Version == C.Version && !force) {
 		// don't change this output, some downstream dependencies on the upgrader's output fields
 		return fmt.Errorf("update error: already using latest version %s", C.Version)
 	}
+	latestVersion := manifest.Version
+	log.Infoln("current version %s, latest version %s", C.Version, latestVersion)
 
 	defer func() {
 		if err != nil {
@@ -176,12 +239,7 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 	// Every name below comes from the validated version and constants;
 	// nothing stored inside the downloaded archive names a file on disk.
 	mihomoBaseName := u.CoreBaseName()
-	packageName := mihomoBaseName + "-" + latestVersion
-	if runtime.GOOS == "windows" {
-		packageName = packageName + ".zip"
-	} else {
-		packageName = packageName + ".gz"
-	}
+	packageName := artifact.Name
 	packageURL := baseURL + packageName
 	log.Infoln("updater: updating using url: %s", packageURL)
 
@@ -205,7 +263,7 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 		return fmt.Errorf("downloading: %w", err)
 	}
 
-	err = u.verify(baseURL+checksumsFileName, packageName, packagePath)
+	err = checkManifestArtifact(packagePath, artifact)
 	if err != nil {
 		return fmt.Errorf("verifying: %w", err)
 	}
@@ -220,12 +278,117 @@ func (u *CoreUpdater) Update(currentExePath string, channel string, force bool) 
 		return fmt.Errorf("backuping: %w", err)
 	}
 
-	err = u.copyFile(updateExePath, currentExePath)
+	err = u.install(updateExePath, currentExePath)
 	if err != nil {
+		if runtime.GOOS == "windows" {
+			// backup moved the executable away; without this there is
+			// nothing left to start.
+			if restoreErr := u.restore(backupExePath, currentExePath); restoreErr != nil {
+				return fmt.Errorf("replacing: %w (restoring %s failed: %v)", err, backupExePath, restoreErr)
+			}
+		}
 		return fmt.Errorf("replacing: %w", err)
+	}
+	if err = saveUpdateSequence(effectiveChannel, manifest.Sequence); err != nil {
+		if restoreErr := u.restore(backupExePath, currentExePath); restoreErr != nil {
+			return fmt.Errorf("persisting anti-rollback state: %w (restoring %s failed: %v)", err, backupExePath, restoreErr)
+		}
+		return fmt.Errorf("persisting anti-rollback state (executable restored): %w", err)
 	}
 
 	return nil
+}
+
+// install puts newExePath at currentExePath. The new binary is written in
+// full next to the target and then renamed over it, so a failed copy (disk
+// full, a scanner holding the file, an I/O error) never leaves
+// currentExePath missing or truncated, and the running binary is never
+// rewritten in place.
+func (u *CoreUpdater) install(newExePath, currentExePath string) error {
+	tmpPath := currentExePath + ".new"
+	_ = os.Remove(tmpPath)
+	if err := u.copyFile(newExePath, tmpPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := renameRetrying(tmpPath, currentExePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+// resolveExePath follows symlinks in the executable path. os.Executable on
+// macOS returns the path the binary was started by (a Homebrew-style
+// bin/citrus link, say); renaming over it would replace the link with a
+// regular file and leave the real binary stale.
+func resolveExePath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
+}
+
+var (
+	renameFile       = os.Rename
+	renameAttempts   = 1
+	renameRetryDelay = 200 * time.Millisecond
+)
+
+func init() {
+	if runtime.GOOS == "windows" {
+		// An on-access scanner commonly holds a just-written executable
+		// open without FILE_SHARE_DELETE for a moment, failing the rename
+		// with a sharing violation; retry for about two seconds.
+		renameAttempts = 10
+	}
+}
+
+func renameRetrying(from, to string) error {
+	for attempt := 1; ; attempt++ {
+		err := renameFile(from, to)
+		if err == nil || attempt >= renameAttempts {
+			return err
+		}
+		time.Sleep(renameRetryDelay)
+	}
+}
+
+// restore puts the backup made by backup back at currentExePath.
+func (u *CoreUpdater) restore(backupExePath, currentExePath string) error {
+	if runtime.GOOS == "windows" {
+		// backup renamed the executable away: rename it back (over the new
+		// binary, if one is there). Unlike a copy this cannot fail for lack
+		// of disk space.
+		return renameRetrying(backupExePath, currentExePath)
+	}
+	return u.install(backupExePath, currentExePath)
+}
+
+func (u *CoreUpdater) fetchMetadata(url string, limit int64) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	resp, err := mihomoHttp.HttpRequest(ctx, url, http.MethodGet, nil, nil, mihomoHttp.WithCAOption(ca.Option{ZeroTrust: true}))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, errors.New(resp.Status)
+	}
+	return utils.ReadAllLimit(resp.Body, limit)
+}
+
+func checkManifestArtifact(path string, artifact updateArtifact) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() != artifact.Size {
+		return fmt.Errorf("%s: size %d does not match signed manifest (%d)", artifact.Name, info.Size(), artifact.Size)
+	}
+	want, _ := hex.DecodeString(artifact.SHA256)
+	return checkFileSHA256(path, artifact.Name, want)
 }
 
 func (u *CoreUpdater) getLatestVersion(versionURL string) (version string, err error) {
@@ -599,6 +762,9 @@ func (u *CoreUpdater) copyFile(src, dst string) (err error) {
 	_, err = io.Copy(wc, rc)
 	if err != nil {
 		return fmt.Errorf("io.Copy(): %w", err)
+	}
+	if err = wc.Sync(); err != nil {
+		return fmt.Errorf("sync %s: %w", dst, err)
 	}
 
 	if runtime.GOOS == "darwin" {

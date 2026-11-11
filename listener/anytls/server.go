@@ -15,6 +15,7 @@ import (
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/inbounduser"
 	"github.com/metacubex/mihomo/listener/jls"
@@ -32,7 +33,7 @@ import (
 )
 
 type Listener struct {
-	closed    bool
+	closed    atomic.Bool
 	config    LC.AnyTLSServer
 	listeners []net.Listener
 	tlsConfig *tls.Config
@@ -40,7 +41,7 @@ type Listener struct {
 	padding   atomic.Pointer[padding.PaddingFactory]
 }
 
-func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (sl *Listener, err error) {
+func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (_ *Listener, err error) {
 	if len(additions) == 0 {
 		additions = []inbound.Addition{
 			inbound.WithInName("DEFAULT-ANYTLS"),
@@ -116,7 +117,7 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		}
 	}
 
-	sl = &Listener{
+	sl := &Listener{
 		config:    config,
 		tlsConfig: tlsConfig,
 	}
@@ -140,6 +141,11 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		return nil, err
 	}
 
+	defer func() { // a later address failed: stop serving the earlier ones
+		if err != nil {
+			_ = sl.Close()
+		}
+	}()
 	for _, addr := range strings.Split(config.Listen, ",") {
 		addr := addr
 
@@ -157,18 +163,16 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 		} else if tlsConfig.GetCertificate != nil {
 			l = tls.NewListener(l, tlsConfig)
 		} else if !config.AllowInsecure {
+			_ = l.Close()
 			return nil, errors.New("disallow using AnyTLS without certificates/shadow-tls/res-tls/jls/allow-insecure config")
 		}
 		sl.listeners = append(sl.listeners, l)
 
 		go func() {
 			for {
-				c, err := l.Accept()
+				c, err := accept.Next(l, sl.closed.Load)
 				if err != nil {
-					if sl.closed {
-						break
-					}
-					continue
+					break
 				}
 				go sl.HandleConn(c, h)
 			}
@@ -179,7 +183,7 @@ func New(config LC.AnyTLSServer, lc C.InboundListenConfig, tunnel C.Tunnel, addi
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, lis := range l.listeners {
 		err := lis.Close()

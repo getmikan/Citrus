@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/egress"
 	"github.com/metacubex/mihomo/component/loopback"
 	"github.com/metacubex/mihomo/component/resolver"
 	C "github.com/metacubex/mihomo/constant"
@@ -27,6 +28,11 @@ func (d *Direct) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn,
 	}
 	opts := d.DialOptions()
 	opts = append(opts, dialer.WithResolver(resolver.DirectHostResolver))
+	if guard := egress.For(metadata); guard != nil {
+		// checked on the resolved addresses right before the connect, so a
+		// domain cannot rebind into the server's network after the rules
+		opts = append(opts, dialer.WithAddrFilter(guard))
+	}
 	c, err := dialer.DialContext(ctx, "tcp", directAddress(metadata), opts...)
 	if err != nil {
 		return nil, err
@@ -45,6 +51,12 @@ func (d *Direct) ListenPacketContext(ctx context.Context, metadata *C.Metadata) 
 	pc, err := dialer.NewDialer(d.DialOptions()...).ListenPacket(ctx, "udp", "", metadata.AddrPort())
 	if err != nil {
 		return nil, err
+	}
+	if guard := egress.For(metadata); guard != nil {
+		// checks every datagram, the first one too: a blocked destination is
+		// dropped like REJECT drops it, and the session lives on for the others
+		// instead of being dialed again for each packet
+		pc = egress.NewPacketConn(pc, guard)
 	}
 	return d.loopBack.NewPacketConn(NewPacketConn(pc, d)), nil
 }

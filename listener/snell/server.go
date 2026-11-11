@@ -11,11 +11,13 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/utils"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/listener/accept"
 	authStore "github.com/metacubex/mihomo/listener/auth"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/jls"
@@ -29,9 +31,10 @@ import (
 const maxPacketLength = 0x3fff
 
 type Listener struct {
-	closed    bool
+	closed    atomic.Bool
 	config    LC.SnellServer
 	listeners []net.Listener
+	v6Mode    snell.V6Mode // only used for version 6
 }
 
 func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (C.MultiAddrListener, error) {
@@ -40,6 +43,10 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	}
 	switch config.Version {
 	case snell.Version1, snell.Version2, snell.Version3, snell.Version4, snell.Version5:
+		if config.Mode != "" {
+			return nil, errors.New("snell inbound mode is only supported on version 6")
+		}
+	case snell.Version6:
 	default:
 		return nil, fmt.Errorf("snell inbound version %d is not supported", config.Version)
 	}
@@ -53,6 +60,20 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 	}
 
 	l := &Listener{config: config}
+	if config.Version == snell.Version6 {
+		if err := snell.ValidateV6PSK([]byte(config.Psk)); err != nil {
+			return nil, fmt.Errorf("snell inbound %w", err)
+		}
+		if config.ObfsMode != "" {
+			// v6 replaced the simple-obfs layer with PSK-derived traffic shaping
+			return nil, fmt.Errorf("snell inbound version 6 does not support obfs mode %s", config.ObfsMode)
+		}
+		var err error
+		l.v6Mode, err = snell.ParseV6Mode(config.Mode)
+		if err != nil {
+			return nil, fmt.Errorf("snell inbound %w", err)
+		}
+	}
 
 	securityModes := make([]string, 0, 3)
 	if config.ShadowTLS.Enable {
@@ -108,12 +129,9 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 		l.listeners = append(l.listeners, ln)
 		go func(ln net.Listener) {
 			for {
-				conn, err := ln.Accept()
+				conn, err := accept.Next(ln, l.closed.Load)
 				if err != nil {
-					if l.closed {
-						return
-					}
-					continue
+					return
 				}
 				go l.HandleConn(conn, tunnel, additions...)
 			}
@@ -123,7 +141,7 @@ func New(config LC.SnellServer, lc C.InboundListenConfig, tunnel C.Tunnel, addit
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
+	l.closed.Store(true)
 	var retErr error
 	for _, ln := range l.listeners {
 		if err := ln.Close(); err != nil {
@@ -170,7 +188,12 @@ func (l *Listener) HandleConn(rawConn net.Conn, tunnel C.Tunnel, additions ...in
 	default:
 		return
 	}
-	stream := snell.ServerStreamConn(conn, []byte(l.config.Psk), l.config.Version)
+	var stream *snell.Snell
+	if l.config.Version == snell.Version6 {
+		stream = snell.ServerStreamConnV6(conn, []byte(l.config.Psk), l.v6Mode)
+	} else {
+		stream = snell.ServerStreamConn(conn, []byte(l.config.Psk), l.config.Version)
+	}
 	for {
 		reuse, err := l.handleRequest(stream, handshakeDone, tunnel, additions...)
 		if err != nil || !reuse {

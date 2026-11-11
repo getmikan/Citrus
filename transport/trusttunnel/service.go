@@ -52,6 +52,7 @@ type ServiceOptions struct {
 	QUICCongestionControl string
 	QUICCwnd              int
 	QUICBBRProfile        string
+	QUICZeroRTT           bool
 	// Fallback is an optional backend (host:port) that unauthenticated requests are
 	// served from, so active probing sees an ordinary web server instead of a proxy.
 	Fallback string
@@ -66,6 +67,7 @@ type Service struct {
 	quicCongestionControl string
 	quicCwnd              int
 	quicBBRProfile        string
+	quicZeroRTT           bool
 	httpServer            *http.Server
 	h3Server              *http3.Server
 	tcpListener           net.Listener
@@ -242,6 +244,7 @@ func NewService(options ServiceOptions) *Service {
 		quicCongestionControl: options.QUICCongestionControl,
 		quicCwnd:              options.QUICCwnd,
 		quicBBRProfile:        options.QUICBBRProfile,
+		quicZeroRTT:           options.QUICZeroRTT,
 	}
 	if options.Fallback != "" {
 		// A dedicated transport with timeouts for connecting and for the response
@@ -264,12 +267,9 @@ func NewService(options ServiceOptions) *Service {
 			Rewrite: func(r *httputil.ProxyRequest) {
 				r.Out.URL.Scheme = "http"
 				r.Out.URL.Host = target
-				// Keep the client's Host header: named virtual hosts keep working and
-				// the internal backend address is not leaked in redirects. The backend
-				// therefore routes on a Host the client chose: point the fallback at a
-				// server that serves only the cover site, not at one whose other virtual
-				// hosts are meant to stay internal.
-				r.Out.Host = r.In.Host
+				// Bind virtual-host routing to the configured cover backend. An
+				// unauthenticated client must not select a sibling internal vhost.
+				r.Out.Host = target
 				r.SetXForwarded()
 				if strings.EqualFold(r.In.Method, http.MethodConnect) { // any spelling: a lenient backend would take it
 					// Keep the site's rejection, but never give a backend a live

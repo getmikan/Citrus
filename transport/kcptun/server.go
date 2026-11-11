@@ -2,6 +2,7 @@ package kcptun
 
 import (
 	"net"
+	"sync"
 	"time"
 
 	"github.com/metacubex/kcp-go"
@@ -9,8 +10,9 @@ import (
 )
 
 type Server struct {
-	config Config
-	block  kcp.BlockCrypt
+	config   Config
+	block    kcp.BlockCrypt
+	sessions chan struct{}
 }
 
 func NewServer(config Config) *Server {
@@ -18,8 +20,9 @@ func NewServer(config Config) *Server {
 	block := config.NewBlock()
 
 	return &Server{
-		config: config,
-		block:  block,
+		config:   config,
+		block:    block,
+		sessions: make(chan struct{}, config.MaxSessions),
 	}
 }
 
@@ -32,11 +35,20 @@ func (s *Server) Serve(pc net.PacketConn, handler func(net.Conn)) error {
 	_ = lis.SetDSCP(s.config.DSCP)
 	_ = lis.SetReadBuffer(s.config.SockBuf)
 	_ = lis.SetWriteBuffer(s.config.SockBuf)
+	var active sync.Map
+	defer active.Range(func(key, _ any) bool { _ = key.(*kcp.UDPSession).Close(); return true })
 	for {
 		conn, err := lis.AcceptKCP()
 		if err != nil {
 			return err
 		}
+		select {
+		case s.sessions <- struct{}{}:
+		default:
+			_ = conn.Close()
+			continue
+		}
+		active.Store(conn, struct{}{})
 		conn.SetStreamMode(true)
 		conn.SetWriteDelay(false)
 		conn.SetNoDelay(s.config.NoDelay, s.config.Interval, s.config.Resend, s.config.NoCongestion)
@@ -51,6 +63,8 @@ func (s *Server) Serve(pc net.PacketConn, handler func(net.Conn)) error {
 		}
 
 		go func() {
+			defer func() { <-s.sessions }()
+			defer active.Delete(conn)
 			// stream multiplex
 			smuxConfig := smux.DefaultConfig()
 			smuxConfig.Version = s.config.SmuxVer
@@ -68,15 +82,59 @@ func (s *Server) Serve(pc net.PacketConn, handler func(net.Conn)) error {
 				return
 			}
 			defer mux.Close()
+			streams := make(chan struct{}, s.config.MaxStreams)
+			var streamsMu sync.Mutex
+			liveStreams := make(map[*limitedStream]struct{})
+			defer func() {
+				streamsMu.Lock()
+				all := make([]*limitedStream, 0, len(liveStreams))
+				for stream := range liveStreams {
+					all = append(all, stream)
+				}
+				streamsMu.Unlock()
+				for _, stream := range all {
+					_ = stream.Close()
+				}
+			}()
 
 			for {
 				stream, err := mux.AcceptStream()
 				if err != nil {
 					return
 				}
-				go handler(stream)
+				select {
+				case streams <- struct{}{}:
+					leased := &limitedStream{Conn: stream}
+					leased.release = func() {
+						streamsMu.Lock()
+						delete(liveStreams, leased)
+						streamsMu.Unlock()
+						<-streams
+					}
+					streamsMu.Lock()
+					liveStreams[leased] = struct{}{}
+					streamsMu.Unlock()
+					// Handlers may transfer ownership and return before the stream
+					// closes, so capacity belongs to the connection, not the call.
+					go handler(leased)
+				default:
+					_ = stream.Close()
+				}
 			}
 		}()
 
 	}
+}
+
+type limitedStream struct {
+	net.Conn
+	once     sync.Once
+	release  func()
+	closeErr error
+}
+
+func (c *limitedStream) Upstream() any { return c.Conn }
+func (c *limitedStream) Close() error {
+	c.once.Do(func() { c.closeErr = c.Conn.Close(); c.release() })
+	return c.closeErr
 }
