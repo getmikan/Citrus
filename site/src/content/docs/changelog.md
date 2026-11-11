@@ -3,7 +3,7 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (193 pull request’а), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (194 pull request’а), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
 Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), — из `dev` до [#133](https://github.com/getmikan/Citrus/pull/133). Изменения для третьей беты с #149 собраны в первом разделе ниже.
 
@@ -71,6 +71,7 @@ description: Все влитые в Citrus pull request’ы по темам, с
 ### Синхронизация с mihomo
 
 - [#182](https://github.com/getmikan/Citrus/pull/182) Синхронизация с mihomo Alpha: Snell v6 (входящий и исходящий), `dns-mode` для TUN и исправление auto-route, генератор паролей Shadowsocks, закрытие простаивающих соединений mieru, переписанный транспорт Sudoku с перенесёнными на него лимитами Citrus. Исправления: переполнение длины домена в SOCKS, байты после ответа на HTTP CONNECT, ssh, easytier, tfo-go на Go 1.26.9+. Не взяты многопользовательский входящий Shadowsocks с картой `users` (в Citrus `users` — список для SS2022 с учётом и лимитами) и изменения ссылок VMess. Что изменено после ревью: режим Snell v6 `mode: unsafe-raw` отклоняется — он не использует PSK, то есть нет ни аутентификации, ни шифрования, и входящий в этом режиме становится открытым прокси; на Linux без `auto-route` пустой `dns-mode` означает `native`, и systemd-resolved, как и раньше, отправляет DNS в туннель. Учтите: TUN с `auto-route` и префиксом без адреса для DNS (например, только `/32` без IPv6) теперь не запускается, раньше он запускался без DNS.
+- [#197](https://github.com/getmikan/Citrus/pull/197) Синхронизация с mihomo v1.19.34: `DecryptBytes` в age пропускает пустой секретный ключ, поэтому провайдер без своего `age-secret-key` расшифровывается глобальными ключами; обновлён easytier-go. Переход mihomo на utls `v1.9.0-alpha.1` не действует: Citrus по-прежнему собирается с форком getmikan/utls (Chrome 155).
 
 ### Тесты, CI и документация
 

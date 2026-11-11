@@ -3,7 +3,7 @@ title: Changelog
 description: Every pull request merged into Citrus, by area, with links, and the versions of the utls, tls and http forks.
 ---
 
-Everything merged into `dev` since the project started (193 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
+Everything merged into `dev` since the project started (194 pull requests), by area. Within an area the order is by PR number. Links go to the PRs in [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged), which describe what was wrong, what changed and how it was tested.
 
 The first beta release, [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), is built from `dev` up to [#112](https://github.com/getmikan/Citrus/pull/112). The second, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), is built from `dev` up to [#133](https://github.com/getmikan/Citrus/pull/133). The changes for the third beta since #149 are in the first section below.
 
@@ -71,6 +71,7 @@ What has been merged into `dev` since [#149](https://github.com/getmikan/Citrus/
 ### Sync with mihomo
 
 - [#182](https://github.com/getmikan/Citrus/pull/182) Sync with mihomo Alpha: Snell v6 (inbound and outbound), TUN `dns-mode` and an auto-route fix, a Shadowsocks password generator, mieru idle close, the rewritten Sudoku transport with the Citrus limits ported onto it. Fixes: SOCKS domain length overflow, bytes after the HTTP CONNECT response, ssh, easytier, tfo-go on Go 1.26.9+. Not taken: the multi-user Shadowsocks inbound with a `users` map (in Citrus `users` is the SS2022 list with stats and limits) and the VMess share-link changes. Changed after the review: the Snell v6 `mode: unsafe-raw` is rejected, because it never uses the PSK — no authentication and no encryption, so an inbound in it is an open proxy; on Linux without `auto-route` an empty `dns-mode` means `native`, so systemd-resolved keeps sending DNS into the tunnel as before. Note: TUN with `auto-route` and a prefix without a DNS address (for example, a single `/32` and no IPv6) now fails to start; it used to start without DNS.
+- [#197](https://github.com/getmikan/Citrus/pull/197) Sync with mihomo v1.19.34: age `DecryptBytes` skips an empty secret key, so a provider without its own `age-secret-key` decrypts with the global keys; easytier-go bumped. The mihomo move to utls `v1.9.0-alpha.1` has no effect: Citrus still builds with the getmikan/utls fork (Chrome 155).
 
 ### Tests, CI and docs
 
