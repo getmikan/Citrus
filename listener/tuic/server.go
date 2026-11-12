@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
+	"github.com/metacubex/mihomo/common/net/fanin"
 	"github.com/metacubex/mihomo/common/sockopt"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
@@ -186,25 +186,21 @@ func New(config LC.TuicServer, lc C.InboundListenConfig, tunnel C.Tunnel, additi
 
 	sl := &Listener{false, config, nil, nil, option.Users}
 
-	for _, addr := range strings.Split(config.Listen, ",") {
-		addr := addr
-
-		ul, err := lc.ListenPacket(context.Background(), "udp", addr)
-		if err != nil {
-			_ = sl.Close() // the earlier addresses
-			return nil, err
-		}
-
+	// One QUIC server per host: the ports of a range share it.
+	udpListeners, err := fanin.Listen(context.Background(), lc, config.Listen, func(ul net.PacketConn) {
 		if err := sockopt.UDPReuseaddr(ul); err != nil {
 			log.Warnln("Failed to Reuse UDP Address: %s", err)
 		}
-
-		sl.udpListeners = append(sl.udpListeners, ul)
-
+	})
+	if err != nil {
+		return nil, err
+	}
+	sl.udpListeners = udpListeners
+	for _, ul := range udpListeners {
 		var server *tuic.Server
 		server, err = tuic.NewServer(option, ul)
 		if err != nil {
-			_ = sl.Close() // the earlier addresses
+			_ = sl.Close() // the sockets and the earlier servers
 			return nil, err
 		}
 
@@ -286,7 +282,7 @@ func (l *Listener) Config() LC.TuicServer {
 
 func (l *Listener) AddrList() (addrList []net.Addr) {
 	for _, lis := range l.udpListeners {
-		addrList = append(addrList, lis.LocalAddr())
+		addrList = append(addrList, fanin.LocalAddrs(lis)...)
 	}
 	return
 }

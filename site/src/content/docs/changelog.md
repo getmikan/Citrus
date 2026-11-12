@@ -3,15 +3,20 @@ title: Журнал изменений
 description: Все влитые в Citrus pull request’ы по темам, со ссылками, и версии форков utls, tls и http.
 ---
 
-Всё, что влито в ветку `dev` с начала проекта (194 pull request’а), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
+Всё, что влито в ветку `dev` с начала проекта (196 pull request’ов), по темам. Внутри темы — по номеру PR. Ссылки ведут на PR в [getmikan/Citrus](https://github.com/getmikan/Citrus/pulls?q=is%3Apr+is%3Amerged); там описано, что было не так, что поменялось и как проверяли.
 
-Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), — из `dev` до [#133](https://github.com/getmikan/Citrus/pull/133). Изменения для третьей беты с #149 собраны в первом разделе ниже.
+Первый бета-релиз [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) собран из `dev` до [#112](https://github.com/getmikan/Citrus/pull/112). Второй, [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), — из `dev` до [#133](https://github.com/getmikan/Citrus/pull/133). Третий, [`v1.0.0-beta.3`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.3), — из `dev` до [#198](https://github.com/getmikan/Citrus/pull/198). Четвёртый, `v1.0.0-beta.4`, собирается из `dev` до [#200](https://github.com/getmikan/Citrus/pull/200); его изменения — в первом разделе ниже.
 
 Что из этого меняет поведение для существующих конфигов, собрано на странице [Переход с mihomo](/Citrus/migration/).
 
-## v1.0.0-beta.3 (ещё не выпущена)
+## v1.0.0-beta.4
 
-Что влито в `dev` с [#149](https://github.com/getmikan/Citrus/pull/149) и войдёт в третью бету. #130 и #134–#148 влиты после тега `v1.0.0-beta.2` и тоже войдут в третью бету; они описаны в тематических разделах ниже.
+- [#199](https://github.com/getmikan/Citrus/pull/199) Форк getmikan/utls пересобран на metacubex/utls `v1.9.0-alpha.1` (её требует mihomo v1.19.34): база crypto/tls из Go 1.26, исправление транспортных параметров `UQUICConn`, сжатие ALPN в ECH только для стандартных ClientHello. Изменения форка перенесены (Chrome 155, пост-квантовый REALITY, склейка TLS-записей, исправления TLS и ECH); Firefox 148, Safari 26.3 и перепроверка цепочки при возобновлении сессии теперь из upstream. Отпечатки не изменились: ClientHello всех `client-fingerprint` сверены со старым форком, `chrome` — по-прежнему Chrome 155.
+- [#200](https://github.com/getmikan/Citrus/pull/200) QUIC-входящие с диапазоном портов (`port: 20000-40000`) — hysteria2, tuic, shadowquic и HTTP/3 у trusttunnel — держат один QUIC-сервер на весь диапазон, а не по серверу на порт: сокеты портов сведены в один, ответ уходит с порта, на который клиент писал последним. Port hopping клиента hysteria2 больше не рвёт соединение на первом прыжке. Простаивающий порт стоит сокет и одну горутину вместо пяти: на 1000 портах 1005 горутин вместо 5000 и 5–8 МиБ памяти вместо 100–140 МиБ. Входящий с одним портом не изменился; hysteria2 с `realm` держит сервер на порт, как раньше.
+
+## v1.0.0-beta.3
+
+Что влито в `dev` с [#149](https://github.com/getmikan/Citrus/pull/149) по [#198](https://github.com/getmikan/Citrus/pull/198) и вошло в третью бету. #130 и #134–#148 влиты после тега `v1.0.0-beta.2` и тоже вошли в третью бету; они описаны в тематических разделах ниже.
 
 ### Outbound desync
 
@@ -273,6 +278,7 @@ Citrus подменяет пять библиотек mihomo своими фор
 
 - `v1.8.9-0.20261020173537-32502cba39f4`: исправления REALITY/JLS из [PR 3 форка](https://github.com/getmikan/utls/pull/3), подключены в [#141](https://github.com/getmikan/Citrus/pull/141); это коммит `dev`, не релизный тег.
 - `v1.8.9-0.20261110224923-a6dee38a3c8d`: отпечаток Chrome 155 из [PR 4](https://github.com/getmikan/utls/pull/4) и [PR 5](https://github.com/getmikan/utls/pull/5) форка, подключён в [#194](https://github.com/getmikan/Citrus/pull/194); коммит `dev`.
+- `v0.0.0-20261111095853-b60cfbd40b44`: форк на metacubex/utls `v1.9.0-alpha.1` из [PR 6](https://github.com/getmikan/utls/pull/6) форка, подключён в [#199](https://github.com/getmikan/Citrus/pull/199); коммит ветки `dev-1.9`.
 
 - `v1.8.8-citrus.1`: серверная сторона пост-квантового REALITY (подпись ML-DSA-65, требование X25519MLKEM768), отпечатки Firefox 148 и Safari 26.3 ([#10](https://github.com/getmikan/Citrus/pull/10)).
 - `v1.8.8-citrus.2`: исправления ошибок после ревью кода: возобновление сессий, ECH, минимальная версия сервера, сжатые сертификаты, HKDF ([#55](https://github.com/getmikan/Citrus/pull/55)).

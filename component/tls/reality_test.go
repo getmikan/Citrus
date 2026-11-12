@@ -108,7 +108,7 @@ func TestRealityClientHelloX25519MLKEM768(t *testing.T) {
 			}
 			for _, keyShare := range hello.KeyShares {
 				if keyShare.Group == utls.X25519MLKEM768 {
-					if !bytes.Equal(keyShare.Data[:mlkem768EncapsulationKeySize], keys.Mlkem.EncapsulationKey().Bytes()) ||
+					if !bytes.Equal(keyShare.Data[:mlkem768EncapsulationKeySize], keys.Mlkem.Encapsulator().Bytes()) ||
 						!bytes.Equal(keyShare.Data[mlkem768EncapsulationKeySize:], keys.MlkemEcdhe.PublicKey().Bytes()) {
 						t.Fatal("X25519MLKEM768 key share does not match its private keys")
 					}
