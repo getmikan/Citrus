@@ -9,7 +9,7 @@ description: Что уже сделано в Citrus и его форках, на
 
 Подробно, со ссылками на каждый PR, — в [журнале изменений](/Citrus/changelog/).
 
-- **Релизы.** Бета-релизы [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1) и [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2), собранные из `dev`; см. [новость о второй бете](/Citrus/news/beta-2/).
+- **Релизы.** Бета-релизы [`v1.0.0-beta.1`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.1), [`v1.0.0-beta.2`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.2) и [`v1.0.0-beta.3`](https://github.com/getmikan/Citrus/releases/tag/v1.0.0-beta.3), собранные из `dev`; см. [новость о второй бете](/Citrus/news/beta-2/).
 - **Совместимость с Xray.** Пост-квантовый REALITY на клиенте и сервере (X25519MLKEM768, ML-DSA-65), XHTTP с поведением Xray, ключи и ссылки ECH в форматах Xray. Автотесты против Xray v26.11.9 в CI.
 - **Пользователи в ядре.** Shadowsocks 2022 с несколькими пользователями, статистика трафика и онлайн-адресов, лимиты скорости, соединений, адресов, квоты и срока, смена пользователей входящих без перезапуска, `PUT /rules`.
 - **События и наблюдаемость.** `GET /events` (WebSocket, SSE, NDJSON), Prometheus `/metrics`, пробы `/healthz` и `/readyz`, события отклонённой авторизации, JSON-логи.
@@ -38,7 +38,7 @@ description: Что уже сделано в Citrus и его форках, на
 
 ## В работе
 
-- **Релиз `v1.0.0-beta.3`.** Всё, что сделано после второй беты, пока только в `dev`. Журнал изменений за [#149](https://github.com/getmikan/Citrus/pull/149)–[#189](https://github.com/getmikan/Citrus/pull/189) готов ([#185](https://github.com/getmikan/Citrus/pull/185)); перед релизом — теги форков (см. ниже).
+- **Релиз `v1.0.0-beta.4`.** utls на `v1.9.0-alpha.1` ([#199](https://github.com/getmikan/Citrus/pull/199)) и один QUIC-сервер на диапазон портов ([#200](https://github.com/getmikan/Citrus/pull/200)); после релиза панель mikan может снять ограничение диапазона Hysteria2 в 1000 портов.
 - **Панель mikan на Citrus: что осталось.**
   - PQ REALITY в инбаундах панели (`mldsa65-seed`, `require-x25519mlkem768`) и `pqv=` в ссылках подписки;
   - `max-time-difference` у REALITY теперь в миллисекундах — проверить, что пишет панель;
