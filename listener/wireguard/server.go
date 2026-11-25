@@ -499,12 +499,3 @@ func (d *stackDevice) Close() error {
 	})
 	return err
 }
-
-// validTunnelAddress reports whether addr belongs to one of the pools.
-func (l *Listener) validTunnelAddress(addr netip.Addr) bool {
-	addr = addr.Unmap()
-	if l.pool4.IsValid() && l.pool4.Contains(addr) {
-		return true
-	}
-	return l.pool6.IsValid() && l.pool6.Contains(addr)
-}

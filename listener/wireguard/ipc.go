@@ -73,6 +73,12 @@ func ValidateAmneziaWG(awg *LC.AmneziaWGServer) error {
 			return fmt.Errorf("amnezia-wg: %s out of range", name)
 		}
 	}
+	// A handshake initiation is 148 bytes and a response 92, so s1 and s2 that differ by
+	// 56 make the two messages the same length on the wire: the obfuscation then separates
+	// nothing, and a censor sees one size for both. No end reports it.
+	if awg.S1 != 0 && awg.S2 != 0 && awg.S2 == awg.S1+56 {
+		return errors.New("amnezia-wg: s2 must not be s1+56: the initiation and the response would be the same size")
+	}
 	if awg.Version == 3 {
 		if awg.HeaderProtectionKey == "" {
 			return errors.New("amnezia-wg: version 3 needs a header-protection-key")

@@ -220,6 +220,23 @@ func TestValidateAmneziaWGRejectsBadRanges(t *testing.T) {
 	}
 }
 
+// A handshake initiation is 148 bytes and a response 92: with s2 = s1+56 both are the
+// same size, and the obfuscation separates nothing while both ends still connect.
+func TestValidateAmneziaWGRejectsTheSizeCollision(t *testing.T) {
+	awg := &LC.AmneziaWGServer{Version: 1, S1: 20, S2: 76}
+	err := ValidateAmneziaWG(awg)
+	if err == nil {
+		t.Fatal("s2 = s1+56 must be rejected")
+	}
+	if !strings.Contains(err.Error(), "s1+56") {
+		t.Fatalf("error = %v", err)
+	}
+	awg.S2 = 77
+	if err := ValidateAmneziaWG(awg); err != nil {
+		t.Fatalf("s2 = s1+57 rejected: %v", err)
+	}
+}
+
 func TestValidateAmneziaWGAcceptsLegacy(t *testing.T) {
 	awg := &LC.AmneziaWGServer{Version: 1, JC: 4, JMin: 50, JMax: 1000, S1: 20, S2: 20, S3: 20, S4: 20, H1: "1234567-1234667"}
 	if err := ValidateAmneziaWG(awg); err != nil {
