@@ -164,6 +164,13 @@ func ParseListener(mapping map[string]any) (C.InboundListener, error) {
 			return nil, err
 		}
 		listener, err = IN.NewSudoku(sudokuOption)
+	case "wireguard":
+		wireguardOption := &IN.WireGuardOption{}
+		err = decoder.Decode(mapping, wireguardOption)
+		if err != nil {
+			return nil, err
+		}
+		listener, err = IN.NewWireGuard(wireguardOption)
 	case "trusttunnel":
 		trusttunnelOption := &IN.TrustTunnelOption{}
 		err = decoder.Decode(mapping, trusttunnelOption)
